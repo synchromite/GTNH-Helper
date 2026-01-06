@@ -525,7 +525,7 @@ class App(tk.Tk):
             # Chance outputs (e.g., macerator byproducts)
             if x["direction"] == "out":
                 slot_idx = x["output_slot_index"]
-                if slot_idx:
+                if slot_idx is not None:
                     s = f"{s} (Slot {slot_idx})"
                 ch = x["chance_percent"]
                 if ch is not None:
