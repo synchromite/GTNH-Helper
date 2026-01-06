@@ -1,29 +1,31 @@
-This is a recipe planner and inventory helper for GregTech New Horizons.
+# GTNH Helper
 
-Currently working on implementing 2.7.4 version of GTNH.
+A recipe database browser and inventory helper for GregTech New Horizons.
 
-<b>Features incomming:</b><br>
--Enable Recipe Editing - DONE - 2026.01.06<br>
--Inventory Tracker - DONE - 2026.01.06<br>
--Independant Tab Framework - DONE - 2026.01.06<br>
--Build Planner - PLANNED<br>
--Editor Mode - DONE - 2026.01.06<br>
-<br>
-<b>Fixes incoming:</b><br>
--Slot numbering should start at Slot 0 - DONE - 2026.01.06<br>
--Recipe “machine tier” dropdown vs display - PLANNED<br>
--Hide Item/Recipe tabs when editor is disabled? - PLANNED<br>
--Add tracking for machine input/output slots - DONE - 2026.01.06<br>
-<br>
-<h1>Features:</h1>
-<h3>Editor Mode</h3>
-Editor Mode can be de-activated by removing/renaming the creating a '.enable_editor' file next to app.py.<br>
+> **Status:** The app is focused on the GTNH 2.7.4 data set.
 
-<h3>Tab Customization</h3><br>
-Tabs can be reorderd and turned on and off via the Tabs Menu.<br>
+## Features
+- **Browse items & recipes** with full input/output details.
+- **Inventory tracking** stored per-profile.
+- **Tier filtering** (and 6x6 crafting unlock toggle) to narrow the recipe list.
+- **Tab customization**: enable/disable tabs and reorder them from the **Tabs** menu.
+- **Editor mode** (optional) to add/edit/delete items and recipes.
 
-<h3>Profile Database</h3>
-User data is stored in the profile.db.<br>
+## Modes
+The app runs in **client mode** by default:
+- Content database is opened **read-only**.
+- Editing features are disabled.
 
-<h3>Item & Recipe Data</h3>
-Item and Recipe data is stored in the gtnh.db.<br>
+To enable **editor mode**, create a file named `.enable_editor` next to `app.py`.
+Remove the file to switch back to client mode.
+
+## Data storage
+- **Content DB:** `gtnh.db` (items/recipes).
+- **Profile DB:** `profile.db` (tiers, unlocks, inventory).
+
+Profile data is kept separate so your progress survives content DB updates.
+
+## Planned
+- Build planner.
+- Machine tier dropdown/display polish.
+- Optional hiding of Item/Recipe tabs when editor mode is disabled.
