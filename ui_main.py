@@ -5,6 +5,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 
 from db import (
+    ALL_TIERS,
     connect,
     connect_profile,
     get_setting,
@@ -14,15 +15,6 @@ from db import (
     merge_database,
 )
 from ui_dialogs import AddItemDialog, EditItemDialog, AddRecipeDialog, EditRecipeDialog
-
-ALL_TIERS = [
-    "Stone Age",
-    "Steam Age",
-    "ULV", "LV", "MV", "HV", "EV", "IV",
-    "LuV", "ZPM", "UV",
-    "UHV", "UEV", "UIV", "UMV", "UXV",
-    "OpV", "MAX",
-]
 
 SETTINGS_ENABLED_TIERS = "enabled_tiers"
 SETTINGS_CRAFT_6X6_UNLOCKED = "crafting_6x6_unlocked"
