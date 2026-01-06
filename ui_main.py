@@ -361,7 +361,7 @@ class App(tk.Tk):
         is_machine_kind = ((it['item_kind_name'] or '').strip().lower() == 'machine') or bool(it['is_machine'])
         if is_machine_kind:
             txt += f"Machine Tier: {it['machine_tier'] or ''}\n"
-            mis = it.get('machine_input_slots')
+            mis = it["machine_input_slots"]
             try:
                 mis_i = int(mis) if mis is not None else 1
             except Exception:
