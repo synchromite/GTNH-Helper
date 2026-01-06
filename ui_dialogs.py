@@ -560,6 +560,26 @@ class AddItemDialog(tk.Toplevel):
             raise ValueError("Must be a whole number.")
         return int(s)
 
+    def _parse_int_nonneg(self, s: str, default: int = 0) -> int:
+        s = (s or "").strip()
+        if s == "":
+            return default
+        try:
+            v = int(float(s))
+        except Exception as exc:
+            raise ValueError("Must be a whole number.") from exc
+        if v < 0:
+            raise ValueError("Must be 0 or greater.")
+        return v
+
+    def _parse_int_opt(self, s: str) -> int | None:
+        s = (s or "").strip()
+        if s == "":
+            return None
+        if not s.isdigit():
+            raise ValueError("Must be a whole number.")
+        return int(s)
+
     def _on_slots_changed(self):
         # Only rebuild when machine fields are enabled
         is_enabled = self.machine_tier_combo.cget("state") != "disabled"
