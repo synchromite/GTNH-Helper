@@ -709,7 +709,7 @@ class App(tk.Tk):
             return ""
         if qty_f.is_integer():
             return str(int(qty_f))
-        return str(qty_f)
+        return ""
 
     def save_inventory_item(self):
         item = self._inventory_selected_item()
@@ -725,13 +725,16 @@ class App(tk.Tk):
             return
 
         try:
-            qty = float(raw)
+            qty_float = float(raw)
         except ValueError:
-            messagebox.showerror("Invalid quantity", "Enter a valid number.")
+            messagebox.showerror("Invalid quantity", "Enter a whole number.")
             return
 
-        if qty.is_integer():
-            qty = int(qty)
+        if not qty_float.is_integer():
+            messagebox.showerror("Invalid quantity", "Enter a whole number.")
+            return
+
+        qty = int(qty_float)
 
         unit = self._inventory_unit_for_item(item)
         qty_count = qty if unit == "count" else None
@@ -742,6 +745,7 @@ class App(tk.Tk):
             (item["id"], qty_count, qty_liters),
         )
         self.profile_conn.commit()
+        self.inventory_qty_var.set(str(qty))
         self.status.set(f"Saved inventory for: {item['name']}")
 
     def clear_inventory_item(self):
