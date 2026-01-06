@@ -75,10 +75,17 @@ class App(tk.Tk):
         try:
             content_path = Path(content_path)
             # Keep the profile next to the content DB for portability.
-            stem = content_path.stem or "gtnh"
-            return content_path.with_name(f"{stem}.profile.db")
+            new_path = content_path.with_name("profile.db")
+            legacy_stem = content_path.stem or "gtnh"
+            legacy_path = content_path.with_name(f"{legacy_stem}.profile.db")
+            if legacy_path.exists() and not new_path.exists():
+                try:
+                    legacy_path.rename(new_path)
+                except Exception:
+                    return legacy_path
+            return new_path
         except Exception:
-            return Path("gtnh.profile.db")
+            return Path("profile.db")
 
     def _open_content_db(self, path: Path):
         """Open content DB respecting client/editor mode.
