@@ -25,6 +25,15 @@ def connect_profile(db_path: Path | str) -> sqlite3.Connection:
         )
         """
     )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS inventory (
+            item_id INTEGER PRIMARY KEY,
+            qty_count REAL,
+            qty_liters REAL
+        )
+        """
+    )
     conn.commit()
     return conn
 
