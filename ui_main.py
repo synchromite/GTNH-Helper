@@ -700,7 +700,16 @@ class App(tk.Tk):
             qty = row["qty_liters"] if row else None
         else:
             qty = row["qty_count"] if row else None
-        self.inventory_qty_var.set("" if qty is None else str(qty))
+        self.inventory_qty_var.set("" if qty is None else self._format_inventory_qty(qty))
+
+    def _format_inventory_qty(self, qty: float | int) -> str:
+        try:
+            qty_f = float(qty)
+        except (TypeError, ValueError):
+            return ""
+        if qty_f.is_integer():
+            return str(int(qty_f))
+        return str(qty_f)
 
     def save_inventory_item(self):
         item = self._inventory_selected_item()
@@ -720,6 +729,9 @@ class App(tk.Tk):
         except ValueError:
             messagebox.showerror("Invalid quantity", "Enter a valid number.")
             return
+
+        if qty.is_integer():
+            qty = int(qty)
 
         unit = self._inventory_unit_for_item(item)
         qty_count = qty if unit == "count" else None
