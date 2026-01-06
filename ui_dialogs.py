@@ -1640,6 +1640,8 @@ class EditRecipeDialog(tk.Toplevel):
         d = ItemLineDialog(self.app, "Add Input")
         self.wait_window(d)
         if d.result:
+            if d.result.get("kind") == "fluid" and not self._check_tank_limit(direction="in"):
+                return
             self.inputs.append(d.result)
             self.in_list.insert(tk.END, self._fmt_line(d.result))
 
@@ -1648,6 +1650,8 @@ class EditRecipeDialog(tk.Toplevel):
         d = ItemLineDialog(self.app, "Add Output", **dialog_kwargs)
         self.wait_window(d)
         if d.result:
+            if d.result.get("kind") == "fluid" and not self._check_tank_limit(direction="out"):
+                return
             self.outputs.append(d.result)
             self.out_list.insert(tk.END, self._fmt_line(d.result, is_output=True))
 
@@ -1668,6 +1672,11 @@ class EditRecipeDialog(tk.Toplevel):
         )
         self.wait_window(d)
         if d.result:
+            if d.result.get("kind") == "fluid":
+                if is_output and not self._check_tank_limit(direction="out", exclude_idx=idx):
+                    return
+                if not is_output and not self._check_tank_limit(direction="in", exclude_idx=idx):
+                    return
             new_line = d.result
             new_line["id"] = line.get("id")
             backing_list[idx] = new_line
@@ -1729,6 +1738,49 @@ class EditRecipeDialog(tk.Toplevel):
         except Exception:
             mos = 1
         return mos if mos > 0 else 1
+
+    def _get_machine_tank_limits(self) -> tuple[int | None, int | None]:
+        if self.machine_item_id is None:
+            return None, None
+        row = self.app.conn.execute(
+            "SELECT machine_input_tanks, machine_output_tanks FROM items WHERE id=?",
+            (self.machine_item_id,),
+        ).fetchone()
+        if not row:
+            return None, None
+        try:
+            in_tanks = int(row["machine_input_tanks"] or 0)
+        except Exception:
+            in_tanks = 0
+        try:
+            out_tanks = int(row["machine_output_tanks"] or 0)
+        except Exception:
+            out_tanks = 0
+        return (in_tanks if in_tanks > 0 else None, out_tanks if out_tanks > 0 else None)
+
+    @staticmethod
+    def _count_fluid_lines(lines: list[dict], *, exclude_idx: int | None = None) -> int:
+        count = 0
+        for idx, line in enumerate(lines):
+            if exclude_idx is not None and idx == exclude_idx:
+                continue
+            if line.get("kind") == "fluid":
+                count += 1
+        return count
+
+    def _check_tank_limit(self, *, direction: str, exclude_idx: int | None = None) -> bool:
+        in_tanks, out_tanks = self._get_machine_tank_limits()
+        limit = in_tanks if direction == "in" else out_tanks
+        if limit is None:
+            return True
+        lines = self.inputs if direction == "in" else self.outputs
+        if self._count_fluid_lines(lines, exclude_idx=exclude_idx) >= limit:
+            messagebox.showerror(
+                "No tank available",
+                f"This machine only has {limit} fluid {direction} tank(s).",
+            )
+            return False
+        return True
 
     def _get_used_output_slots(self, *, exclude_slot: int | None = None) -> set[int]:
         used = set()
@@ -2261,6 +2313,8 @@ class AddRecipeDialog(tk.Toplevel):
         d = ItemLineDialog(self.app, "Add Input")
         self.wait_window(d)
         if d.result:
+            if d.result.get("kind") == "fluid" and not self._check_tank_limit(direction="in"):
+                return
             self.inputs.append(d.result)
             self.in_list.insert(tk.END, self._fmt_line(d.result))
 
@@ -2290,6 +2344,8 @@ class AddRecipeDialog(tk.Toplevel):
             d = ItemLineDialog(self.app, "Add Output", show_chance=True)
         self.wait_window(d)
         if d.result:
+            if d.result.get("kind") == "fluid" and not self._check_tank_limit(direction="out"):
+                return
             self.outputs.append(d.result)
             self.out_list.insert(tk.END, self._fmt_line(d.result, is_output=True))
 
@@ -2349,6 +2405,43 @@ class AddRecipeDialog(tk.Toplevel):
         except Exception:
             mos = 1
         return mos if mos > 0 else 1
+
+    def _get_machine_tank_limits(self) -> tuple[int | None, int | None]:
+        if self.machine_item_id is None:
+            return None, None
+        row = self.app.conn.execute(
+            "SELECT machine_input_tanks, machine_output_tanks FROM items WHERE id=?",
+            (self.machine_item_id,),
+        ).fetchone()
+        if not row:
+            return None, None
+        try:
+            in_tanks = int(row["machine_input_tanks"] or 0)
+        except Exception:
+            in_tanks = 0
+        try:
+            out_tanks = int(row["machine_output_tanks"] or 0)
+        except Exception:
+            out_tanks = 0
+        return (in_tanks if in_tanks > 0 else None, out_tanks if out_tanks > 0 else None)
+
+    @staticmethod
+    def _count_fluid_lines(lines: list[dict]) -> int:
+        return sum(1 for line in lines if line.get("kind") == "fluid")
+
+    def _check_tank_limit(self, *, direction: str) -> bool:
+        in_tanks, out_tanks = self._get_machine_tank_limits()
+        limit = in_tanks if direction == "in" else out_tanks
+        if limit is None:
+            return True
+        lines = self.inputs if direction == "in" else self.outputs
+        if self._count_fluid_lines(lines) >= limit:
+            messagebox.showerror(
+                "No tank available",
+                f"This machine only has {limit} fluid {direction} tank(s).",
+            )
+            return False
+        return True
 
     def _get_used_output_slots(self) -> set[int]:
         used = set()
