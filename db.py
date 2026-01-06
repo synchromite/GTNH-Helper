@@ -248,6 +248,54 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
     if not _has_col("recipe_lines", "output_slot_index"):
         conn.execute("ALTER TABLE recipe_lines ADD COLUMN output_slot_index INTEGER")
 
+    def _get_user_version() -> int:
+        row = conn.execute("PRAGMA user_version").fetchone()
+        return int(row[0]) if row else 0
+
+    user_version = _get_user_version()
+    if user_version < 1:
+        machine_rows = conn.execute(
+            """
+            SELECT machine_item_id
+            FROM machine_io_slots
+            GROUP BY machine_item_id
+            HAVING SUM(CASE WHEN slot_index=0 THEN 1 ELSE 0 END)=0
+               AND MIN(slot_index) >= 1
+            """
+        ).fetchall()
+        for row in machine_rows:
+            conn.execute(
+                "UPDATE machine_io_slots SET slot_index=slot_index-1 WHERE machine_item_id=?",
+                (row["machine_item_id"],),
+            )
+
+        recipe_machine_rows = conn.execute(
+            """
+            SELECT r.machine_item_id AS machine_item_id
+            FROM recipes r
+            JOIN recipe_lines rl ON rl.recipe_id = r.id
+            WHERE r.machine_item_id IS NOT NULL
+              AND rl.direction='out'
+              AND rl.output_slot_index IS NOT NULL
+            GROUP BY r.machine_item_id
+            HAVING SUM(CASE WHEN rl.output_slot_index=0 THEN 1 ELSE 0 END)=0
+               AND MIN(rl.output_slot_index) >= 1
+            """
+        ).fetchall()
+        for row in recipe_machine_rows:
+            conn.execute(
+                """
+                UPDATE recipe_lines
+                SET output_slot_index=output_slot_index-1
+                WHERE recipe_id IN (SELECT id FROM recipes WHERE machine_item_id=?)
+                  AND direction='out'
+                  AND output_slot_index IS NOT NULL
+                """,
+                (row["machine_item_id"],),
+            )
+
+        conn.execute("PRAGMA user_version=1")
+
     conn.execute(
         """
     CREATE TABLE IF NOT EXISTS app_settings (

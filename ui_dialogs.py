@@ -446,13 +446,13 @@ class AddItemDialog(tk.Toplevel):
         values = ["item", "fluid"]
 
         for i in range(in_n):
-            ttk.Label(self.inputs_lf, text=f"In {i+1}").grid(row=i, column=0, sticky="w", padx=8, pady=2)
+            ttk.Label(self.inputs_lf, text=f"In {i}").grid(row=i, column=0, sticky="w", padx=8, pady=2)
             ttk.Combobox(self.inputs_lf, textvariable=self.in_slot_kind_vars[i], values=values, state="readonly", width=8).grid(
                 row=i, column=1, sticky="w", padx=8, pady=2
             )
 
         for i in range(out_n):
-            ttk.Label(self.outputs_lf, text=f"Out {i+1}").grid(row=i, column=0, sticky="w", padx=8, pady=2)
+            ttk.Label(self.outputs_lf, text=f"Out {i}").grid(row=i, column=0, sticky="w", padx=8, pady=2)
             ttk.Combobox(self.outputs_lf, textvariable=self.out_slot_kind_vars[i], values=values, state="readonly", width=8).grid(
                 row=i, column=1, sticky="w", padx=8, pady=2
             )
@@ -613,12 +613,12 @@ class AddItemDialog(tk.Toplevel):
             self.app.conn.execute("DELETE FROM machine_io_slots WHERE machine_item_id=?", (item_id,))
             if is_machine:
                 self._rebuild_slot_type_ui(machine_input_slots, machine_output_slots)  # ensure var lists sized
-                for i, v in enumerate(self.in_slot_kind_vars, start=1):
+                for i, v in enumerate(self.in_slot_kind_vars, start=0):
                     self.app.conn.execute(
                         "INSERT INTO machine_io_slots(machine_item_id, direction, slot_index, content_kind) VALUES(?,?,?,?)",
                         (item_id, "in", i, (v.get() or "item").strip().lower()),
                     )
-                for i, v in enumerate(self.out_slot_kind_vars, start=1):
+                for i, v in enumerate(self.out_slot_kind_vars, start=0):
                     self.app.conn.execute(
                         "INSERT INTO machine_io_slots(machine_item_id, direction, slot_index, content_kind) VALUES(?,?,?,?)",
                         (item_id, "out", i, (v.get() or "item").strip().lower()),
@@ -761,11 +761,24 @@ class EditItemDialog(tk.Toplevel):
             elif d == "out":
                 out_map[idx] = ck
 
+        def _normalize_slot_map(slot_map: dict[int, str]) -> dict[int, str]:
+            if not slot_map:
+                return slot_map
+            if 0 in slot_map:
+                return slot_map
+            min_idx = min(slot_map)
+            if min_idx >= 1:
+                return {idx - 1: val for idx, val in slot_map.items() if idx > 0}
+            return slot_map
+
+        in_map = _normalize_slot_map(in_map)
+        out_map = _normalize_slot_map(out_map)
+
         # Pre-size var lists and set values
         for i in range(mis_i):
-            self.in_slot_kind_vars.append(tk.StringVar(value=in_map.get(i + 1, "item")))
+            self.in_slot_kind_vars.append(tk.StringVar(value=in_map.get(i, "item")))
         for i in range(mos_i):
-            self.out_slot_kind_vars.append(tk.StringVar(value=out_map.get(i + 1, "item")))
+            self.out_slot_kind_vars.append(tk.StringVar(value=out_map.get(i, "item")))
 
         # Keep slot UI in sync with slot counts
         self.machine_input_slots_var.trace_add("write", lambda *_: self._on_slots_changed())
@@ -822,13 +835,13 @@ class EditItemDialog(tk.Toplevel):
         values = ["item", "fluid"]
 
         for i in range(in_n):
-            ttk.Label(self.inputs_lf, text=f"In {i+1}").grid(row=i, column=0, sticky="w", padx=8, pady=2)
+            ttk.Label(self.inputs_lf, text=f"In {i}").grid(row=i, column=0, sticky="w", padx=8, pady=2)
             ttk.Combobox(self.inputs_lf, textvariable=self.in_slot_kind_vars[i], values=values, state="readonly", width=8).grid(
                 row=i, column=1, sticky="w", padx=8, pady=2
             )
 
         for i in range(out_n):
-            ttk.Label(self.outputs_lf, text=f"Out {i+1}").grid(row=i, column=0, sticky="w", padx=8, pady=2)
+            ttk.Label(self.outputs_lf, text=f"Out {i}").grid(row=i, column=0, sticky="w", padx=8, pady=2)
             ttk.Combobox(self.outputs_lf, textvariable=self.out_slot_kind_vars[i], values=values, state="readonly", width=8).grid(
                 row=i, column=1, sticky="w", padx=8, pady=2
             )
@@ -957,12 +970,12 @@ class EditItemDialog(tk.Toplevel):
             self.app.conn.execute("DELETE FROM machine_io_slots WHERE machine_item_id=?", (self.item_id,))
             if is_machine:
                 self._rebuild_slot_type_ui(machine_input_slots, machine_output_slots)  # ensure var lists sized
-                for i, v in enumerate(self.in_slot_kind_vars, start=1):
+                for i, v in enumerate(self.in_slot_kind_vars, start=0):
                     self.app.conn.execute(
                         "INSERT INTO machine_io_slots(machine_item_id, direction, slot_index, content_kind) VALUES(?,?,?,?)",
                         (self.item_id, "in", i, (v.get() or "item").strip().lower()),
                     )
-                for i, v in enumerate(self.out_slot_kind_vars, start=1):
+                for i, v in enumerate(self.out_slot_kind_vars, start=0):
                     self.app.conn.execute(
                         "INSERT INTO machine_io_slots(machine_item_id, direction, slot_index, content_kind) VALUES(?,?,?,?)",
                         (self.item_id, "out", i, (v.get() or "item").strip().lower()),
@@ -1329,7 +1342,7 @@ class EditRecipeDialog(tk.Toplevel):
         slot_txt = ""
         if is_output:
             slot_idx = line.get("output_slot_index")
-            if slot_idx:
+            if slot_idx is not None:
                 slot_txt = f" (Slot {slot_idx})"
         if line["kind"] == "fluid":
             qty = self._coerce_whole_number(line["qty_liters"])
@@ -1365,7 +1378,7 @@ class EditRecipeDialog(tk.Toplevel):
         used = set()
         for line in self.outputs:
             slot_idx = line.get("output_slot_index")
-            if slot_idx:
+            if slot_idx is not None:
                 slot_val = int(slot_idx)
                 if exclude_slot is not None and slot_val == exclude_slot:
                     continue
@@ -1377,12 +1390,12 @@ class EditRecipeDialog(tk.Toplevel):
         if method == "machine" and self.machine_item_id is not None:
             mos = self._get_machine_output_slots() or 1
             if mos <= 1:
-                if current_slot and current_slot != 1:
+                if current_slot is not None and current_slot != 0:
                     return {"show_chance": True, "output_slot_choices": [current_slot], "require_chance": True}
-                return {"show_chance": True, "fixed_output_slot": 1}
+                return {"show_chance": True, "fixed_output_slot": 0}
             used_slots = self._get_used_output_slots(exclude_slot=current_slot)
-            slots = [i for i in range(1, mos + 1) if i not in used_slots]
-            if current_slot and current_slot not in slots:
+            slots = [i for i in range(0, mos) if i not in used_slots]
+            if current_slot is not None and current_slot not in slots:
                 slots.append(current_slot)
             slots.sort()
             return {"show_chance": True, "output_slot_choices": slots, "require_chance": True}
@@ -1684,7 +1697,7 @@ class ItemLineDialog(tk.Toplevel):
                             slot_val = int(self.output_slot_var.get())
                         except Exception:
                             slot_val = None
-                    if slot_val is not None and slot_val <= 1:
+                    if slot_val is not None and slot_val <= 0:
                         chance = 100.0
                         self.result["chance_percent"] = chance
                     else:
@@ -1901,12 +1914,12 @@ class AddRecipeDialog(tk.Toplevel):
             mos = self._get_machine_output_slots() or 1
             used_slots = self._get_used_output_slots()
             if not self.outputs:
-                d = ItemLineDialog(self.app, "Add Output", fixed_output_slot=1)
+                d = ItemLineDialog(self.app, "Add Output", fixed_output_slot=0)
             else:
                 if mos <= 1:
                     messagebox.showerror("No extra slots", "This machine only has 1 output slot.")
                     return
-                available = [i for i in range(2, mos + 1) if i not in used_slots]
+                available = [i for i in range(1, mos) if i not in used_slots]
                 if not available:
                     messagebox.showerror("No extra slots", "All additional output slots are already used.")
                     return
@@ -1949,7 +1962,7 @@ class AddRecipeDialog(tk.Toplevel):
         slot_txt = ""
         if is_output:
             slot_idx = line.get("output_slot_index")
-            if slot_idx:
+            if slot_idx is not None:
                 slot_txt = f" (Slot {slot_idx})"
         if line["kind"] == "fluid":
             qty = self._coerce_whole_number(line["qty_liters"])
@@ -1985,7 +1998,7 @@ class AddRecipeDialog(tk.Toplevel):
         used = set()
         for line in self.outputs:
             slot_idx = line.get("output_slot_index")
-            if slot_idx:
+            if slot_idx is not None:
                 used.add(int(slot_idx))
         return used
 
