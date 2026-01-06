@@ -1,5 +1,4 @@
-
-gtnh.profile.profile.db
+__pycache__/
+*.pyc
+gtnh.db
 gtnh.profile.db
-__pycache__/db.cpython-310.pyc
-__pycache__/app.cpython-310.pyc
