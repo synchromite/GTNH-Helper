@@ -2,3 +2,4 @@ __pycache__/
 *.pyc
 gtnh.db
 gtnh.profile.db
+gtnh.profile.profile.db
