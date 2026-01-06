@@ -1,23 +1,16 @@
 #!/usr/bin/env python3
 import datetime
+import json
 from pathlib import Path
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 
-from db import (
-    ALL_TIERS,
-    connect,
-    connect_profile,
-    get_setting,
-    set_setting,
-    DEFAULT_DB_PATH,
-    export_db,
-    merge_database,
-)
-from ui_dialogs import AddItemDialog, EditItemDialog, AddRecipeDialog, EditRecipeDialog
-
-SETTINGS_ENABLED_TIERS = "enabled_tiers"
-SETTINGS_CRAFT_6X6_UNLOCKED = "crafting_6x6_unlocked"
+from db import connect, connect_profile, get_setting, set_setting, DEFAULT_DB_PATH, export_db, merge_database
+from ui_constants import SETTINGS_CRAFT_6X6_UNLOCKED, SETTINGS_ENABLED_TIERS
+from ui_tabs.inventory_tab import InventoryTab
+from ui_tabs.items_tab import ItemsTab
+from ui_tabs.recipes_tab import RecipesTab
+from ui_tabs.tiers_tab import TiersTab
 
 
 class App(tk.Tk):
@@ -43,16 +36,25 @@ class App(tk.Tk):
 
         self.status = tk.StringVar(value="Ready")
 
+        self.tab_registry = {
+            "items": {"label": "Items", "class": ItemsTab, "attr": "items_tab"},
+            "recipes": {"label": "Recipes", "class": RecipesTab, "attr": "recipes_tab"},
+            "inventory": {"label": "Inventory", "class": InventoryTab, "attr": "inventory_tab"},
+            "tiers": {"label": "Tiers", "class": TiersTab, "attr": "tiers_tab"},
+        }
+        self.tab_order, self.enabled_tabs = self._load_ui_config()
+        self.tab_vars: dict[str, tk.BooleanVar] = {}
+
         self._build_menu()
         self._update_title()
+
+        self.items: list = []
+        self.recipes: list = []
 
         self.nb = ttk.Notebook(self)
         self.nb.pack(fill="both", expand=True)
 
-        self._build_items_tab()
-        self._build_recipes_tab()
-        self._build_inventory_tab()
-        self._build_tiers_tab()
+        self._rebuild_tabs()
 
         statusbar = ttk.Label(self, textvariable=self.status, anchor="w")
         statusbar.pack(fill="x")
@@ -107,6 +109,136 @@ class App(tk.Tk):
             # Non-fatal: worst case users re-check tiers once.
             pass
 
+    # ---------- Tab configuration ----------
+    def _config_path(self) -> Path:
+        try:
+            here = Path(__file__).resolve().parent
+            return here / "ui_config.json"
+        except Exception:
+            return Path("ui_config.json")
+
+    def _load_ui_config(self) -> tuple[list[str], list[str]]:
+        default_order = list(self.tab_registry.keys())
+        default_enabled = list(default_order)
+        path = self._config_path()
+        try:
+            raw = json.loads(path.read_text())
+        except Exception:
+            return default_order, default_enabled
+
+        order = raw.get("tab_order", default_order)
+        enabled = raw.get("enabled_tabs", default_enabled)
+        order = [tid for tid in order if tid in self.tab_registry]
+        for tid in default_order:
+            if tid not in order:
+                order.append(tid)
+        enabled = [tid for tid in enabled if tid in self.tab_registry]
+        if not enabled:
+            enabled = list(default_enabled)
+        enabled_ordered = [tid for tid in order if tid in enabled]
+        return order, enabled_ordered
+
+    def _save_ui_config(self) -> None:
+        path = self._config_path()
+        data = {"enabled_tabs": self.enabled_tabs, "tab_order": self.tab_order}
+        try:
+            path.write_text(json.dumps(data, indent=2))
+        except Exception as exc:
+            messagebox.showwarning("Config save failed", f"Could not save tab preferences.\n\nDetails: {exc}")
+
+    def _rebuild_tabs(self) -> None:
+        for meta in self.tab_registry.values():
+            attr = meta["attr"]
+            tab = getattr(self, attr, None)
+            if tab is not None:
+                try:
+                    self.nb.forget(tab)
+                except Exception:
+                    pass
+                tab.destroy()
+            setattr(self, attr, None)
+
+        for tab_id in self.tab_order:
+            if tab_id not in self.enabled_tabs:
+                continue
+            meta = self.tab_registry[tab_id]
+            tab = meta["class"](self.nb, self)
+            setattr(self, meta["attr"], tab)
+
+    def _toggle_tab(self, tab_id: str) -> None:
+        enabled = set(self.enabled_tabs)
+        if self.tab_vars[tab_id].get():
+            enabled.add(tab_id)
+        else:
+            if tab_id in enabled and len(enabled) == 1:
+                messagebox.showinfo("Tabs", "At least one tab must remain enabled.")
+                self.tab_vars[tab_id].set(True)
+                return
+            enabled.discard(tab_id)
+
+        self.enabled_tabs = [tid for tid in self.tab_order if tid in enabled]
+        self._save_ui_config()
+        self._rebuild_tabs()
+        self.refresh_items()
+        self.refresh_recipes()
+        self._tiers_load_from_db()
+
+    def _open_reorder_tabs_dialog(self) -> None:
+        dialog = tk.Toplevel(self)
+        dialog.title("Reorder Tabs")
+        dialog.transient(self)
+        dialog.grab_set()
+
+        ttk.Label(
+            dialog,
+            text="Set the order number for each tab (1 = first).",
+        ).pack(anchor="w", padx=10, pady=(10, 0))
+
+        body = ttk.Frame(dialog, padding=10)
+        body.pack(fill="both", expand=True)
+
+        rows: list[tuple[str, tk.StringVar]] = []
+        for idx, tab_id in enumerate(self.tab_order, start=1):
+            label = self.tab_registry[tab_id]["label"]
+            ttk.Label(body, text=label).grid(row=idx, column=0, sticky="w", padx=(0, 12), pady=4)
+            var = tk.StringVar(value=str(idx))
+            spin = ttk.Spinbox(body, from_=1, to=len(self.tab_order), textvariable=var, width=6)
+            spin.grid(row=idx, column=1, sticky="w", pady=4)
+            rows.append((tab_id, var))
+
+        btns = ttk.Frame(dialog, padding=(10, 0, 10, 10))
+        btns.pack(fill="x")
+
+        def apply_changes() -> None:
+            orders: dict[str, int] = {}
+            for tab_id, var in rows:
+                try:
+                    order_val = int(var.get())
+                except ValueError:
+                    messagebox.showerror("Invalid order", "Each tab must have a numeric order.")
+                    return
+                if order_val < 1 or order_val > len(self.tab_order):
+                    messagebox.showerror("Invalid order", "Order values must be within the allowed range.")
+                    return
+                orders[tab_id] = order_val
+
+            if len(set(orders.values())) != len(self.tab_order):
+                messagebox.showerror("Invalid order", "Order values must be unique.")
+                return
+
+            self.tab_order = [tid for tid, _ in sorted(orders.items(), key=lambda item: item[1])]
+            enabled_set = set(self.enabled_tabs)
+            self.enabled_tabs = [tid for tid in self.tab_order if tid in enabled_set]
+            self._save_ui_config()
+            self._rebuild_tabs()
+            self.refresh_items()
+            self.refresh_recipes()
+            self._tiers_load_from_db()
+            dialog.destroy()
+
+        ttk.Button(btns, text="Apply", command=apply_changes).pack(side="right")
+        ttk.Button(btns, text="Cancel", command=dialog.destroy).pack(side="right", padx=(0, 8))
+
     # ---------- Menu / DB handling ----------
     def _build_menu(self):
         menubar = tk.Menu(self)
@@ -127,6 +259,20 @@ class App(tk.Tk):
         filem.add_command(label="Quit", command=self.destroy)
 
         menubar.add_cascade(label="File", menu=filem)
+
+        tabs_menu = tk.Menu(menubar, tearoff=0)
+        for tab_id, meta in self.tab_registry.items():
+            var = tk.BooleanVar(value=tab_id in self.enabled_tabs)
+            self.tab_vars[tab_id] = var
+            tabs_menu.add_checkbutton(
+                label=meta["label"],
+                variable=var,
+                command=lambda tid=tab_id: self._toggle_tab(tid),
+            )
+        tabs_menu.add_separator()
+        tabs_menu.add_command(label="Reorder Tabs…", command=self._open_reorder_tabs_dialog)
+        menubar.add_cascade(label="Tabs", menu=tabs_menu)
+
         self.config(menu=menubar)
 
     def _update_title(self):
@@ -165,8 +311,10 @@ class App(tk.Tk):
         self.refresh_items()
         self.refresh_recipes()
         self._tiers_load_from_db()
-        self._item_details_set("")
-        self._recipe_details_set("")
+        if getattr(self, "items_tab", None) is not None:
+            self.items_tab._item_details_set("")
+        if getattr(self, "recipes_tab", None) is not None:
+            self.recipes_tab._recipe_details_set("")
 
     def menu_open_db(self):
         path = filedialog.askopenfilename(
@@ -292,43 +440,8 @@ class App(tk.Tk):
     def set_crafting_6x6_unlocked(self, unlocked: bool) -> None:
         set_setting(self.profile_conn, SETTINGS_CRAFT_6X6_UNLOCKED, "1" if unlocked else "0")
 
-    # ---------- Items tab ----------
-    def _build_items_tab(self):
-        tab = ttk.Frame(self.nb)
-        self.nb.add(tab, text="Items")
-
-        left = ttk.Frame(tab, padding=8)
-        left.pack(side="left", fill="y")
-
-        right = ttk.Frame(tab, padding=8)
-        right.pack(side="right", fill="both", expand=True)
-
-        self.item_list = tk.Listbox(left, width=40)
-        self.item_list.pack(fill="y", expand=True)
-        self.item_list.bind("<<ListboxSelect>>", self.on_item_select)
-        if self.editor_enabled:
-            self.item_list.bind("<Double-Button-1>", lambda _e: self.open_edit_item_dialog())
-
-        btns = ttk.Frame(left)
-        btns.pack(fill="x", pady=(8, 0))
-        self.btn_add_item = ttk.Button(btns, text="Add Item", command=self.open_add_item_dialog)
-        self.btn_edit_item = ttk.Button(btns, text="Edit Item", command=self.open_edit_item_dialog)
-        self.btn_del_item = ttk.Button(btns, text="Delete Item", command=self.delete_selected_item)
-        self.btn_add_item.pack(side="left")
-        self.btn_edit_item.pack(side="left", padx=6)
-        self.btn_del_item.pack(side="left")
-        if not self.editor_enabled:
-            self.btn_add_item.configure(state="disabled")
-            self.btn_edit_item.configure(state="disabled")
-            self.btn_del_item.configure(state="disabled")
-
-        self.item_details = tk.Text(right, height=10, wrap="word")
-        self.item_details.pack(fill="both", expand=True)
-        self.item_details.configure(state="disabled")
-
-        self.items = []
-
-    def refresh_items(self):
+    # ---------- Tab delegates ----------
+    def refresh_items(self) -> None:
         self.items = self.conn.execute(
             "SELECT i.id, i.key, COALESCE(i.display_name, i.key) AS name, i.kind, i.is_base, i.is_machine, i.machine_tier, i.machine_input_slots, i.machine_output_slots, "
             "       k.name AS item_kind_name "
@@ -336,517 +449,15 @@ class App(tk.Tk):
             "LEFT JOIN item_kinds k ON k.id = i.item_kind_id "
             "ORDER BY name"
         ).fetchall()
-        self.item_list.delete(0, tk.END)
-        for it in self.items:
-            self.item_list.insert(tk.END, it["name"])
-        if hasattr(self, "inventory_list"):
-            self.inventory_list.delete(0, tk.END)
-            for it in self.items:
-                self.inventory_list.insert(tk.END, it["name"])
-
-    def on_item_select(self, _evt=None):
-        sel = self.item_list.curselection()
-        if not sel:
-            return
-        it = self.items[sel[0]]
-        txt = (
-            f"Name: {it['name']}\n"
-            f"Kind: {it['kind']}\n"
-            f"Item Kind: {it['item_kind_name'] or ''}\n"
-            f"Base: {'Yes' if it['is_base'] else 'No'}\n"
-        )
-        is_machine_kind = ((it['item_kind_name'] or '').strip().lower() == 'machine') or bool(it['is_machine'])
-        if is_machine_kind:
-            txt += f"Machine Tier: {it['machine_tier'] or ''}\n"
-            mis = it["machine_input_slots"]
-            try:
-                mis_i = int(mis) if mis is not None else 1
-            except Exception:
-                mis_i = 1
-            txt += f"Input Slots: {mis_i}\n"
-            mos = it["machine_output_slots"]
-            try:
-                mos_i = int(mos) if mos is not None else 1
-            except Exception:
-                mos_i = 1
-            txt += f"Output Slots: {mos_i}\n"
-        self._item_details_set(txt)
-
-    def _item_details_set(self, txt: str):
-        self.item_details.configure(state="normal")
-        self.item_details.delete("1.0", tk.END)
-        self.item_details.insert("1.0", txt)
-        self.item_details.configure(state="disabled")
-
-    def open_add_item_dialog(self):
-        if not self.editor_enabled:
-            messagebox.showinfo(
-                "Editor locked",
-                "This copy is running in client mode.\n\nTo enable editing, create a file named '.enable_editor' next to the app.",
-            )
-            return
-        dlg = AddItemDialog(self)
-        self.wait_window(dlg)
-        self.refresh_items()
-
-    def open_edit_item_dialog(self):
-        if not self.editor_enabled:
-            messagebox.showinfo("Editor locked", "Editing Items is only available in editor mode.")
-            return
-        sel = self.item_list.curselection()
-        if not sel:
-            messagebox.showinfo("Select an item", "Click an item first.")
-            return
-        item_id = self.items[sel[0]]["id"]
-        dlg = EditItemDialog(self, item_id)
-        self.wait_window(dlg)
-        self.refresh_items()
-
-    def delete_selected_item(self):
-        if not self.editor_enabled:
-            messagebox.showinfo("Editor locked", "Deleting Items is only available in editor mode.")
-            return
-        sel = self.item_list.curselection()
-        if not sel:
-            messagebox.showinfo("Select an item", "Click an item first.")
-            return
-        it = self.items[sel[0]]
-        ok = messagebox.askyesno("Delete item?", f"Delete item:\n\n{it['name']}")
-        if not ok:
-            return
-        try:
-            self.conn.execute("DELETE FROM items WHERE id=?", (it["id"],))
-            self.conn.commit()
-        except Exception as e:
-            messagebox.showerror(
-                "Cannot delete",
-                "This item is referenced by a recipe.\nRemove it from recipes first.\n\n"
-                f"Details: {e}",
-            )
-            return
-        self.refresh_items()
-        self._item_details_set("")
-        self.status.set(f"Deleted item: {it['name']}")
-
-    # ---------- Recipes tab ----------
-    def _build_recipes_tab(self):
-        tab = ttk.Frame(self.nb)
-        self.nb.add(tab, text="Recipes")
-
-        left = ttk.Frame(tab, padding=8)
-        left.pack(side="left", fill="y")
-
-        right = ttk.Frame(tab, padding=8)
-        right.pack(side="right", fill="both", expand=True)
-
-        self.recipe_list = tk.Listbox(left, width=40)
-        self.recipe_list.pack(fill="y", expand=True)
-        self.recipe_list.bind("<<ListboxSelect>>", self.on_recipe_select)
-        if self.editor_enabled:
-            self.recipe_list.bind("<Double-Button-1>", lambda _e: self.open_edit_recipe_dialog())
-
-        btns = ttk.Frame(left)
-        btns.pack(fill="x", pady=(8, 0))
-        self.btn_add_recipe = ttk.Button(btns, text="Add Recipe", command=self.open_add_recipe_dialog)
-        self.btn_edit_recipe = ttk.Button(btns, text="Edit Recipe", command=self.open_edit_recipe_dialog)
-        self.btn_del_recipe = ttk.Button(btns, text="Delete Recipe", command=self.delete_selected_recipe)
-        self.btn_add_recipe.pack(side="left")
-        self.btn_edit_recipe.pack(side="left", padx=6)
-        self.btn_del_recipe.pack(side="left")
-        if not self.editor_enabled:
-            self.btn_add_recipe.configure(state="disabled")
-            self.btn_edit_recipe.configure(state="disabled")
-            self.btn_del_recipe.configure(state="disabled")
-
-        self.recipe_details = tk.Text(right, wrap="word")
-        self.recipe_details.pack(fill="both", expand=True)
-        self.recipe_details.configure(state="disabled")
-
-        self.recipes = []
-
-    def refresh_recipes(self):
-        # Filter recipes to enabled tiers, but always show recipes with no tier set.
-        enabled = self.get_enabled_tiers()
-        placeholders = ",".join(["?"] * len(enabled))
-        sql = (
-            "SELECT id, name, method, machine, machine_item_id, grid_size, station_item_id, tier, circuit, duration_ticks, eu_per_tick "
-            "FROM recipes "
-            f"WHERE (tier IS NULL OR TRIM(tier)='' OR tier IN ({placeholders})) "
-            "ORDER BY name"
-        )
-        self.recipes = self.conn.execute(sql, tuple(enabled)).fetchall()
-        self.recipe_list.delete(0, tk.END)
-        for r in self.recipes:
-            self.recipe_list.insert(tk.END, r["name"])
-
-    def on_recipe_select(self, _evt=None):
-        sel = self.recipe_list.curselection()
-        if not sel:
-            return
-        r = self.recipes[sel[0]]
-
-        lines = self.conn.execute(
-            """
-            SELECT rl.direction, COALESCE(i.display_name, i.key) AS name, rl.qty_count, rl.qty_liters, rl.chance_percent, rl.output_slot_index
-            FROM recipe_lines rl
-            JOIN items i ON i.id = rl.item_id
-            WHERE rl.recipe_id=?
-            ORDER BY rl.id
-            """,
-            (r["id"],),
-        ).fetchall()
-
-        ins = []
-        outs = []
-        def fmt_qty(val):
-            if val is None:
-                return None
-            try:
-                return int(float(val))
-            except (TypeError, ValueError):
-                return val
-
-        for x in lines:
-            if x["qty_liters"] is not None:
-                qty = fmt_qty(x["qty_liters"])
-                s = f"{x['name']} × {qty} L"
-            else:
-                qty = fmt_qty(x["qty_count"])
-                s = f"{x['name']} × {qty}"
-
-            # Chance outputs (e.g., macerator byproducts)
-            if x["direction"] == "out":
-                slot_idx = x["output_slot_index"]
-                if slot_idx is not None:
-                    s = f"{s} (Slot {slot_idx})"
-                ch = x["chance_percent"]
-                if ch is not None:
-                    try:
-                        ch_f = float(ch)
-                    except Exception:
-                        ch_f = 100.0
-                    if ch_f < 99.999:
-                        s = f"{s} ({ch_f:g}%)"
-
-            (ins if x["direction"] == "in" else outs).append(s)
-
-        duration_s = None
-        if r["duration_ticks"] is not None:
-            duration_s = int(r["duration_ticks"] / 20)
-
-        # Method display
-        method = (r["method"] or "machine").strip().lower()
-        method_label = "Crafting" if method == "crafting" else "Machine"
-
-        station_name = ""
-        if method == "crafting" and r["station_item_id"] is not None:
-            row = self.conn.execute(
-                "SELECT COALESCE(display_name, key) AS name FROM items WHERE id=?",
-                (r["station_item_id"],),
-            ).fetchone()
-            station_name = row["name"] if row else ""
-
-        method_lines = [f"Method: {method_label}"]
-        if method == "crafting":
-            method_lines.append(f"Grid: {r['grid_size'] or ''}")
-            method_lines.append(f"Station: {station_name}")
-        else:
-            mline = f"Machine: {r['machine'] or ''}"
-            if r.get("machine_item_id") is not None if isinstance(r, dict) else r["machine_item_id"] is not None:
-                mid = r.get("machine_item_id") if isinstance(r, dict) else r["machine_item_id"]
-                mrow = self.conn.execute(
-                    "SELECT machine_output_slots FROM items WHERE id=?",
-                    (mid,),
-                ).fetchone()
-                if mrow:
-                    try:
-                        mos = int(mrow["machine_output_slots"] or 1)
-                    except Exception:
-                        mos = 1
-                    mline = f"{mline} (output slots: {mos})"
-            method_lines.append(mline)
-
-        txt = (
-            f"Name: {r['name']}\n"
-            + "\n".join(method_lines)
-            + "\n"
-            f"Tier: {r['tier'] or ''}\n"
-            f"Circuit: {'' if r['circuit'] is None else r['circuit']}\n"
-            f"Duration: {'' if duration_s is None else str(duration_s)+'s'}\n"
-            f"EU/t: {'' if r['eu_per_tick'] is None else r['eu_per_tick']}\n\n"
-            f"Inputs:\n  "
-            + ("\n  ".join(ins) if ins else "(none)")
-            + "\n\n"
-            f"Outputs:\n  "
-            + ("\n  ".join(outs) if outs else "(none)")
-            + "\n"
-        )
-        self._recipe_details_set(txt)
-
-    def _recipe_details_set(self, txt: str):
-        self.recipe_details.configure(state="normal")
-        self.recipe_details.delete("1.0", tk.END)
-        self.recipe_details.insert("1.0", txt)
-        self.recipe_details.configure(state="disabled")
-
-    def open_add_recipe_dialog(self):
-        if not self.editor_enabled:
-            messagebox.showinfo("Editor locked", "Adding Recipes is only available in editor mode.")
-            return
-        dlg = AddRecipeDialog(self)
-        self.wait_window(dlg)
-        self.refresh_recipes()
-
-    def open_edit_recipe_dialog(self):
-        if not self.editor_enabled:
-            messagebox.showinfo("Editor locked", "Editing Recipes is only available in editor mode.")
-            return
-        sel = self.recipe_list.curselection()
-        if not sel:
-            messagebox.showinfo("Select a recipe", "Click a recipe first.")
-            return
-        recipe_id = self.recipes[sel[0]]["id"]
-        dlg = EditRecipeDialog(self, recipe_id)
-        self.wait_window(dlg)
-        self.refresh_recipes()
-
-    def delete_selected_recipe(self):
-        if not self.editor_enabled:
-            messagebox.showinfo("Editor locked", "Deleting Recipes is only available in editor mode.")
-            return
-        sel = self.recipe_list.curselection()
-        if not sel:
-            messagebox.showinfo("Select a recipe", "Click a recipe first.")
-            return
-        r = self.recipes[sel[0]]
-        ok = messagebox.askyesno("Delete recipe?", f"Delete recipe:\n\n{r['name']}")
-        if not ok:
-            return
-        self.conn.execute("DELETE FROM recipes WHERE id=?", (r["id"],))
-        self.conn.commit()
-        self.refresh_recipes()
-        self._recipe_details_set("")
-        self.status.set(f"Deleted recipe: {r['name']}")
-
-    # ---------- Inventory tab ----------
-    def _build_inventory_tab(self):
-        tab = ttk.Frame(self.nb, padding=10)
-        self.nb.add(tab, text="Inventory")
-
-        ttk.Label(tab, text="Track what you currently have in storage.").pack(anchor="w")
-
-        body = ttk.Frame(tab)
-        body.pack(fill="both", expand=True, pady=10)
-
-        left = ttk.Frame(body)
-        left.pack(side="left", fill="y")
-
-        right = ttk.Frame(body)
-        right.pack(side="right", fill="both", expand=True, padx=(12, 0))
-
-        self.inventory_list = tk.Listbox(left, width=40)
-        self.inventory_list.pack(fill="y", expand=True)
-        self.inventory_list.bind("<<ListboxSelect>>", self.on_inventory_select)
-
-        self.inventory_item_name = tk.StringVar(value="")
-        ttk.Label(right, textvariable=self.inventory_item_name, font=("TkDefaultFont", 11, "bold")).pack(
-            anchor="w",
-            pady=(0, 10),
-        )
-
-        qty_row = ttk.Frame(right)
-        qty_row.pack(anchor="w")
-        ttk.Label(qty_row, text="Quantity:").pack(side="left")
-        self.inventory_qty_var = tk.StringVar(value="")
-        self.inventory_qty_entry = ttk.Entry(qty_row, textvariable=self.inventory_qty_var, width=14)
-        self.inventory_qty_entry.pack(side="left", padx=(6, 6))
-        self.inventory_unit_var = tk.StringVar(value="")
-        ttk.Label(qty_row, textvariable=self.inventory_unit_var).pack(side="left")
-
-        btns = ttk.Frame(right)
-        btns.pack(anchor="w", pady=(10, 0))
-        ttk.Button(btns, text="Save", command=self.save_inventory_item).pack(side="left")
-        ttk.Button(btns, text="Clear", command=self.clear_inventory_item).pack(side="left", padx=(6, 0))
-
-        ttk.Label(
-            right,
-            text="Tip: items use counts; fluids use liters (L).",
-            foreground="#666",
-        ).pack(anchor="w", pady=(12, 0))
-
-    def _inventory_selected_item(self):
-        sel = self.inventory_list.curselection()
-        if not sel:
-            return None
-        if not self.items:
-            return None
-        return self.items[sel[0]]
-
-    def _inventory_unit_for_item(self, item) -> str:
-        kind = (item["kind"] or "").strip().lower()
-        return "L" if kind == "fluid" else "count"
-
-    def on_inventory_select(self, _evt=None):
-        item = self._inventory_selected_item()
-        if not item:
-            return
-        self.inventory_item_name.set(item["name"])
-        unit = self._inventory_unit_for_item(item)
-        self.inventory_unit_var.set(unit)
-
-        row = self.profile_conn.execute(
-            "SELECT qty_count, qty_liters FROM inventory WHERE item_id=?",
-            (item["id"],),
-        ).fetchone()
-        if unit == "L":
-            qty = row["qty_liters"] if row else None
-        else:
-            qty = row["qty_count"] if row else None
-        self.inventory_qty_var.set("" if qty is None else self._format_inventory_qty(qty))
-
-    def _format_inventory_qty(self, qty: float | int) -> str:
-        try:
-            qty_f = float(qty)
-        except (TypeError, ValueError):
-            return ""
-        if qty_f.is_integer():
-            return str(int(qty_f))
-        return ""
-
-    def save_inventory_item(self):
-        item = self._inventory_selected_item()
-        if not item:
-            messagebox.showinfo("Select an item", "Click an item first.")
-            return
-
-        raw = self.inventory_qty_var.get().strip()
-        if raw == "":
-            self.profile_conn.execute("DELETE FROM inventory WHERE item_id=?", (item["id"],))
-            self.profile_conn.commit()
-            self.status.set(f"Cleared inventory for: {item['name']}")
-            return
-
-        try:
-            qty_float = float(raw)
-        except ValueError:
-            messagebox.showerror("Invalid quantity", "Enter a whole number.")
-            return
-
-        if not qty_float.is_integer():
-            messagebox.showerror("Invalid quantity", "Enter a whole number.")
-            return
-
-        qty = int(qty_float)
-
-        unit = self._inventory_unit_for_item(item)
-        qty_count = qty if unit == "count" else None
-        qty_liters = qty if unit == "L" else None
-        self.profile_conn.execute(
-            "INSERT INTO inventory(item_id, qty_count, qty_liters) VALUES(?, ?, ?) "
-            "ON CONFLICT(item_id) DO UPDATE SET qty_count=excluded.qty_count, qty_liters=excluded.qty_liters",
-            (item["id"], qty_count, qty_liters),
-        )
-        self.profile_conn.commit()
-        self.inventory_qty_var.set(str(qty))
-        self.status.set(f"Saved inventory for: {item['name']}")
-
-    def clear_inventory_item(self):
-        self.inventory_qty_var.set("")
-        self.save_inventory_item()
-
-    # ---------- Tiers tab ----------
-    def _build_tiers_tab(self):
-        tab = ttk.Frame(self.nb, padding=10)
-        self.nb.add(tab, text="Tiers")
-
-        ttk.Label(tab, text="Select tiers you currently have access to.").pack(anchor="w")
-
-        self.tier_vars = {}
-        grid = ttk.Frame(tab)
-        grid.pack(fill="x", pady=10)
-
-        # 3 columns grid
-        cols = 3
-        for i, t in enumerate(ALL_TIERS):
-            var = tk.BooleanVar(value=False)
-            self.tier_vars[t] = var
-            r = i // cols
-            c = i % cols
-            ttk.Checkbutton(
-                grid,
-                text=t,
-                variable=var,
-                command=lambda tier=t: self._on_tier_toggle(tier),
-            ).grid(row=r, column=c, sticky="w", padx=8, pady=4)
-
-        btns = ttk.Frame(tab)
-        btns.pack(fill="x", pady=(10, 0))
-        ttk.Button(btns, text="Save", command=self._tiers_save_to_db).pack(side="left")
-
-        # Crafting grid unlocks
-        unlocks = ttk.LabelFrame(tab, text="Crafting", padding=10)
-        unlocks.pack(fill="x", pady=(12, 0))
-        self.unlocked_6x6_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(
-            unlocks,
-            text="6x6 Crafting unlocked (once you've made a crafting table with a crafting grid)",
-            variable=self.unlocked_6x6_var,
-        ).pack(anchor="w")
-
-        ttk.Label(
-            tab,
-            text="Note: this controls dropdown tiers and filters the Recipes list (no planner logic yet).",
-            foreground="#666",
-        ).pack(anchor="w", pady=(10, 0))
-
-    def _tiers_load_from_db(self):
-        enabled = set(self.get_enabled_tiers())
-        for t, var in self.tier_vars.items():
-            var.set(t in enabled)
-
-        if hasattr(self, "unlocked_6x6_var"):
-            self.unlocked_6x6_var.set(self.is_crafting_6x6_unlocked())
-
-    def _on_tier_toggle(self, tier: str) -> None:
-        var = self.tier_vars.get(tier)
-        if not var:
-            return
-
-        try:
-            tier_index = ALL_TIERS.index(tier)
-        except ValueError:
-            return
-
-        if var.get():
-            for lower_tier in ALL_TIERS[: tier_index + 1]:
-                lower_var = self.tier_vars.get(lower_tier)
-                if lower_var and not lower_var.get():
-                    lower_var.set(True)
-
-            if "Steam Age" in ALL_TIERS[: tier_index + 1]:
-                if hasattr(self, "unlocked_6x6_var") and not self.unlocked_6x6_var.get():
-                    self.unlocked_6x6_var.set(True)
-        else:
-            for higher_tier in ALL_TIERS[tier_index + 1 :]:
-                higher_var = self.tier_vars.get(higher_tier)
-                if higher_var and higher_var.get():
-                    higher_var.set(False)
-
-            steam_var = self.tier_vars.get("Steam Age")
-            if steam_var is not None and not steam_var.get():
-                if hasattr(self, "unlocked_6x6_var") and self.unlocked_6x6_var.get():
-                    self.unlocked_6x6_var.set(False)
-
-    def _tiers_save_to_db(self):
-        enabled = [t for t, var in self.tier_vars.items() if var.get()]
-        if not enabled:
-            messagebox.showerror("Pick at least one", "Enable at least one tier.")
-            return
-        self.set_enabled_tiers(enabled)
-
-        if hasattr(self, "unlocked_6x6_var"):
-            self.set_crafting_6x6_unlocked(bool(self.unlocked_6x6_var.get()))
-
-        self.refresh_recipes()
-        self._recipe_details_set("")
-        self.status.set(f"Saved tiers: {', '.join(enabled)}")
+        if getattr(self, "items_tab", None) is not None:
+            self.items_tab.render_items(self.items)
+        if getattr(self, "inventory_tab", None) is not None:
+            self.inventory_tab.render_items(self.items)
+
+    def refresh_recipes(self) -> None:
+        if getattr(self, "recipes_tab", None) is not None:
+            self.recipes_tab.refresh_recipes()
+
+    def _tiers_load_from_db(self) -> None:
+        if getattr(self, "tiers_tab", None) is not None:
+            self.tiers_tab.load_from_db()
