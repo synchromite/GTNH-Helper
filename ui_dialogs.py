@@ -343,11 +343,103 @@ class AddItemDialog(tk.Toplevel):
         )
         self.machine_output_slots_spin.grid(row=6, column=1, sticky="w", padx=8, pady=4)
 
+        self.extra_machine_lf = ttk.LabelFrame(frm, text="Extra Machine Slots / Tanks", padding=6)
+        self.extra_machine_lf.grid(row=7, column=0, columnspan=2, sticky="ew", padx=2, pady=(8, 0))
+        self.extra_machine_lf.columnconfigure(1, weight=1)
+        self.extra_machine_lf.columnconfigure(3, weight=1)
+
+        ttk.Label(self.extra_machine_lf, text="Storage Slots").grid(row=0, column=0, sticky="w", padx=6, pady=2)
+        self.machine_storage_slots_var = tk.StringVar(value="0")
+        self.machine_storage_slots_spin = ttk.Spinbox(
+            self.extra_machine_lf,
+            from_=0,
+            to=32,
+            textvariable=self.machine_storage_slots_var,
+            width=6,
+        )
+        self.machine_storage_slots_spin.grid(row=0, column=1, sticky="w", padx=6, pady=2)
+
+        ttk.Label(self.extra_machine_lf, text="Power Slots").grid(row=0, column=2, sticky="w", padx=6, pady=2)
+        self.machine_power_slots_var = tk.StringVar(value="0")
+        self.machine_power_slots_spin = ttk.Spinbox(
+            self.extra_machine_lf,
+            from_=0,
+            to=8,
+            textvariable=self.machine_power_slots_var,
+            width=6,
+        )
+        self.machine_power_slots_spin.grid(row=0, column=3, sticky="w", padx=6, pady=2)
+
+        ttk.Label(self.extra_machine_lf, text="Circuit Slots").grid(row=1, column=0, sticky="w", padx=6, pady=2)
+        self.machine_circuit_slots_var = tk.StringVar(value="0")
+        self.machine_circuit_slots_spin = ttk.Spinbox(
+            self.extra_machine_lf,
+            from_=0,
+            to=8,
+            textvariable=self.machine_circuit_slots_var,
+            width=6,
+        )
+        self.machine_circuit_slots_spin.grid(row=1, column=1, sticky="w", padx=6, pady=2)
+
+        ttk.Label(self.extra_machine_lf, text="Input Tanks").grid(row=2, column=0, sticky="w", padx=6, pady=2)
+        self.machine_input_tanks_var = tk.StringVar(value="0")
+        self.machine_input_tanks_spin = ttk.Spinbox(
+            self.extra_machine_lf,
+            from_=0,
+            to=16,
+            textvariable=self.machine_input_tanks_var,
+            width=6,
+        )
+        self.machine_input_tanks_spin.grid(row=2, column=1, sticky="w", padx=6, pady=2)
+
+        ttk.Label(self.extra_machine_lf, text="Input Tank Capacity (L)").grid(row=2, column=2, sticky="w", padx=6, pady=2)
+        self.machine_input_tank_capacity_var = tk.StringVar()
+        self.machine_input_tank_capacity_entry = ttk.Entry(
+            self.extra_machine_lf,
+            textvariable=self.machine_input_tank_capacity_var,
+            width=10,
+        )
+        self.machine_input_tank_capacity_entry.grid(
+            row=2, column=3, sticky="w", padx=6, pady=2
+        )
+
+        ttk.Label(self.extra_machine_lf, text="Output Tanks").grid(row=3, column=0, sticky="w", padx=6, pady=2)
+        self.machine_output_tanks_var = tk.StringVar(value="0")
+        self.machine_output_tanks_spin = ttk.Spinbox(
+            self.extra_machine_lf,
+            from_=0,
+            to=16,
+            textvariable=self.machine_output_tanks_var,
+            width=6,
+        )
+        self.machine_output_tanks_spin.grid(row=3, column=1, sticky="w", padx=6, pady=2)
+
+        ttk.Label(self.extra_machine_lf, text="Output Tank Capacity (L)").grid(row=3, column=2, sticky="w", padx=6, pady=2)
+        self.machine_output_tank_capacity_var = tk.StringVar()
+        self.machine_output_tank_capacity_entry = ttk.Entry(
+            self.extra_machine_lf,
+            textvariable=self.machine_output_tank_capacity_var,
+            width=10,
+        )
+        self.machine_output_tank_capacity_entry.grid(
+            row=3, column=3, sticky="w", padx=6, pady=2
+        )
+
+        self._extra_machine_widgets = [
+            self.machine_storage_slots_spin,
+            self.machine_power_slots_spin,
+            self.machine_circuit_slots_spin,
+            self.machine_input_tanks_spin,
+            self.machine_output_tanks_spin,
+            self.machine_input_tank_capacity_entry,
+            self.machine_output_tank_capacity_entry,
+        ]
+
         # Per-slot content kinds (item vs fluid)
         self.inputs_lf = ttk.LabelFrame(frm, text="Input Slot Types", padding=6)
-        self.inputs_lf.grid(row=7, column=0, columnspan=2, sticky="ew", padx=2, pady=(8, 0))
+        self.inputs_lf.grid(row=8, column=0, columnspan=2, sticky="ew", padx=2, pady=(8, 0))
         self.outputs_lf = ttk.LabelFrame(frm, text="Output Slot Types", padding=6)
-        self.outputs_lf.grid(row=8, column=0, columnspan=2, sticky="ew", padx=2, pady=(8, 0))
+        self.outputs_lf.grid(row=9, column=0, columnspan=2, sticky="ew", padx=2, pady=(8, 0))
 
         self.in_slot_kind_vars = []
         self.out_slot_kind_vars = []
@@ -359,7 +451,7 @@ class AddItemDialog(tk.Toplevel):
         self._toggle_machine_fields()
 
         btns = ttk.Frame(frm)
-        btns.grid(row=9, column=0, columnspan=2, sticky="e", pady=(10, 0))
+        btns.grid(row=10, column=0, columnspan=2, sticky="e", pady=(10, 0))
         ttk.Button(btns, text="Cancel", command=self.destroy).pack(side="right")
         ttk.Button(btns, text="Save", command=self.save).pack(side="right", padx=8)
 
@@ -378,6 +470,15 @@ class AddItemDialog(tk.Toplevel):
             self.machine_output_slots_spin.configure(state="disabled")
             self.machine_input_slots_var.set("1")
             self.machine_output_slots_var.set("1")
+            self.machine_storage_slots_var.set("0")
+            self.machine_power_slots_var.set("0")
+            self.machine_circuit_slots_var.set("0")
+            self.machine_input_tanks_var.set("0")
+            self.machine_input_tank_capacity_var.set("")
+            self.machine_output_tanks_var.set("0")
+            self.machine_output_tank_capacity_var.set("")
+            for w in self._extra_machine_widgets:
+                w.configure(state="disabled")
             self._rebuild_slot_type_ui(0, 0)
             return
 
@@ -391,11 +492,20 @@ class AddItemDialog(tk.Toplevel):
         self.machine_tier_combo.configure(state="readonly" if is_m else "disabled")
         self.machine_input_slots_spin.configure(state="normal" if is_m else "disabled")
         self.machine_output_slots_spin.configure(state="normal" if is_m else "disabled")
+        for w in self._extra_machine_widgets:
+            w.configure(state="normal" if is_m else "disabled")
 
         if not is_m:
             self.machine_tier_var.set(NONE_TIER_LABEL)
             self.machine_input_slots_var.set("1")
             self.machine_output_slots_var.set("1")
+            self.machine_storage_slots_var.set("0")
+            self.machine_power_slots_var.set("0")
+            self.machine_circuit_slots_var.set("0")
+            self.machine_input_tanks_var.set("0")
+            self.machine_input_tank_capacity_var.set("")
+            self.machine_output_tanks_var.set("0")
+            self.machine_output_tank_capacity_var.set("")
             self._rebuild_slot_type_ui(0, 0)
             return
 
@@ -409,6 +519,46 @@ class AddItemDialog(tk.Toplevel):
         except Exception:
             v = default
         return max(0, v)
+
+    def _parse_int_nonneg(self, s: str, default: int = 0) -> int:
+        s = (s or "").strip()
+        if s == "":
+            return default
+        try:
+            v = int(float(s))
+        except Exception as exc:
+            raise ValueError("Must be a whole number.") from exc
+        if v < 0:
+            raise ValueError("Must be 0 or greater.")
+        return v
+
+    def _parse_int_opt(self, s: str) -> int | None:
+        s = (s or "").strip()
+        if s == "":
+            return None
+        if not s.isdigit():
+            raise ValueError("Must be a whole number.")
+        return int(s)
+
+    def _parse_int_nonneg(self, s: str, default: int = 0) -> int:
+        s = (s or "").strip()
+        if s == "":
+            return default
+        try:
+            v = int(float(s))
+        except Exception as exc:
+            raise ValueError("Must be a whole number.") from exc
+        if v < 0:
+            raise ValueError("Must be 0 or greater.")
+        return v
+
+    def _parse_int_opt(self, s: str) -> int | None:
+        s = (s or "").strip()
+        if s == "":
+            return None
+        if not s.isdigit():
+            raise ValueError("Must be a whole number.")
+        return int(s)
 
     def _on_slots_changed(self):
         # Only rebuild when machine fields are enabled
@@ -561,6 +711,13 @@ class AddItemDialog(tk.Toplevel):
         machine_tier = None
         machine_input_slots = None
         machine_output_slots = None
+        machine_storage_slots = None
+        machine_power_slots = None
+        machine_circuit_slots = None
+        machine_input_tanks = None
+        machine_input_tank_capacity_l = None
+        machine_output_tanks = None
+        machine_output_tank_capacity_l = None
 
         if is_machine:
             mt_raw = (self.machine_tier_var.get() or "").strip()
@@ -574,6 +731,21 @@ class AddItemDialog(tk.Toplevel):
                 return
             machine_input_slots = in_n
             machine_output_slots = out_n
+            try:
+                machine_storage_slots = self._parse_int_nonneg(self.machine_storage_slots_var.get(), default=0)
+                machine_power_slots = self._parse_int_nonneg(self.machine_power_slots_var.get(), default=0)
+                machine_circuit_slots = self._parse_int_nonneg(self.machine_circuit_slots_var.get(), default=0)
+                machine_input_tanks = self._parse_int_nonneg(self.machine_input_tanks_var.get(), default=0)
+                machine_input_tank_capacity_l = self._parse_int_opt(self.machine_input_tank_capacity_var.get())
+                machine_output_tanks = self._parse_int_nonneg(self.machine_output_tanks_var.get(), default=0)
+                machine_output_tank_capacity_l = self._parse_int_opt(self.machine_output_tank_capacity_var.get())
+            except ValueError as e:
+                messagebox.showerror("Invalid number", str(e))
+                return
+            if machine_input_tanks == 0:
+                machine_input_tank_capacity_l = None
+            if machine_output_tanks == 0:
+                machine_output_tank_capacity_l = None
 
         # If the item is a fluid, clear machine + item-kind fields
         if kind == "fluid":
@@ -581,6 +753,13 @@ class AddItemDialog(tk.Toplevel):
             machine_tier = None
             machine_input_slots = None
             machine_output_slots = None
+            machine_storage_slots = None
+            machine_power_slots = None
+            machine_circuit_slots = None
+            machine_input_tanks = None
+            machine_input_tank_capacity_l = None
+            machine_output_tanks = None
+            machine_output_tank_capacity_l = None
             item_kind_id = None
         else:
             item_kind_id = self.item_kind_id
@@ -596,9 +775,28 @@ class AddItemDialog(tk.Toplevel):
 
         try:
             cur = self.app.conn.execute(
-                "INSERT INTO items(key, display_name, kind, is_base, is_machine, machine_tier, machine_input_slots, machine_output_slots, item_kind_id) "
-                "VALUES(?,?,?,?,?,?,?,?,?)",
-                (key, display_name, kind, is_base, is_machine, machine_tier, machine_input_slots, machine_output_slots, item_kind_id),
+                "INSERT INTO items(key, display_name, kind, is_base, is_machine, machine_tier, machine_input_slots, machine_output_slots, "
+                "machine_storage_slots, machine_power_slots, machine_circuit_slots, machine_input_tanks, "
+                "machine_input_tank_capacity_l, machine_output_tanks, machine_output_tank_capacity_l, item_kind_id) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    key,
+                    display_name,
+                    kind,
+                    is_base,
+                    is_machine,
+                    machine_tier,
+                    machine_input_slots,
+                    machine_output_slots,
+                    machine_storage_slots,
+                    machine_power_slots,
+                    machine_circuit_slots,
+                    machine_input_tanks,
+                    machine_input_tank_capacity_l,
+                    machine_output_tanks,
+                    machine_output_tank_capacity_l,
+                    item_kind_id,
+                ),
             )
             item_id = cur.lastrowid
 
@@ -639,7 +837,10 @@ class EditItemDialog(tk.Toplevel):
 
         row = self.app.conn.execute(
             "SELECT i.id, i.key, COALESCE(i.display_name, i.key) AS name, i.display_name, i.kind, "
-            "       i.is_base, i.is_machine, i.machine_tier, i.machine_input_slots, i.machine_output_slots, i.item_kind_id, k.name AS item_kind_name "
+            "       i.is_base, i.is_machine, i.machine_tier, i.machine_input_slots, i.machine_output_slots, "
+            "       i.machine_storage_slots, i.machine_power_slots, i.machine_circuit_slots, i.machine_input_tanks, "
+            "       i.machine_input_tank_capacity_l, i.machine_output_tanks, i.machine_output_tank_capacity_l, "
+            "       i.item_kind_id, k.name AS item_kind_name "
             "FROM items i "
             "LEFT JOIN item_kinds k ON k.id = i.item_kind_id "
             "WHERE i.id=?",
@@ -729,11 +930,106 @@ class EditItemDialog(tk.Toplevel):
         )
         self.machine_output_slots_spin.grid(row=6, column=1, sticky="w", padx=8, pady=4)
 
+        self.extra_machine_lf = ttk.LabelFrame(frm, text="Extra Machine Slots / Tanks", padding=6)
+        self.extra_machine_lf.grid(row=7, column=0, columnspan=2, sticky="ew", padx=2, pady=(8, 0))
+        self.extra_machine_lf.columnconfigure(1, weight=1)
+        self.extra_machine_lf.columnconfigure(3, weight=1)
+
+        ttk.Label(self.extra_machine_lf, text="Storage Slots").grid(row=0, column=0, sticky="w", padx=6, pady=2)
+        mss0 = row["machine_storage_slots"]
+        self.machine_storage_slots_var = tk.StringVar(value=str(int(mss0 or 0)))
+        self.machine_storage_slots_spin = ttk.Spinbox(
+            self.extra_machine_lf,
+            from_=0,
+            to=32,
+            textvariable=self.machine_storage_slots_var,
+            width=6,
+        )
+        self.machine_storage_slots_spin.grid(row=0, column=1, sticky="w", padx=6, pady=2)
+
+        ttk.Label(self.extra_machine_lf, text="Power Slots").grid(row=0, column=2, sticky="w", padx=6, pady=2)
+        mps0 = row["machine_power_slots"]
+        self.machine_power_slots_var = tk.StringVar(value=str(int(mps0 or 0)))
+        self.machine_power_slots_spin = ttk.Spinbox(
+            self.extra_machine_lf,
+            from_=0,
+            to=8,
+            textvariable=self.machine_power_slots_var,
+            width=6,
+        )
+        self.machine_power_slots_spin.grid(row=0, column=3, sticky="w", padx=6, pady=2)
+
+        ttk.Label(self.extra_machine_lf, text="Circuit Slots").grid(row=1, column=0, sticky="w", padx=6, pady=2)
+        mcs0 = row["machine_circuit_slots"]
+        self.machine_circuit_slots_var = tk.StringVar(value=str(int(mcs0 or 0)))
+        self.machine_circuit_slots_spin = ttk.Spinbox(
+            self.extra_machine_lf,
+            from_=0,
+            to=8,
+            textvariable=self.machine_circuit_slots_var,
+            width=6,
+        )
+        self.machine_circuit_slots_spin.grid(row=1, column=1, sticky="w", padx=6, pady=2)
+
+        ttk.Label(self.extra_machine_lf, text="Input Tanks").grid(row=2, column=0, sticky="w", padx=6, pady=2)
+        mit0 = row["machine_input_tanks"]
+        self.machine_input_tanks_var = tk.StringVar(value=str(int(mit0 or 0)))
+        self.machine_input_tanks_spin = ttk.Spinbox(
+            self.extra_machine_lf,
+            from_=0,
+            to=16,
+            textvariable=self.machine_input_tanks_var,
+            width=6,
+        )
+        self.machine_input_tanks_spin.grid(row=2, column=1, sticky="w", padx=6, pady=2)
+
+        ttk.Label(self.extra_machine_lf, text="Input Tank Capacity (L)").grid(row=2, column=2, sticky="w", padx=6, pady=2)
+        mic0 = row["machine_input_tank_capacity_l"]
+        self.machine_input_tank_capacity_var = tk.StringVar(value="" if mic0 is None else str(int(mic0)))
+        self.machine_input_tank_capacity_entry = ttk.Entry(
+            self.extra_machine_lf,
+            textvariable=self.machine_input_tank_capacity_var,
+            width=10,
+        )
+        self.machine_input_tank_capacity_entry.grid(row=2, column=3, sticky="w", padx=6, pady=2)
+
+        ttk.Label(self.extra_machine_lf, text="Output Tanks").grid(row=3, column=0, sticky="w", padx=6, pady=2)
+        mot0 = row["machine_output_tanks"]
+        self.machine_output_tanks_var = tk.StringVar(value=str(int(mot0 or 0)))
+        self.machine_output_tanks_spin = ttk.Spinbox(
+            self.extra_machine_lf,
+            from_=0,
+            to=16,
+            textvariable=self.machine_output_tanks_var,
+            width=6,
+        )
+        self.machine_output_tanks_spin.grid(row=3, column=1, sticky="w", padx=6, pady=2)
+
+        ttk.Label(self.extra_machine_lf, text="Output Tank Capacity (L)").grid(row=3, column=2, sticky="w", padx=6, pady=2)
+        moc0 = row["machine_output_tank_capacity_l"]
+        self.machine_output_tank_capacity_var = tk.StringVar(value="" if moc0 is None else str(int(moc0)))
+        self.machine_output_tank_capacity_entry = ttk.Entry(
+            self.extra_machine_lf,
+            textvariable=self.machine_output_tank_capacity_var,
+            width=10,
+        )
+        self.machine_output_tank_capacity_entry.grid(row=3, column=3, sticky="w", padx=6, pady=2)
+
+        self._extra_machine_widgets = [
+            self.machine_storage_slots_spin,
+            self.machine_power_slots_spin,
+            self.machine_circuit_slots_spin,
+            self.machine_input_tanks_spin,
+            self.machine_output_tanks_spin,
+            self.machine_input_tank_capacity_entry,
+            self.machine_output_tank_capacity_entry,
+        ]
+
         # Per-slot content kinds (item vs fluid)
         self.inputs_lf = ttk.LabelFrame(frm, text="Input Slot Types", padding=6)
-        self.inputs_lf.grid(row=7, column=0, columnspan=2, sticky="ew", padx=2, pady=(8, 0))
+        self.inputs_lf.grid(row=8, column=0, columnspan=2, sticky="ew", padx=2, pady=(8, 0))
         self.outputs_lf = ttk.LabelFrame(frm, text="Output Slot Types", padding=6)
-        self.outputs_lf.grid(row=8, column=0, columnspan=2, sticky="ew", padx=2, pady=(8, 0))
+        self.outputs_lf.grid(row=9, column=0, columnspan=2, sticky="ew", padx=2, pady=(8, 0))
 
         self.in_slot_kind_vars = []
         self.out_slot_kind_vars = []
@@ -781,7 +1077,7 @@ class EditItemDialog(tk.Toplevel):
         self._rebuild_slot_type_ui(mis_i, mos_i)
 
         btns = ttk.Frame(frm)
-        btns.grid(row=9, column=0, columnspan=2, sticky="e", pady=(10, 0))
+        btns.grid(row=10, column=0, columnspan=2, sticky="e", pady=(10, 0))
         ttk.Button(btns, text="Cancel", command=self.destroy).pack(side="right")
         ttk.Button(btns, text="Save", command=self.save).pack(side="right", padx=8)
 
@@ -928,6 +1224,13 @@ class EditItemDialog(tk.Toplevel):
         machine_tier = None
         machine_input_slots = None
         machine_output_slots = None
+        machine_storage_slots = None
+        machine_power_slots = None
+        machine_circuit_slots = None
+        machine_input_tanks = None
+        machine_input_tank_capacity_l = None
+        machine_output_tanks = None
+        machine_output_tank_capacity_l = None
 
         if is_machine:
             mt_raw = (self.machine_tier_var.get() or "").strip()
@@ -941,6 +1244,21 @@ class EditItemDialog(tk.Toplevel):
                 return
             machine_input_slots = in_n
             machine_output_slots = out_n
+            try:
+                machine_storage_slots = self._parse_int_nonneg(self.machine_storage_slots_var.get(), default=0)
+                machine_power_slots = self._parse_int_nonneg(self.machine_power_slots_var.get(), default=0)
+                machine_circuit_slots = self._parse_int_nonneg(self.machine_circuit_slots_var.get(), default=0)
+                machine_input_tanks = self._parse_int_nonneg(self.machine_input_tanks_var.get(), default=0)
+                machine_input_tank_capacity_l = self._parse_int_opt(self.machine_input_tank_capacity_var.get())
+                machine_output_tanks = self._parse_int_nonneg(self.machine_output_tanks_var.get(), default=0)
+                machine_output_tank_capacity_l = self._parse_int_opt(self.machine_output_tank_capacity_var.get())
+            except ValueError as e:
+                messagebox.showerror("Invalid number", str(e))
+                return
+            if machine_input_tanks == 0:
+                machine_input_tank_capacity_l = None
+            if machine_output_tanks == 0:
+                machine_output_tank_capacity_l = None
 
         # If the item is a fluid, clear machine + item-kind fields
         if kind == "fluid":
@@ -948,15 +1266,42 @@ class EditItemDialog(tk.Toplevel):
             machine_tier = None
             machine_input_slots = None
             machine_output_slots = None
+            machine_storage_slots = None
+            machine_power_slots = None
+            machine_circuit_slots = None
+            machine_input_tanks = None
+            machine_input_tank_capacity_l = None
+            machine_output_tanks = None
+            machine_output_tank_capacity_l = None
             item_kind_id = None
         else:
             item_kind_id = self.item_kind_id
 
         try:
             self.app.conn.execute(
-                "UPDATE items SET display_name=?, kind=?, is_base=?, is_machine=?, machine_tier=?, machine_input_slots=?, machine_output_slots=?, item_kind_id=? "
+                "UPDATE items SET display_name=?, kind=?, is_base=?, is_machine=?, machine_tier=?, machine_input_slots=?, "
+                "machine_output_slots=?, machine_storage_slots=?, machine_power_slots=?, machine_circuit_slots=?, "
+                "machine_input_tanks=?, machine_input_tank_capacity_l=?, machine_output_tanks=?, machine_output_tank_capacity_l=?, "
+                "item_kind_id=? "
                 "WHERE id=?",
-                (display_name, kind, is_base, is_machine, machine_tier, machine_input_slots, machine_output_slots, item_kind_id, self.item_id),
+                (
+                    display_name,
+                    kind,
+                    is_base,
+                    is_machine,
+                    machine_tier,
+                    machine_input_slots,
+                    machine_output_slots,
+                    machine_storage_slots,
+                    machine_power_slots,
+                    machine_circuit_slots,
+                    machine_input_tanks,
+                    machine_input_tank_capacity_l,
+                    machine_output_tanks,
+                    machine_output_tank_capacity_l,
+                    item_kind_id,
+                    self.item_id,
+                ),
             )
 
             # Rewrite per-slot IO typing
@@ -993,6 +1338,15 @@ class EditItemDialog(tk.Toplevel):
             self.machine_output_slots_spin.configure(state="disabled")
             self.machine_input_slots_var.set("1")
             self.machine_output_slots_var.set("1")
+            self.machine_storage_slots_var.set("0")
+            self.machine_power_slots_var.set("0")
+            self.machine_circuit_slots_var.set("0")
+            self.machine_input_tanks_var.set("0")
+            self.machine_input_tank_capacity_var.set("")
+            self.machine_output_tanks_var.set("0")
+            self.machine_output_tank_capacity_var.set("")
+            for w in self._extra_machine_widgets:
+                w.configure(state="disabled")
             self._rebuild_slot_type_ui(0, 0)
             return
 
@@ -1006,11 +1360,20 @@ class EditItemDialog(tk.Toplevel):
         self.machine_tier_combo.configure(state="readonly" if is_m else "disabled")
         self.machine_input_slots_spin.configure(state="normal" if is_m else "disabled")
         self.machine_output_slots_spin.configure(state="normal" if is_m else "disabled")
+        for w in self._extra_machine_widgets:
+            w.configure(state="normal" if is_m else "disabled")
 
         if not is_m:
             self.machine_tier_var.set(NONE_TIER_LABEL)
             self.machine_input_slots_var.set("1")
             self.machine_output_slots_var.set("1")
+            self.machine_storage_slots_var.set("0")
+            self.machine_power_slots_var.set("0")
+            self.machine_circuit_slots_var.set("0")
+            self.machine_input_tanks_var.set("0")
+            self.machine_input_tank_capacity_var.set("")
+            self.machine_output_tanks_var.set("0")
+            self.machine_output_tank_capacity_var.set("")
             self._rebuild_slot_type_ui(0, 0)
             return
 
