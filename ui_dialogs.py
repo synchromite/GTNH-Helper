@@ -2,6 +2,8 @@
 import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog
 
+from db import ALL_TIERS
+
 
 def _row_get(row, key: str, default=None):
     """Safe key access for sqlite3.Row/dicts."""
@@ -32,15 +34,6 @@ def _safe_grab(win, tries=20):
         if tries <= 0:
             return
         win.after(50, lambda: _safe_grab(win, tries - 1))
-
-ALL_TIERS = [
-    "Stone Age",
-    "Steam Age",
-    "ULV", "LV", "MV", "HV", "EV", "IV",
-    "LuV", "ZPM", "UV",
-    "UHV", "UEV", "UIV", "UMV", "UXV",
-    "OpV", "MAX",
-]
 
 # User-facing label for "no tier" (stored as NULL in DB)
 NONE_TIER_LABEL = "— none —"

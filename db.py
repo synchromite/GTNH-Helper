@@ -5,6 +5,26 @@ from pathlib import Path
 from typing import Any
 
 DEFAULT_DB_PATH = Path("gtnh.db")
+ALL_TIERS = [
+    "Stone Age",
+    "Steam Age",
+    "ULV",
+    "LV",
+    "MV",
+    "HV",
+    "EV",
+    "IV",
+    "LuV",
+    "ZPM",
+    "UV",
+    "UHV",
+    "UEV",
+    "UIV",
+    "UMV",
+    "UXV",
+    "OpV",
+    "MAX",
+]
 
 
 def connect_profile(db_path: Path | str) -> sqlite3.Connection:
