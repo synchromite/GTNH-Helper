@@ -351,8 +351,8 @@ def merge_db(dest_conn: sqlite3.Connection, src_path: Path | str) -> dict[str, i
 
             if not dest_row:
                 dest_conn.execute(
-                    "INSERT INTO items(key, display_name, kind, is_base, is_machine, machine_tier, machine_output_slots, item_kind_id) "
-                    "VALUES(?,?,?,?,?,?,?,?)",
+                    "INSERT INTO items(key, display_name, kind, is_base, is_machine, machine_tier, machine_input_slots, machine_output_slots, item_kind_id) "
+                    "VALUES(?,?,?,?,?,?,?,?,?)",
                     (
                         key,
                         it["display_name"],
