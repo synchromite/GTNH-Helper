@@ -367,7 +367,7 @@ class App(tk.Tk):
             except Exception:
                 mis_i = 1
             txt += f"Input Slots: {mis_i}\n"
-            mos = it.get('machine_output_slots') if isinstance(it, dict) else it['machine_output_slots']
+            mos = it["machine_output_slots"]
             try:
                 mos_i = int(mos) if mos is not None else 1
             except Exception:
