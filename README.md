@@ -6,7 +6,7 @@ Currently working on implementing 2.7.4 version of GTNH.
 -Enable Recipe Editing - DONE - 2026.01.06<br>
 -Inventory Tracker - DONE - 2026.01.06<br>
 -Independant Tab Framework - DONE - 2026.01.06<br>
--Build Planner - PLANNED
+-Build Planner - PLANNED<br>
 -Editor Mode - DONE - 2026.01.06<br>
 <br>
 <b>Fixes incoming:</b><br>
