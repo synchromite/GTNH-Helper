@@ -4,3 +4,5 @@ __pycache__/
 gtnh.db
 gtnh.profile.db
 gtnh.profile.profile.db
+gtnh_export*
+gtnh_profile*
