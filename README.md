@@ -17,7 +17,7 @@ Currently working on implementing 2.7.4 version of GTNH.
 <br>
 <h1>Features:</h1>
 <h3>Editor Mode</h3>
-Editor Mode can be de-activated by removing/renaming the .<br>
+Editor Mode can be de-activated by removing/renaming the creating a '.enable_editor' file next to app.py.<br>
 
 <h3>Tab Customization</h3><br>
 Tabs can be reorderd and turned on and off via the Tabs Menu.<br>
@@ -26,4 +26,4 @@ Tabs can be reorderd and turned on and off via the Tabs Menu.<br>
 User data is stored in the profile.db.<br>
 
 <h3>Item & Recipe Data</h3>
-Item and Recipe data is stored in the gtnh.db<br>
+Item and Recipe data is stored in the gtnh.db.<br>
