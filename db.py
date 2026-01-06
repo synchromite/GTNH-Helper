@@ -227,6 +227,7 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
         qty_count REAL,
         qty_liters REAL,
         chance_percent REAL,
+        output_slot_index INTEGER,
         FOREIGN KEY(recipe_id) REFERENCES recipes(id) ON DELETE CASCADE,
         FOREIGN KEY(item_id) REFERENCES items(id) ON DELETE RESTRICT
     )
@@ -235,6 +236,8 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
 
     if not _has_col("recipe_lines", "chance_percent"):
         conn.execute("ALTER TABLE recipe_lines ADD COLUMN chance_percent REAL")
+    if not _has_col("recipe_lines", "output_slot_index"):
+        conn.execute("ALTER TABLE recipe_lines ADD COLUMN output_slot_index INTEGER")
 
     conn.execute(
         """
@@ -346,8 +349,8 @@ def merge_db(dest_conn: sqlite3.Connection, src_path: Path | str) -> dict[str, i
             ).fetchone()
 
             mapped_kind_id = None
-            if it["item_kind_id"] is not None:
-                mapped_kind_id = dest_kind_map.get(int(it["item_kind_id"]), None)
+                "INSERT INTO items(key, display_name, kind, is_base, is_machine, machine_tier, machine_input_slots, machine_output_slots, item_kind_id) "
+                "VALUES(?,?,?,?,?,?,?,?,?)",
 
             if not dest_row:
                 dest_conn.execute(
@@ -474,7 +477,8 @@ def merge_db(dest_conn: sqlite3.Connection, src_path: Path | str) -> dict[str, i
 
         # ---- Recipe lines ----
         src_lines = src.execute(
-            "SELECT recipe_id, direction, item_id, qty_count, qty_liters, chance_percent FROM recipe_lines ORDER BY id"
+            "SELECT recipe_id, direction, item_id, qty_count, qty_liters, chance_percent, output_slot_index "
+            "FROM recipe_lines ORDER BY id"
         ).fetchall()
 
         for ln in src_lines:
@@ -489,8 +493,17 @@ def merge_db(dest_conn: sqlite3.Connection, src_path: Path | str) -> dict[str, i
                 continue
 
             dest_conn.execute(
-                "INSERT INTO recipe_lines(recipe_id, direction, item_id, qty_count, qty_liters, chance_percent) VALUES(?,?,?,?,?,?)",
-                (new_recipe_id, ln["direction"], new_item_id, ln["qty_count"], ln["qty_liters"], ln["chance_percent"]),
+                "INSERT INTO recipe_lines(recipe_id, direction, item_id, qty_count, qty_liters, chance_percent, output_slot_index) "
+                "VALUES(?,?,?,?,?,?,?)",
+                (
+                    new_recipe_id,
+                    ln["direction"],
+                    new_item_id,
+                    ln["qty_count"],
+                    ln["qty_liters"],
+                    ln["chance_percent"],
+                    ln["output_slot_index"],
+                ),
             )
             stats["lines_added"] += 1
 

@@ -490,7 +490,7 @@ class App(tk.Tk):
 
         lines = self.conn.execute(
             """
-            SELECT rl.direction, COALESCE(i.display_name, i.key) AS name, rl.qty_count, rl.qty_liters, rl.chance_percent
+            SELECT rl.direction, COALESCE(i.display_name, i.key) AS name, rl.qty_count, rl.qty_liters, rl.chance_percent, rl.output_slot_index
             FROM recipe_lines rl
             JOIN items i ON i.id = rl.item_id
             WHERE rl.recipe_id=?
@@ -509,6 +509,9 @@ class App(tk.Tk):
 
             # Chance outputs (e.g., macerator byproducts)
             if x["direction"] == "out":
+                slot_idx = x["output_slot_index"]
+                if slot_idx:
+                    s = f"{s} (Slot {slot_idx})"
                 ch = x["chance_percent"]
                 if ch is not None:
                     try:
