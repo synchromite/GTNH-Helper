@@ -506,11 +506,21 @@ class App(tk.Tk):
 
         ins = []
         outs = []
+        def fmt_qty(val):
+            if val is None:
+                return None
+            try:
+                return int(float(val))
+            except (TypeError, ValueError):
+                return val
+
         for x in lines:
             if x["qty_liters"] is not None:
-                s = f"{x['name']} × {x['qty_liters']} L"
+                qty = fmt_qty(x["qty_liters"])
+                s = f"{x['name']} × {qty} L"
             else:
-                s = f"{x['name']} × {x['qty_count']}"
+                qty = fmt_qty(x["qty_count"])
+                s = f"{x['name']} × {qty}"
 
             # Chance outputs (e.g., macerator byproducts)
             if x["direction"] == "out":

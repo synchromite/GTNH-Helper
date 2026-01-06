@@ -1174,13 +1174,15 @@ class EditRecipeDialog(tk.Toplevel):
         """, (recipe_id,)).fetchall()
 
         for row in ins:
+            qty_count = self._coerce_whole_number(row["qty_count"])
+            qty_liters = self._coerce_whole_number(row["qty_liters"])
             line = {
                 "id": row["id"],
                 "item_id": row["item_id"],
                 "name": row["name"],
                 "kind": row["kind"],
-                "qty_count": row["qty_count"],
-                "qty_liters": row["qty_liters"],
+                "qty_count": qty_count,
+                "qty_liters": qty_liters,
                 "chance_percent": row["chance_percent"],
                 "output_slot_index": row["output_slot_index"],
             }
@@ -1188,13 +1190,15 @@ class EditRecipeDialog(tk.Toplevel):
             self.in_list.insert(tk.END, self._fmt_line(line))
 
         for row in outs:
+            qty_count = self._coerce_whole_number(row["qty_count"])
+            qty_liters = self._coerce_whole_number(row["qty_liters"])
             line = {
                 "id": row["id"],
                 "item_id": row["item_id"],
                 "name": row["name"],
                 "kind": row["kind"],
-                "qty_count": row["qty_count"],
-                "qty_liters": row["qty_liters"],
+                "qty_count": qty_count,
+                "qty_liters": qty_liters,
                 "chance_percent": row["chance_percent"],
                 "output_slot_index": row["output_slot_index"],
             }
@@ -1328,8 +1332,19 @@ class EditRecipeDialog(tk.Toplevel):
             if slot_idx:
                 slot_txt = f" (Slot {slot_idx})"
         if line["kind"] == "fluid":
-            return f"{line['name']} × {line['qty_liters']} L{slot_txt}{chance_txt}"
-        return f"{line['name']} × {line['qty_count']}{slot_txt}{chance_txt}"
+            qty = self._coerce_whole_number(line["qty_liters"])
+            return f"{line['name']} × {qty} L{slot_txt}{chance_txt}"
+        qty = self._coerce_whole_number(line["qty_count"])
+        return f"{line['name']} × {qty}{slot_txt}{chance_txt}"
+
+    @staticmethod
+    def _coerce_whole_number(value):
+        if value is None:
+            return None
+        try:
+            return int(float(value))
+        except (TypeError, ValueError):
+            return value
 
     def _get_machine_output_slots(self) -> int | None:
         if self.machine_item_id is None:
@@ -1574,9 +1589,9 @@ class ItemLineDialog(tk.Toplevel):
             if row:
                 self._set_selected({"id": row["id"], "name": row["name"], "kind": row["kind"]})
             if initial_line.get("qty_liters") is not None:
-                self.qty_var.set(str(initial_line["qty_liters"]))
+                self.qty_var.set(str(self._coerce_whole_number(initial_line["qty_liters"])))
             elif initial_line.get("qty_count") is not None:
-                self.qty_var.set(str(initial_line["qty_count"]))
+                self.qty_var.set(str(self._coerce_whole_number(initial_line["qty_count"])))
             if self.show_chance:
                 chance = initial_line.get("chance_percent")
                 if chance is None or abs(float(chance) - 100.0) < 1e-9:
@@ -1587,6 +1602,15 @@ class ItemLineDialog(tk.Toplevel):
                     and initial_line.get("output_slot_index") is not None):
                 self.output_slot_var.set(str(initial_line["output_slot_index"]))
         self.update_kind_ui()
+
+    @staticmethod
+    def _coerce_whole_number(value):
+        if value is None:
+            return None
+        try:
+            return int(float(value))
+        except (TypeError, ValueError):
+            return value
 
     def _set_selected(self, sel: dict | None):
         self._selected = sel
@@ -1928,8 +1952,19 @@ class AddRecipeDialog(tk.Toplevel):
             if slot_idx:
                 slot_txt = f" (Slot {slot_idx})"
         if line["kind"] == "fluid":
-            return f"{line['name']} × {line['qty_liters']} L{slot_txt}{chance_txt}"
-        return f"{line['name']} × {line['qty_count']}{slot_txt}{chance_txt}"
+            qty = self._coerce_whole_number(line["qty_liters"])
+            return f"{line['name']} × {qty} L{slot_txt}{chance_txt}"
+        qty = self._coerce_whole_number(line["qty_count"])
+        return f"{line['name']} × {qty}{slot_txt}{chance_txt}"
+
+    @staticmethod
+    def _coerce_whole_number(value):
+        if value is None:
+            return None
+        try:
+            return int(float(value))
+        except (TypeError, ValueError):
+            return value
 
     def _get_machine_output_slots(self) -> int | None:
         if self.machine_item_id is None:
