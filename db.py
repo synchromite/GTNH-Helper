@@ -349,8 +349,8 @@ def merge_db(dest_conn: sqlite3.Connection, src_path: Path | str) -> dict[str, i
             ).fetchone()
 
             mapped_kind_id = None
-                "INSERT INTO items(key, display_name, kind, is_base, is_machine, machine_tier, machine_input_slots, machine_output_slots, item_kind_id) "
-                "VALUES(?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO items(key, display_name, kind, is_base, is_machine, machine_tier, machine_input_slots, machine_output_slots, item_kind_id) "
+            "VALUES(?,?,?,?,?,?,?,?,?)",
 
             if not dest_row:
                 dest_conn.execute(
@@ -449,6 +449,7 @@ def merge_db(dest_conn: sqlite3.Connection, src_path: Path | str) -> dict[str, i
                     station_dest_id = item_key_to_dest_id.get(k)
 
             machine_dest_id = None
+ 
             if r["machine_item_id"] is not None:
                 k = src_item_id_to_key.get(int(r["machine_item_id"]))
                 if k:
