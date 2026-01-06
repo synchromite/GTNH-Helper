@@ -676,7 +676,7 @@ class App(tk.Tk):
 
     def _on_tier_toggle(self, tier: str) -> None:
         var = self.tier_vars.get(tier)
-        if not var or not var.get():
+        if not var:
             return
 
         try:
@@ -684,14 +684,25 @@ class App(tk.Tk):
         except ValueError:
             return
 
-        for lower_tier in ALL_TIERS[: tier_index + 1]:
-            lower_var = self.tier_vars.get(lower_tier)
-            if lower_var and not lower_var.get():
-                lower_var.set(True)
+        if var.get():
+            for lower_tier in ALL_TIERS[: tier_index + 1]:
+                lower_var = self.tier_vars.get(lower_tier)
+                if lower_var and not lower_var.get():
+                    lower_var.set(True)
 
-        if "Steam Age" in ALL_TIERS[: tier_index + 1]:
-            if hasattr(self, "unlocked_6x6_var") and not self.unlocked_6x6_var.get():
-                self.unlocked_6x6_var.set(True)
+            if "Steam Age" in ALL_TIERS[: tier_index + 1]:
+                if hasattr(self, "unlocked_6x6_var") and not self.unlocked_6x6_var.get():
+                    self.unlocked_6x6_var.set(True)
+        else:
+            for higher_tier in ALL_TIERS[tier_index + 1 :]:
+                higher_var = self.tier_vars.get(higher_tier)
+                if higher_var and higher_var.get():
+                    higher_var.set(False)
+
+            steam_var = self.tier_vars.get("Steam Age")
+            if steam_var is not None and not steam_var.get():
+                if hasattr(self, "unlocked_6x6_var") and self.unlocked_6x6_var.get():
+                    self.unlocked_6x6_var.set(False)
 
     def _tiers_save_to_db(self):
         enabled = [t for t, var in self.tier_vars.items() if var.get()]
