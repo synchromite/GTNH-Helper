@@ -126,6 +126,30 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
         # Input slots (how many distinct input stacks a machine can accept per run).
         conn.execute("ALTER TABLE items ADD COLUMN machine_input_slots INTEGER")
 
+    if not _has_col("items", "machine_storage_slots"):
+        # Extra storage slots beyond input/output.
+        conn.execute("ALTER TABLE items ADD COLUMN machine_storage_slots INTEGER")
+
+    if not _has_col("items", "machine_power_slots"):
+        # Dedicated power/battery slots.
+        conn.execute("ALTER TABLE items ADD COLUMN machine_power_slots INTEGER")
+
+    if not _has_col("items", "machine_circuit_slots"):
+        # Ghost/programmable circuit slots.
+        conn.execute("ALTER TABLE items ADD COLUMN machine_circuit_slots INTEGER")
+
+    if not _has_col("items", "machine_input_tanks"):
+        conn.execute("ALTER TABLE items ADD COLUMN machine_input_tanks INTEGER")
+
+    if not _has_col("items", "machine_input_tank_capacity_l"):
+        conn.execute("ALTER TABLE items ADD COLUMN machine_input_tank_capacity_l INTEGER")
+
+    if not _has_col("items", "machine_output_tanks"):
+        conn.execute("ALTER TABLE items ADD COLUMN machine_output_tanks INTEGER")
+
+    if not _has_col("items", "machine_output_tank_capacity_l"):
+        conn.execute("ALTER TABLE items ADD COLUMN machine_output_tank_capacity_l INTEGER")
+
     # Detailed item classification (user-editable list of kinds)
     if not _has_col("items", "item_kind_id"):
         conn.execute("ALTER TABLE items ADD COLUMN item_kind_id INTEGER")
@@ -410,7 +434,9 @@ def merge_db(dest_conn: sqlite3.Connection, src_path: Path | str) -> dict[str, i
 
         # ---- Items ----
         src_items = src.execute(
-            "SELECT id, key, display_name, kind, is_base, is_machine, machine_tier, machine_input_slots, machine_output_slots, item_kind_id "
+            "SELECT id, key, display_name, kind, is_base, is_machine, machine_tier, machine_input_slots, machine_output_slots, "
+            "       machine_storage_slots, machine_power_slots, machine_circuit_slots, machine_input_tanks, "
+            "       machine_input_tank_capacity_l, machine_output_tanks, machine_output_tank_capacity_l, item_kind_id "
             "FROM items ORDER BY id"
         ).fetchall()
 
@@ -421,7 +447,10 @@ def merge_db(dest_conn: sqlite3.Connection, src_path: Path | str) -> dict[str, i
                 continue
 
             dest_row = dest_conn.execute(
-                "SELECT id, display_name, kind, is_base, is_machine, machine_tier, machine_input_slots, machine_output_slots, item_kind_id FROM items WHERE key=?",
+                "SELECT id, display_name, kind, is_base, is_machine, machine_tier, machine_input_slots, machine_output_slots, "
+                "       machine_storage_slots, machine_power_slots, machine_circuit_slots, machine_input_tanks, "
+                "       machine_input_tank_capacity_l, machine_output_tanks, machine_output_tank_capacity_l, item_kind_id "
+                "FROM items WHERE key=?",
                 (key,),
             ).fetchone()
 
@@ -432,8 +461,10 @@ def merge_db(dest_conn: sqlite3.Connection, src_path: Path | str) -> dict[str, i
             if not dest_row:
                 insert_sql = (
                     "INSERT INTO items(key, display_name, kind, is_base, is_machine, machine_tier, "
-                    "machine_input_slots, machine_output_slots, item_kind_id) "
-                    "VALUES(?,?,?,?,?,?,?,?,?)"
+                    "machine_input_slots, machine_output_slots, machine_storage_slots, machine_power_slots, "
+                    "machine_circuit_slots, machine_input_tanks, machine_input_tank_capacity_l, "
+                    "machine_output_tanks, machine_output_tank_capacity_l, item_kind_id) "
+                    "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
                 )
                 insert_values = (
                     key,
@@ -444,6 +475,13 @@ def merge_db(dest_conn: sqlite3.Connection, src_path: Path | str) -> dict[str, i
                     it["machine_tier"],
                     it["machine_input_slots"],
                     it["machine_output_slots"],
+                    it["machine_storage_slots"],
+                    it["machine_power_slots"],
+                    it["machine_circuit_slots"],
+                    it["machine_input_tanks"],
+                    it["machine_input_tank_capacity_l"],
+                    it["machine_output_tanks"],
+                    it["machine_output_tank_capacity_l"],
                     mapped_kind_id,
                 )
                 dest_conn.execute(insert_sql, insert_values)
@@ -484,6 +522,55 @@ def merge_db(dest_conn: sqlite3.Connection, src_path: Path | str) -> dict[str, i
                     mos = None
                 if mos is not None and mos > 0:
                     updates["machine_output_slots"] = mos
+            if (dest_row["machine_storage_slots"] is None or int(dest_row["machine_storage_slots"] or 0) == 0) and it["machine_storage_slots"] is not None:
+                try:
+                    mss = int(it["machine_storage_slots"])
+                except Exception:
+                    mss = None
+                if mss is not None and mss > 0:
+                    updates["machine_storage_slots"] = mss
+            if (dest_row["machine_power_slots"] is None or int(dest_row["machine_power_slots"] or 0) == 0) and it["machine_power_slots"] is not None:
+                try:
+                    mps = int(it["machine_power_slots"])
+                except Exception:
+                    mps = None
+                if mps is not None and mps > 0:
+                    updates["machine_power_slots"] = mps
+            if (dest_row["machine_circuit_slots"] is None or int(dest_row["machine_circuit_slots"] or 0) == 0) and it["machine_circuit_slots"] is not None:
+                try:
+                    mcs = int(it["machine_circuit_slots"])
+                except Exception:
+                    mcs = None
+                if mcs is not None and mcs > 0:
+                    updates["machine_circuit_slots"] = mcs
+            if (dest_row["machine_input_tanks"] is None or int(dest_row["machine_input_tanks"] or 0) == 0) and it["machine_input_tanks"] is not None:
+                try:
+                    mit = int(it["machine_input_tanks"])
+                except Exception:
+                    mit = None
+                if mit is not None and mit > 0:
+                    updates["machine_input_tanks"] = mit
+            if (dest_row["machine_input_tank_capacity_l"] is None or int(dest_row["machine_input_tank_capacity_l"] or 0) == 0) and it["machine_input_tank_capacity_l"] is not None:
+                try:
+                    mic = int(it["machine_input_tank_capacity_l"])
+                except Exception:
+                    mic = None
+                if mic is not None and mic > 0:
+                    updates["machine_input_tank_capacity_l"] = mic
+            if (dest_row["machine_output_tanks"] is None or int(dest_row["machine_output_tanks"] or 0) == 0) and it["machine_output_tanks"] is not None:
+                try:
+                    mot = int(it["machine_output_tanks"])
+                except Exception:
+                    mot = None
+                if mot is not None and mot > 0:
+                    updates["machine_output_tanks"] = mot
+            if (dest_row["machine_output_tank_capacity_l"] is None or int(dest_row["machine_output_tank_capacity_l"] or 0) == 0) and it["machine_output_tank_capacity_l"] is not None:
+                try:
+                    moc = int(it["machine_output_tank_capacity_l"])
+                except Exception:
+                    moc = None
+                if moc is not None and moc > 0:
+                    updates["machine_output_tank_capacity_l"] = moc
 
             if updates:
                 sets = ", ".join([f"{k}=?" for k in updates.keys()])

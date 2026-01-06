@@ -61,18 +61,29 @@ class ItemsTab(ttk.Frame):
         is_machine_kind = ((it["item_kind_name"] or "").strip().lower() == "machine") or bool(it["is_machine"])
         if is_machine_kind:
             txt += f"Machine Tier: {it['machine_tier'] or ''}\n"
-            mis = it["machine_input_slots"]
-            try:
-                mis_i = int(mis) if mis is not None else 1
-            except Exception:
-                mis_i = 1
+            def _as_int(value, default=0):
+                try:
+                    return int(value)
+                except Exception:
+                    return default
+
+            mis_i = _as_int(it["machine_input_slots"], default=1) or 1
             txt += f"Input Slots: {mis_i}\n"
-            mos = it["machine_output_slots"]
-            try:
-                mos_i = int(mos) if mos is not None else 1
-            except Exception:
-                mos_i = 1
+            mos_i = _as_int(it["machine_output_slots"], default=1) or 1
             txt += f"Output Slots: {mos_i}\n"
+            txt += f"Storage Slots: {_as_int(it['machine_storage_slots'])}\n"
+            txt += f"Power Slots: {_as_int(it['machine_power_slots'])}\n"
+            txt += f"Circuit Slots: {_as_int(it['machine_circuit_slots'])}\n"
+            in_tanks = _as_int(it["machine_input_tanks"])
+            in_cap = _as_int(it["machine_input_tank_capacity_l"])
+            if in_tanks > 0 or in_cap > 0:
+                cap_txt = f" ({in_cap} L)" if in_cap > 0 else ""
+                txt += f"Input Tanks: {in_tanks}{cap_txt}\n"
+            out_tanks = _as_int(it["machine_output_tanks"])
+            out_cap = _as_int(it["machine_output_tank_capacity_l"])
+            if out_tanks > 0 or out_cap > 0:
+                cap_txt = f" ({out_cap} L)" if out_cap > 0 else ""
+                txt += f"Output Tanks: {out_tanks}{cap_txt}\n"
         self._item_details_set(txt)
 
     def _item_details_set(self, txt: str):

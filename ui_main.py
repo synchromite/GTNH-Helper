@@ -443,7 +443,10 @@ class App(tk.Tk):
     # ---------- Tab delegates ----------
     def refresh_items(self) -> None:
         self.items = self.conn.execute(
-            "SELECT i.id, i.key, COALESCE(i.display_name, i.key) AS name, i.kind, i.is_base, i.is_machine, i.machine_tier, i.machine_input_slots, i.machine_output_slots, "
+            "SELECT i.id, i.key, COALESCE(i.display_name, i.key) AS name, i.kind, i.is_base, i.is_machine, i.machine_tier, "
+            "       i.machine_input_slots, i.machine_output_slots, i.machine_storage_slots, i.machine_power_slots, "
+            "       i.machine_circuit_slots, i.machine_input_tanks, i.machine_input_tank_capacity_l, "
+            "       i.machine_output_tanks, i.machine_output_tank_capacity_l, "
             "       k.name AS item_kind_name "
             "FROM items i "
             "LEFT JOIN item_kinds k ON k.id = i.item_kind_id "
