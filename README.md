@@ -10,4 +10,5 @@ Currently working on implementing 2.7.4 version of GTNH.
 <b>Fixes incoming:</b><br>
 -Slot numbering should start at Slot 0
 -“Which slots are used for what” per machine<br>
- 
+-Recipe “machine tier” dropdown vs display<br>
+-Hide Item/Recipe tabs when editor is disabled?<br>
