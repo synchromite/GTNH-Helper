@@ -1141,7 +1141,7 @@ class EditRecipeDialog(tk.Toplevel):
         out_list.grid(row=1, column=1, sticky="nsew")
 
         ins = self.app.conn.execute("""
-            SELECT COALESCE(i.display_name, i.key) AS name, rl.qty_count, rl.qty_liters, rl.chance_percent
+            SELECT COALESCE(i.display_name, i.key) AS name, rl.qty_count, rl.qty_liters, rl.chance_percent, rl.output_slot_index
             FROM recipe_lines rl
             JOIN items i ON i.id = rl.item_id
             WHERE rl.recipe_id=? AND rl.direction='in'
@@ -1149,14 +1149,14 @@ class EditRecipeDialog(tk.Toplevel):
         """, (recipe_id,)).fetchall()
 
         outs = self.app.conn.execute("""
-            SELECT COALESCE(i.display_name, i.key) AS name, rl.qty_count, rl.qty_liters, rl.chance_percent
+            SELECT COALESCE(i.display_name, i.key) AS name, rl.qty_count, rl.qty_liters, rl.chance_percent, rl.output_slot_index
             FROM recipe_lines rl
             JOIN items i ON i.id = rl.item_id
             WHERE rl.recipe_id=? AND rl.direction='out'
             ORDER BY rl.id
         """, (recipe_id,)).fetchall()
 
-        def fmt(row):
+        def fmt(row, *, is_output: bool = False):
             chance_txt = ""
             if row["chance_percent"] is not None:
                 try:
@@ -1165,14 +1165,19 @@ class EditRecipeDialog(tk.Toplevel):
                     c = None
                 if c is not None and c < 99.999:
                     chance_txt = f" ({int(c)}%)" if abs(c - int(c)) < 1e-9 else f" ({c}%)"
+            slot_txt = ""
+            if is_output:
+                slot_idx = row["output_slot_index"]
+                if slot_idx:
+                    slot_txt = f" (Slot {slot_idx})"
             if row["qty_liters"] is not None:
-                return f"{row['name']} × {row['qty_liters']} L{chance_txt}"
-            return f"{row['name']} × {row['qty_count']}{chance_txt}"
+                return f"{row['name']} × {row['qty_liters']} L{slot_txt}{chance_txt}"
+            return f"{row['name']} × {row['qty_count']}{slot_txt}{chance_txt}"
 
         for x in ins:
             in_list.insert(tk.END, fmt(x))
         for x in outs:
-            out_list.insert(tk.END, fmt(x))
+            out_list.insert(tk.END, fmt(x, is_output=True))
 
         bottom = ttk.Frame(frm)
         bottom.grid(row=6, column=0, columnspan=4, sticky="ew", pady=(10, 0))
@@ -1294,11 +1299,23 @@ class EditRecipeDialog(tk.Toplevel):
         self.destroy()
 
 class ItemLineDialog(tk.Toplevel):
-    def __init__(self, app, title: str, *, show_chance: bool = False):
+    def __init__(
+        self,
+        app,
+        title: str,
+        *,
+        show_chance: bool = False,
+        output_slot_choices: list[int] | None = None,
+        fixed_output_slot: int | None = None,
+        require_chance: bool = False,
+    ):
         super().__init__(app)
         self.app = app
         self.title(title)
         self.show_chance = show_chance
+        self.output_slot_choices = output_slot_choices
+        self.fixed_output_slot = fixed_output_slot
+        self.require_chance = require_chance
         self.resizable(False, False)
         self.transient(app)
         self.after(0, lambda: _safe_grab(self))
@@ -1329,12 +1346,25 @@ class ItemLineDialog(tk.Toplevel):
         self.qty_entry.grid(row=2, column=1, sticky="w", padx=8, pady=4)
 
         row_btn = 3
+        if self.fixed_output_slot is not None or self.output_slot_choices:
+            ttk.Label(frm, text="Output Slot").grid(row=row_btn, column=0, sticky="w")
+            if self.fixed_output_slot is not None:
+                self.output_slot_var = tk.StringVar(value=str(self.fixed_output_slot))
+                ttk.Label(frm, textvariable=self.output_slot_var).grid(row=row_btn, column=1, sticky="w", padx=8, pady=4)
+            else:
+                values = [str(v) for v in (self.output_slot_choices or [])]
+                self.output_slot_var = tk.StringVar(value=(values[0] if values else ""))
+                ttk.Combobox(frm, textvariable=self.output_slot_var, values=values, state="readonly", width=10).grid(
+                    row=row_btn, column=1, sticky="w", padx=8, pady=4
+                )
+            row_btn += 1
         if self.show_chance:
-            ttk.Label(frm, text="Chance (%)").grid(row=3, column=0, sticky="w")
+            ttk.Label(frm, text="Chance (%)").grid(row=row_btn, column=0, sticky="w")
             self.chance_var = tk.StringVar(value="")
-            ttk.Entry(frm, textvariable=self.chance_var, width=20).grid(row=3, column=1, sticky="w", padx=8, pady=4)
-            ttk.Label(frm, text="Leave blank for 100% (guaranteed)").grid(row=3, column=2, sticky="w", padx=8)
-            row_btn = 4
+            ttk.Entry(frm, textvariable=self.chance_var, width=20).grid(row=row_btn, column=1, sticky="w", padx=8, pady=4)
+            chance_note = "Chance is required for extra output slots." if self.require_chance else "Leave blank for 100% (guaranteed)"
+            ttk.Label(frm, text=chance_note).grid(row=row_btn, column=2, sticky="w", padx=8)
+            row_btn += 1
 
         btns = ttk.Frame(frm)
         btns.grid(row=row_btn, column=0, columnspan=3, sticky="e", pady=(10, 0))
@@ -1416,6 +1446,9 @@ class ItemLineDialog(tk.Toplevel):
         if self.show_chance:
             ch_s = (getattr(self, "chance_var", tk.StringVar(value="")).get() or "").strip()
             if ch_s == "":
+                if self.require_chance:
+                    messagebox.showerror("Invalid chance", "Chance is required for extra output slots.")
+                    return
                 chance = 100.0
             else:
                 try:
@@ -1427,6 +1460,13 @@ class ItemLineDialog(tk.Toplevel):
                 messagebox.showerror("Invalid chance", "Chance must be > 0 and <= 100.")
                 return
             self.result["chance_percent"] = chance
+
+        if self.fixed_output_slot is not None or self.output_slot_choices:
+            try:
+                self.result["output_slot_index"] = int(self.output_slot_var.get())
+            except Exception:
+                messagebox.showerror("Invalid output slot", "Select a valid output slot.")
+                return
 
         self.destroy()
 
@@ -1613,11 +1653,33 @@ class AddRecipeDialog(tk.Toplevel):
             self.in_list.insert(tk.END, self._fmt_line(d.result))
 
     def add_output(self):
-        d = ItemLineDialog(self.app, "Add Output", show_chance=True)
+        method = (self.method_var.get() or "Machine").strip().lower()
+        if method == "machine" and self.machine_item_id is not None:
+            mos = self._get_machine_output_slots() or 1
+            used_slots = self._get_used_output_slots()
+            if not self.outputs:
+                d = ItemLineDialog(self.app, "Add Output", fixed_output_slot=1)
+            else:
+                if mos <= 1:
+                    messagebox.showerror("No extra slots", "This machine only has 1 output slot.")
+                    return
+                available = [i for i in range(2, mos + 1) if i not in used_slots]
+                if not available:
+                    messagebox.showerror("No extra slots", "All additional output slots are already used.")
+                    return
+                d = ItemLineDialog(
+                    self.app,
+                    "Add Output",
+                    show_chance=True,
+                    output_slot_choices=available,
+                    require_chance=True,
+                )
+        else:
+            d = ItemLineDialog(self.app, "Add Output", show_chance=True)
         self.wait_window(d)
         if d.result:
             self.outputs.append(d.result)
-            self.out_list.insert(tk.END, self._fmt_line(d.result))
+            self.out_list.insert(tk.END, self._fmt_line(d.result, is_output=True))
 
     def remove_selected(self, listbox: tk.Listbox, backing_list: list):
         sel = listbox.curselection()
@@ -1627,7 +1689,7 @@ class AddRecipeDialog(tk.Toplevel):
         listbox.delete(idx)
         del backing_list[idx]
 
-    def _fmt_line(self, line: dict) -> str:
+    def _fmt_line(self, line: dict, *, is_output: bool = False) -> str:
         chance = line.get("chance_percent")
         chance_txt = ""
         if chance is not None:
@@ -1641,9 +1703,37 @@ class AddRecipeDialog(tk.Toplevel):
                     chance_txt = f" ({int(c)}%)"
                 else:
                     chance_txt = f" ({c}%)"
+        slot_txt = ""
+        if is_output:
+            slot_idx = line.get("output_slot_index")
+            if slot_idx:
+                slot_txt = f" (Slot {slot_idx})"
         if line["kind"] == "fluid":
-            return f"{line['name']} × {line['qty_liters']} L{chance_txt}"
-        return f"{line['name']} × {line['qty_count']}{chance_txt}"
+            return f"{line['name']} × {line['qty_liters']} L{slot_txt}{chance_txt}"
+        return f"{line['name']} × {line['qty_count']}{slot_txt}{chance_txt}"
+
+    def _get_machine_output_slots(self) -> int | None:
+        if self.machine_item_id is None:
+            return None
+        row = self.app.conn.execute(
+            "SELECT machine_output_slots FROM items WHERE id=?",
+            (self.machine_item_id,),
+        ).fetchone()
+        if not row:
+            return None
+        try:
+            mos = int(row["machine_output_slots"] or 1)
+        except Exception:
+            mos = 1
+        return mos if mos > 0 else 1
+
+    def _get_used_output_slots(self) -> set[int]:
+        used = set()
+        for line in self.outputs:
+            slot_idx = line.get("output_slot_index")
+            if slot_idx:
+                used.add(int(slot_idx))
+        return used
 
     def _parse_int_opt(self, s: str):
         s = (s or "").strip()
@@ -1726,26 +1816,44 @@ class AddRecipeDialog(tk.Toplevel):
             for line in self.inputs:
                 if line["kind"] == "fluid":
                     self.app.conn.execute(
-                        "INSERT INTO recipe_lines(recipe_id, direction, item_id, qty_liters, chance_percent) VALUES(?,?,?,?,?)",
-                        (recipe_id, "in", line["item_id"], line["qty_liters"], None)
+                        "INSERT INTO recipe_lines(recipe_id, direction, item_id, qty_liters, chance_percent, output_slot_index) "
+                        "VALUES(?,?,?,?,?,?)",
+                        (recipe_id, "in", line["item_id"], line["qty_liters"], None, None)
                     )
                 else:
                     self.app.conn.execute(
-                        "INSERT INTO recipe_lines(recipe_id, direction, item_id, qty_count, chance_percent) VALUES(?,?,?,?,?)",
-                        (recipe_id, "in", line["item_id"], line["qty_count"], None)
+                        "INSERT INTO recipe_lines(recipe_id, direction, item_id, qty_count, chance_percent, output_slot_index) "
+                        "VALUES(?,?,?,?,?,?)",
+                        (recipe_id, "in", line["item_id"], line["qty_count"], None, None)
                     )
 
             # Outputs
             for line in self.outputs:
                 if line["kind"] == "fluid":
                     self.app.conn.execute(
-                        "INSERT INTO recipe_lines(recipe_id, direction, item_id, qty_liters, chance_percent) VALUES(?,?,?,?,?)",
-                        (recipe_id, "out", line["item_id"], line["qty_liters"], line.get("chance_percent", 100.0))
+                        "INSERT INTO recipe_lines(recipe_id, direction, item_id, qty_liters, chance_percent, output_slot_index) "
+                        "VALUES(?,?,?,?,?,?)",
+                        (
+                            recipe_id,
+                            "out",
+                            line["item_id"],
+                            line["qty_liters"],
+                            line.get("chance_percent", 100.0),
+                            line.get("output_slot_index"),
+                        )
                     )
                 else:
                     self.app.conn.execute(
-                        "INSERT INTO recipe_lines(recipe_id, direction, item_id, qty_count, chance_percent) VALUES(?,?,?,?,?)",
-                        (recipe_id, "out", line["item_id"], line["qty_count"], line.get("chance_percent", 100.0))
+                        "INSERT INTO recipe_lines(recipe_id, direction, item_id, qty_count, chance_percent, output_slot_index) "
+                        "VALUES(?,?,?,?,?,?)",
+                        (
+                            recipe_id,
+                            "out",
+                            line["item_id"],
+                            line["qty_count"],
+                            line.get("chance_percent", 100.0),
+                            line.get("output_slot_index"),
+                        )
                     )
 
             self.app.conn.commit()

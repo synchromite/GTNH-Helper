@@ -361,13 +361,13 @@ class App(tk.Tk):
         is_machine_kind = ((it['item_kind_name'] or '').strip().lower() == 'machine') or bool(it['is_machine'])
         if is_machine_kind:
             txt += f"Machine Tier: {it['machine_tier'] or ''}\n"
-            mis = it.get('machine_input_slots')
+            mis = it["machine_input_slots"]
             try:
                 mis_i = int(mis) if mis is not None else 1
             except Exception:
                 mis_i = 1
             txt += f"Input Slots: {mis_i}\n"
-            mos = it.get('machine_output_slots') if isinstance(it, dict) else it['machine_output_slots']
+            mos = it["machine_output_slots"]
             try:
                 mos_i = int(mos) if mos is not None else 1
             except Exception:
@@ -490,7 +490,7 @@ class App(tk.Tk):
 
         lines = self.conn.execute(
             """
-            SELECT rl.direction, COALESCE(i.display_name, i.key) AS name, rl.qty_count, rl.qty_liters, rl.chance_percent
+            SELECT rl.direction, COALESCE(i.display_name, i.key) AS name, rl.qty_count, rl.qty_liters, rl.chance_percent, rl.output_slot_index
             FROM recipe_lines rl
             JOIN items i ON i.id = rl.item_id
             WHERE rl.recipe_id=?
@@ -509,6 +509,9 @@ class App(tk.Tk):
 
             # Chance outputs (e.g., macerator byproducts)
             if x["direction"] == "out":
+                slot_idx = x["output_slot_index"]
+                if slot_idx:
+                    s = f"{s} (Slot {slot_idx})"
                 ch = x["chance_percent"]
                 if ch is not None:
                     try:
