@@ -95,6 +95,7 @@ class TiersTab(ttk.Frame):
 
         self.app.set_crafting_6x6_unlocked(bool(self.unlocked_6x6_var.get()))
 
-        self.app.recipes_tab.refresh_recipes()
-        self.app.recipes_tab._recipe_details_set("")
+        if getattr(self.app, "recipes_tab", None) is not None:
+            self.app.recipes_tab.refresh_recipes()
+            self.app.recipes_tab._recipe_details_set("")
         self.app.status.set(f"Saved tiers: {', '.join(enabled)}")

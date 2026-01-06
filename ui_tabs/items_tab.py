@@ -8,7 +8,7 @@ class ItemsTab(ttk.Frame):
     def __init__(self, notebook: ttk.Notebook, app):
         super().__init__(notebook)
         self.app = app
-        self.items = []
+        self.items: list = []
 
         notebook.add(self, text="Items")
 
@@ -41,21 +41,11 @@ class ItemsTab(ttk.Frame):
         self.item_details.pack(fill="both", expand=True)
         self.item_details.configure(state="disabled")
 
-    def refresh_items(self):
-        self.items = self.app.conn.execute(
-            "SELECT i.id, i.key, COALESCE(i.display_name, i.key) AS name, i.kind, i.is_base, i.is_machine, i.machine_tier, i.machine_input_slots, i.machine_output_slots, "
-            "       k.name AS item_kind_name "
-            "FROM items i "
-            "LEFT JOIN item_kinds k ON k.id = i.item_kind_id "
-            "ORDER BY name"
-        ).fetchall()
-        self.app.items = list(self.items)
+    def render_items(self, items: list) -> None:
+        self.items = list(items)
         self.item_list.delete(0, tk.END)
         for it in self.items:
             self.item_list.insert(tk.END, it["name"])
-
-        if hasattr(self.app, "inventory_tab"):
-            self.app.inventory_tab.refresh_items_list()
 
     def on_item_select(self, _evt=None):
         sel = self.item_list.curselection()
@@ -100,7 +90,7 @@ class ItemsTab(ttk.Frame):
             return
         dlg = AddItemDialog(self.app)
         self.app.wait_window(dlg)
-        self.refresh_items()
+        self.app.refresh_items()
 
     def open_edit_item_dialog(self):
         if not self.app.editor_enabled:
@@ -113,7 +103,7 @@ class ItemsTab(ttk.Frame):
         item_id = self.items[sel[0]]["id"]
         dlg = EditItemDialog(self.app, item_id)
         self.app.wait_window(dlg)
-        self.refresh_items()
+        self.app.refresh_items()
 
     def delete_selected_item(self):
         if not self.app.editor_enabled:
@@ -137,6 +127,6 @@ class ItemsTab(ttk.Frame):
                 f"Details: {e}",
             )
             return
-        self.refresh_items()
+        self.app.refresh_items()
         self._item_details_set("")
         self.app.status.set(f"Deleted item: {it['name']}")

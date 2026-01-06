@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import datetime
+import json
 from pathlib import Path
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
@@ -35,6 +36,15 @@ class App(tk.Tk):
 
         self.status = tk.StringVar(value="Ready")
 
+        self.tab_registry = {
+            "items": {"label": "Items", "class": ItemsTab, "attr": "items_tab"},
+            "recipes": {"label": "Recipes", "class": RecipesTab, "attr": "recipes_tab"},
+            "inventory": {"label": "Inventory", "class": InventoryTab, "attr": "inventory_tab"},
+            "tiers": {"label": "Tiers", "class": TiersTab, "attr": "tiers_tab"},
+        }
+        self.tab_order, self.enabled_tabs = self._load_ui_config()
+        self.tab_vars: dict[str, tk.BooleanVar] = {}
+
         self._build_menu()
         self._update_title()
 
@@ -44,10 +54,7 @@ class App(tk.Tk):
         self.nb = ttk.Notebook(self)
         self.nb.pack(fill="both", expand=True)
 
-        self.items_tab = ItemsTab(self.nb, self)
-        self.recipes_tab = RecipesTab(self.nb, self)
-        self.inventory_tab = InventoryTab(self.nb, self)
-        self.tiers_tab = TiersTab(self.nb, self)
+        self._rebuild_tabs()
 
         statusbar = ttk.Label(self, textvariable=self.status, anchor="w")
         statusbar.pack(fill="x")
@@ -102,6 +109,136 @@ class App(tk.Tk):
             # Non-fatal: worst case users re-check tiers once.
             pass
 
+    # ---------- Tab configuration ----------
+    def _config_path(self) -> Path:
+        try:
+            here = Path(__file__).resolve().parent
+            return here / "ui_config.json"
+        except Exception:
+            return Path("ui_config.json")
+
+    def _load_ui_config(self) -> tuple[list[str], list[str]]:
+        default_order = list(self.tab_registry.keys())
+        default_enabled = list(default_order)
+        path = self._config_path()
+        try:
+            raw = json.loads(path.read_text())
+        except Exception:
+            return default_order, default_enabled
+
+        order = raw.get("tab_order", default_order)
+        enabled = raw.get("enabled_tabs", default_enabled)
+        order = [tid for tid in order if tid in self.tab_registry]
+        for tid in default_order:
+            if tid not in order:
+                order.append(tid)
+        enabled = [tid for tid in enabled if tid in self.tab_registry]
+        if not enabled:
+            enabled = list(default_enabled)
+        enabled_ordered = [tid for tid in order if tid in enabled]
+        return order, enabled_ordered
+
+    def _save_ui_config(self) -> None:
+        path = self._config_path()
+        data = {"enabled_tabs": self.enabled_tabs, "tab_order": self.tab_order}
+        try:
+            path.write_text(json.dumps(data, indent=2))
+        except Exception as exc:
+            messagebox.showwarning("Config save failed", f"Could not save tab preferences.\n\nDetails: {exc}")
+
+    def _rebuild_tabs(self) -> None:
+        for meta in self.tab_registry.values():
+            attr = meta["attr"]
+            tab = getattr(self, attr, None)
+            if tab is not None:
+                try:
+                    self.nb.forget(tab)
+                except Exception:
+                    pass
+                tab.destroy()
+            setattr(self, attr, None)
+
+        for tab_id in self.tab_order:
+            if tab_id not in self.enabled_tabs:
+                continue
+            meta = self.tab_registry[tab_id]
+            tab = meta["class"](self.nb, self)
+            setattr(self, meta["attr"], tab)
+
+    def _toggle_tab(self, tab_id: str) -> None:
+        enabled = set(self.enabled_tabs)
+        if self.tab_vars[tab_id].get():
+            enabled.add(tab_id)
+        else:
+            if tab_id in enabled and len(enabled) == 1:
+                messagebox.showinfo("Tabs", "At least one tab must remain enabled.")
+                self.tab_vars[tab_id].set(True)
+                return
+            enabled.discard(tab_id)
+
+        self.enabled_tabs = [tid for tid in self.tab_order if tid in enabled]
+        self._save_ui_config()
+        self._rebuild_tabs()
+        self.refresh_items()
+        self.refresh_recipes()
+        self._tiers_load_from_db()
+
+    def _open_reorder_tabs_dialog(self) -> None:
+        dialog = tk.Toplevel(self)
+        dialog.title("Reorder Tabs")
+        dialog.transient(self)
+        dialog.grab_set()
+
+        ttk.Label(
+            dialog,
+            text="Set the order number for each tab (1 = first).",
+        ).pack(anchor="w", padx=10, pady=(10, 0))
+
+        body = ttk.Frame(dialog, padding=10)
+        body.pack(fill="both", expand=True)
+
+        rows: list[tuple[str, tk.StringVar]] = []
+        for idx, tab_id in enumerate(self.tab_order, start=1):
+            label = self.tab_registry[tab_id]["label"]
+            ttk.Label(body, text=label).grid(row=idx, column=0, sticky="w", padx=(0, 12), pady=4)
+            var = tk.StringVar(value=str(idx))
+            spin = ttk.Spinbox(body, from_=1, to=len(self.tab_order), textvariable=var, width=6)
+            spin.grid(row=idx, column=1, sticky="w", pady=4)
+            rows.append((tab_id, var))
+
+        btns = ttk.Frame(dialog, padding=(10, 0, 10, 10))
+        btns.pack(fill="x")
+
+        def apply_changes() -> None:
+            orders: dict[str, int] = {}
+            for tab_id, var in rows:
+                try:
+                    order_val = int(var.get())
+                except ValueError:
+                    messagebox.showerror("Invalid order", "Each tab must have a numeric order.")
+                    return
+                if order_val < 1 or order_val > len(self.tab_order):
+                    messagebox.showerror("Invalid order", "Order values must be within the allowed range.")
+                    return
+                orders[tab_id] = order_val
+
+            if len(set(orders.values())) != len(self.tab_order):
+                messagebox.showerror("Invalid order", "Order values must be unique.")
+                return
+
+            self.tab_order = [tid for tid, _ in sorted(orders.items(), key=lambda item: item[1])]
+            enabled_set = set(self.enabled_tabs)
+            self.enabled_tabs = [tid for tid in self.tab_order if tid in enabled_set]
+            self._save_ui_config()
+            self._rebuild_tabs()
+            self.refresh_items()
+            self.refresh_recipes()
+            self._tiers_load_from_db()
+            dialog.destroy()
+
+        ttk.Button(btns, text="Apply", command=apply_changes).pack(side="right")
+        ttk.Button(btns, text="Cancel", command=dialog.destroy).pack(side="right", padx=(0, 8))
+
     # ---------- Menu / DB handling ----------
     def _build_menu(self):
         menubar = tk.Menu(self)
@@ -122,6 +259,20 @@ class App(tk.Tk):
         filem.add_command(label="Quit", command=self.destroy)
 
         menubar.add_cascade(label="File", menu=filem)
+
+        tabs_menu = tk.Menu(menubar, tearoff=0)
+        for tab_id, meta in self.tab_registry.items():
+            var = tk.BooleanVar(value=tab_id in self.enabled_tabs)
+            self.tab_vars[tab_id] = var
+            tabs_menu.add_checkbutton(
+                label=meta["label"],
+                variable=var,
+                command=lambda tid=tab_id: self._toggle_tab(tid),
+            )
+        tabs_menu.add_separator()
+        tabs_menu.add_command(label="Reorder Tabs…", command=self._open_reorder_tabs_dialog)
+        menubar.add_cascade(label="Tabs", menu=tabs_menu)
+
         self.config(menu=menubar)
 
     def _update_title(self):
@@ -160,8 +311,10 @@ class App(tk.Tk):
         self.refresh_items()
         self.refresh_recipes()
         self._tiers_load_from_db()
-        self.items_tab._item_details_set("")
-        self.recipes_tab._recipe_details_set("")
+        if getattr(self, "items_tab", None) is not None:
+            self.items_tab._item_details_set("")
+        if getattr(self, "recipes_tab", None) is not None:
+            self.recipes_tab._recipe_details_set("")
 
     def menu_open_db(self):
         path = filedialog.askopenfilename(
@@ -289,10 +442,22 @@ class App(tk.Tk):
 
     # ---------- Tab delegates ----------
     def refresh_items(self) -> None:
-        self.items_tab.refresh_items()
+        self.items = self.conn.execute(
+            "SELECT i.id, i.key, COALESCE(i.display_name, i.key) AS name, i.kind, i.is_base, i.is_machine, i.machine_tier, i.machine_input_slots, i.machine_output_slots, "
+            "       k.name AS item_kind_name "
+            "FROM items i "
+            "LEFT JOIN item_kinds k ON k.id = i.item_kind_id "
+            "ORDER BY name"
+        ).fetchall()
+        if getattr(self, "items_tab", None) is not None:
+            self.items_tab.render_items(self.items)
+        if getattr(self, "inventory_tab", None) is not None:
+            self.inventory_tab.render_items(self.items)
 
     def refresh_recipes(self) -> None:
-        self.recipes_tab.refresh_recipes()
+        if getattr(self, "recipes_tab", None) is not None:
+            self.recipes_tab.refresh_recipes()
 
     def _tiers_load_from_db(self) -> None:
-        self.tiers_tab.load_from_db()
+        if getattr(self, "tiers_tab", None) is not None:
+            self.tiers_tab.load_from_db()

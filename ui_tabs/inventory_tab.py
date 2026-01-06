@@ -50,9 +50,9 @@ class InventoryTab(ttk.Frame):
             foreground="#666",
         ).pack(anchor="w", pady=(12, 0))
 
-    def refresh_items_list(self):
+    def render_items(self, items: list) -> None:
         self.inventory_list.delete(0, tk.END)
-        for it in self.app.items:
+        for it in items:
             self.inventory_list.insert(tk.END, it["name"])
 
     def _inventory_selected_item(self):
