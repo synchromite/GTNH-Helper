@@ -1632,9 +1632,11 @@ class ItemLineDialog(tk.Toplevel):
 
         qty_s = (self.qty_var.get() or "").strip()
         try:
-            qty = float(qty_s)
+            if not qty_s.isdigit():
+                raise ValueError
+            qty = int(qty_s)
         except ValueError:
-            messagebox.showerror("Invalid quantity", "Quantity must be a number.")
+            messagebox.showerror("Invalid quantity", "Quantity must be a whole number.")
             return
         if qty <= 0:
             messagebox.showerror("Invalid quantity", "Quantity must be > 0.")
