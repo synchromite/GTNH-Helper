@@ -639,7 +639,12 @@ class App(tk.Tk):
             self.tier_vars[t] = var
             r = i // cols
             c = i % cols
-            ttk.Checkbutton(grid, text=t, variable=var).grid(row=r, column=c, sticky="w", padx=8, pady=4)
+            ttk.Checkbutton(
+                grid,
+                text=t,
+                variable=var,
+                command=lambda tier=t: self._on_tier_toggle(tier),
+            ).grid(row=r, column=c, sticky="w", padx=8, pady=4)
 
         btns = ttk.Frame(tab)
         btns.pack(fill="x", pady=(10, 0))
@@ -668,6 +673,36 @@ class App(tk.Tk):
 
         if hasattr(self, "unlocked_6x6_var"):
             self.unlocked_6x6_var.set(self.is_crafting_6x6_unlocked())
+
+    def _on_tier_toggle(self, tier: str) -> None:
+        var = self.tier_vars.get(tier)
+        if not var:
+            return
+
+        try:
+            tier_index = ALL_TIERS.index(tier)
+        except ValueError:
+            return
+
+        if var.get():
+            for lower_tier in ALL_TIERS[: tier_index + 1]:
+                lower_var = self.tier_vars.get(lower_tier)
+                if lower_var and not lower_var.get():
+                    lower_var.set(True)
+
+            if "Steam Age" in ALL_TIERS[: tier_index + 1]:
+                if hasattr(self, "unlocked_6x6_var") and not self.unlocked_6x6_var.get():
+                    self.unlocked_6x6_var.set(True)
+        else:
+            for higher_tier in ALL_TIERS[tier_index + 1 :]:
+                higher_var = self.tier_vars.get(higher_tier)
+                if higher_var and higher_var.get():
+                    higher_var.set(False)
+
+            steam_var = self.tier_vars.get("Steam Age")
+            if steam_var is not None and not steam_var.get():
+                if hasattr(self, "unlocked_6x6_var") and self.unlocked_6x6_var.get():
+                    self.unlocked_6x6_var.set(False)
 
     def _tiers_save_to_db(self):
         enabled = [t for t, var in self.tier_vars.items() if var.get()]
