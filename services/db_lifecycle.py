@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+"""Database lifecycle helpers for content and profile DB handling."""
+
 import sqlite3
 from dataclasses import dataclass, field
 from pathlib import Path
