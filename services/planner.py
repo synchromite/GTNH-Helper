@@ -154,15 +154,22 @@ class PlannerService:
     ):
         tiers = list(enabled_tiers)
         placeholders = ",".join(["?"] * len(tiers))
+        if tiers:
+            tier_clause = f"AND (r.tier IS NULL OR TRIM(r.tier)='' OR r.tier IN ({placeholders})) "
+        else:
+            tier_clause = "AND (r.tier IS NULL OR TRIM(r.tier)='') "
         sql = (
             "SELECT r.id, r.name, r.method, r.grid_size, r.tier "
             "FROM recipes r "
             "JOIN recipe_lines rl ON rl.recipe_id = r.id "
             "WHERE rl.direction='out' AND rl.item_id=? "
-            f"AND (r.tier IS NULL OR TRIM(r.tier)='' OR r.tier IN ({placeholders})) "
+            f"{tier_clause}"
             "ORDER BY r.name"
         )
-        rows = self.conn.execute(sql, (item_id, *tiers)).fetchall()
+        params = [item_id]
+        if tiers:
+            params.extend(tiers)
+        rows = self.conn.execute(sql, params).fetchall()
         if not crafting_6x6_unlocked:
             rows = [r for r in rows if not (r["method"] == "crafting" and (r["grid_size"] or "").strip() == "6x6")]
         return rows[0] if rows else None
