@@ -86,9 +86,30 @@ class DbLifecycle:
     def set_crafting_6x6_unlocked(self, unlocked: bool) -> None:
         set_setting(self.profile_conn, SETTINGS_CRAFT_6X6_UNLOCKED, "1" if unlocked else "0")
 
+    def _profile_path_for_content(self, content_path: Path) -> Path:
+        content_path = Path(content_path)
+        base_dir = content_path.parent
+        if content_path.name == DEFAULT_DB_PATH.name:
+            return base_dir / "profile.db"
+        suffix = content_path.suffix or ".db"
+        return base_dir / f"{content_path.stem}_profile{suffix}"
+
+    def _migrate_profile_settings_if_needed(self) -> None:
+        if self.conn is None or self.profile_conn is None:
+            return
+        for key, default in (
+            (SETTINGS_ENABLED_TIERS, ""),
+            (SETTINGS_CRAFT_6X6_UNLOCKED, "0"),
+        ):
+            existing = get_setting(self.profile_conn, key, None)
+            if existing is not None:
+                continue
+            legacy_value = get_setting(self.conn, key, None)
+            if legacy_value is not None:
+                set_setting(self.profile_conn, key, legacy_value)
+
     def _open_content_db(self, path: Path) -> sqlite3.Connection:
         try:
             return connect(path, read_only=(not self.editor_enabled))
         except Exception:
             return connect(":memory:")
-
