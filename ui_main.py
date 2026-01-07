@@ -384,3 +384,7 @@ class App(tk.Tk):
     def _tiers_load_from_db(self) -> None:
         if getattr(self, "tiers_tab", None) is not None:
             self.tiers_tab.load_from_db()
+
+    def notify_inventory_change(self) -> None:
+        if getattr(self, "planner_tab", None) is not None:
+            self.planner_tab.on_inventory_changed()

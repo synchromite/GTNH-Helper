@@ -105,6 +105,7 @@ class InventoryTab(ttk.Frame):
             self.app.profile_conn.execute("DELETE FROM inventory WHERE item_id=?", (item["id"],))
             self.app.profile_conn.commit()
             self.app.status.set(f"Cleared inventory for: {item['name']}")
+            self.app.notify_inventory_change()
             return
 
         try:
@@ -130,6 +131,7 @@ class InventoryTab(ttk.Frame):
         self.app.profile_conn.commit()
         self.inventory_qty_var.set(str(qty))
         self.app.status.set(f"Saved inventory for: {item['name']}")
+        self.app.notify_inventory_change()
 
     def clear_inventory_item(self):
         self.inventory_qty_var.set("")

@@ -14,6 +14,8 @@ class PlannerTab(ttk.Frame):
 
         self.target_item_id = None
         self.target_item_kind = None
+        self.last_plan_run = False
+        self.last_plan_used_inventory = False
 
         notebook.add(self, text="Planner")
 
@@ -118,22 +120,47 @@ class PlannerTab(ttk.Frame):
         if self.target_item_id is None:
             messagebox.showinfo("Select an item", "Choose a target item first.")
             return
+        qty = self._parse_target_qty(show_errors=True)
+        if qty is None:
+            return
+
+        self._run_plan_with_qty(qty, set_status=True)
+
+    def on_inventory_changed(self) -> None:
+        if not self.last_plan_run or not self.last_plan_used_inventory or not self.use_inventory_var.get():
+            return
+        if self.target_item_id is None:
+            return
+        qty = self._parse_target_qty(show_errors=False)
+        if qty is None:
+            self.app.status.set("Planner not updated: invalid quantity.")
+            return
+        self._run_plan_with_qty(qty, set_status=False)
+
+    def _parse_target_qty(self, *, show_errors: bool) -> int | None:
         raw_qty = self.target_qty_var.get().strip()
         if raw_qty == "":
-            messagebox.showerror("Invalid quantity", "Enter a whole number.")
-            return
+            if show_errors:
+                messagebox.showerror("Invalid quantity", "Enter a whole number.")
+            return None
         try:
             qty_float = float(raw_qty)
         except ValueError:
-            messagebox.showerror("Invalid quantity", "Enter a whole number.")
-            return
+            if show_errors:
+                messagebox.showerror("Invalid quantity", "Enter a whole number.")
+            return None
         if not qty_float.is_integer() or qty_float <= 0:
-            messagebox.showerror("Invalid quantity", "Enter a whole number.")
-            return
-        qty = int(qty_float)
+            if show_errors:
+                messagebox.showerror("Invalid quantity", "Enter a whole number.")
+            return None
+        return int(qty_float)
+
+    def _run_plan_with_qty(self, qty: int, *, set_status: bool) -> None:
 
         if not self._has_recipes():
             messagebox.showinfo("No recipes", "There are no recipes to plan against.")
+            if set_status:
+                self.app.status.set("Planner failed: missing recipes")
             return
 
         result = self.planner.plan(
@@ -148,6 +175,8 @@ class PlannerTab(ttk.Frame):
             self._handle_plan_errors(result.errors)
             self._set_text(self.shopping_text, "")
             self._set_text(self.steps_text, "")
+            self.last_plan_run = False
+            self.last_plan_used_inventory = False
             self._persist_state()
             return
 
@@ -171,7 +200,10 @@ class PlannerTab(ttk.Frame):
         else:
             self._set_text(self.steps_text, "No process steps generated.")
 
-        self.app.status.set("Planner run complete")
+        self.last_plan_run = True
+        self.last_plan_used_inventory = self.use_inventory_var.get()
+        if set_status:
+            self.app.status.set("Planner run complete")
         self._persist_state()
 
     def _handle_plan_errors(self, errors: list[str]) -> None:
@@ -205,6 +237,8 @@ class PlannerTab(ttk.Frame):
     def clear_results(self):
         self._set_text(self.shopping_text, "")
         self._set_text(self.steps_text, "")
+        self.last_plan_run = False
+        self.last_plan_used_inventory = False
         self.app.status.set("Planner cleared")
         self._persist_state()
 
@@ -300,6 +334,8 @@ class PlannerTab(ttk.Frame):
             "shopping_text": self.shopping_text.get("1.0", tk.END).rstrip(),
             "steps_text": self.steps_text.get("1.0", tk.END).rstrip(),
             "show_steps": self.show_steps_var.get(),
+            "last_plan_run": self.last_plan_run,
+            "last_plan_used_inventory": self.last_plan_used_inventory,
         }
 
     def _restore_state(self) -> None:
@@ -334,6 +370,8 @@ class PlannerTab(ttk.Frame):
         self._toggle_steps_visibility(persist=False)
         self._set_text(self.shopping_text, state.get("shopping_text", ""))
         self._set_text(self.steps_text, state.get("steps_text", ""))
+        self.last_plan_run = bool(state.get("last_plan_run", bool(state.get("shopping_text") or state.get("steps_text"))))
+        self.last_plan_used_inventory = bool(state.get("last_plan_used_inventory", self.use_inventory_var.get()))
 
     def reset_state(self) -> None:
         self.target_item_id = None
@@ -343,6 +381,8 @@ class PlannerTab(ttk.Frame):
         self.target_qty_unit.set("")
         self.use_inventory_var.set(True)
         self.show_steps_var.set(True)
+        self.last_plan_run = False
+        self.last_plan_used_inventory = False
         self._toggle_steps_visibility(persist=False)
         self._set_text(self.shopping_text, "Run a plan to see required items.")
         self._set_text(self.steps_text, "Run a plan to see steps.")
