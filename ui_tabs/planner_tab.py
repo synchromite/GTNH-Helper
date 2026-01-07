@@ -173,6 +173,7 @@ class PlannerTab(ttk.Frame):
             return
         self._run_plan_with_qty(qty, set_status=False)
         self._refresh_build_inventory()
+        self._refresh_build_steps_on_inventory_change(qty)
 
     def _parse_target_qty(self, *, show_errors: bool) -> int | None:
         raw_qty = self.target_qty_var.get().strip()
@@ -417,6 +418,29 @@ class PlannerTab(ttk.Frame):
             self.build_base_inventory = self.planner.load_inventory()
         else:
             self.build_base_inventory = {}
+        self._recalculate_build_steps()
+
+    def _refresh_build_steps_on_inventory_change(self, qty: int) -> None:
+        if not self.build_steps or not self.use_inventory_var.get():
+            return
+        if not self._has_recipes():
+            return
+
+        result = self.planner.plan(
+            self.target_item_id,
+            qty,
+            use_inventory=self.use_inventory_var.get(),
+            enabled_tiers=self.app.get_enabled_tiers(),
+            crafting_6x6_unlocked=self.app.is_crafting_6x6_unlocked(),
+        )
+        if result.errors:
+            self.app.status.set("Build steps not updated: missing recipe")
+            return
+        self.build_base_inventory = self.planner.load_inventory()
+        self.build_steps = result.steps
+        self.build_completed_steps = set()
+        self._build_step_dependencies()
+        self._render_build_steps()
         self._recalculate_build_steps()
 
     def reset_build_steps(self) -> None:
