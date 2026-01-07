@@ -128,6 +128,7 @@ class PlannerTab(ttk.Frame):
             "<Configure>",
             lambda _e: self.build_canvas.configure(scrollregion=self.build_canvas.bbox("all")),
         )
+        self._bind_mousewheel(self.build_canvas)
         self._set_build_placeholder("Run a plan, then click Build to get step-by-step instructions.")
         self._restore_state()
 
@@ -340,6 +341,31 @@ class PlannerTab(ttk.Frame):
         self.build_step_vars = []
         self.build_step_checks = []
         self.build_step_labels = []
+
+    def _bind_mousewheel(self, widget: tk.Widget) -> None:
+        widget.bind_all("<MouseWheel>", self._on_mousewheel, add="+")
+        widget.bind_all("<Button-4>", self._on_mousewheel, add="+")
+        widget.bind_all("<Button-5>", self._on_mousewheel, add="+")
+
+    def _is_descendant(self, widget: tk.Widget | None, ancestor: tk.Widget) -> bool:
+        while widget is not None:
+            if widget == ancestor:
+                return True
+            widget = widget.master
+        return False
+
+    def _on_mousewheel(self, event) -> None:
+        widget_at = self.winfo_containing(event.x_root, event.y_root)
+        if not self._is_descendant(widget_at, self.build_canvas):
+            return
+        if event.num == 4:
+            delta = -1
+        elif event.num == 5:
+            delta = 1
+        else:
+            delta = -1 * int(event.delta / 120) if event.delta else 0
+        if delta:
+            self.build_canvas.yview_scroll(delta, "units")
 
     def _on_build_step_toggle(self, idx: int) -> None:
         if idx < 0 or idx >= len(self.build_steps):
