@@ -1,3 +1,4 @@
+import json
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 
@@ -41,7 +42,9 @@ class PlannerTab(ttk.Frame):
         btns = ttk.Frame(controls)
         btns.grid(row=0, column=3, rowspan=3, sticky="e", padx=(20, 0))
         ttk.Button(btns, text="Plan", command=self.run_plan).pack(anchor="e", pady=(0, 6))
-        ttk.Button(btns, text="Clear", command=self.clear_results).pack(anchor="e")
+        ttk.Button(btns, text="Clear", command=self.clear_results).pack(anchor="e", pady=(0, 6))
+        ttk.Button(btns, text="Save Plan…", command=self.save_plan).pack(anchor="e", pady=(0, 6))
+        ttk.Button(btns, text="Load Plan…", command=self.load_plan).pack(anchor="e")
 
         controls.columnconfigure(1, weight=1)
 
@@ -188,11 +191,15 @@ class PlannerTab(ttk.Frame):
         self.app.status.set("Planner failed: missing recipe")
 
     def _toggle_steps(self):
+        self._toggle_steps_visibility()
+
+    def _toggle_steps_visibility(self, *, persist: bool = True) -> None:
         if self.show_steps_var.get():
             self.steps_text.pack(fill="both", expand=True)
         else:
             self.steps_text.pack_forget()
-        self._persist_state()
+        if persist:
+            self._persist_state()
 
     def clear_results(self):
         self._set_text(self.shopping_text, "")
@@ -236,8 +243,53 @@ class PlannerTab(ttk.Frame):
             return
         self.app.status.set(f"Saved planner output to {path}")
 
+    def save_plan(self) -> None:
+        state = self._current_state()
+        if not state.get("shopping_text") and not state.get("steps_text"):
+            messagebox.showinfo("Nothing to save", "Run a plan or load content before saving.")
+            return
+        path = filedialog.asksaveasfilename(
+            title="Save Plan",
+            defaultextension=".json",
+            initialfile="planner_plan.json",
+            filetypes=[("Planner Plan", "*.json"), ("All Files", "*")],
+        )
+        if not path:
+            return
+        try:
+            with open(path, "w", encoding="utf-8") as handle:
+                json.dump(state, handle, indent=2)
+        except Exception as exc:
+            messagebox.showerror("Save failed", f"Could not save plan.\n\nDetails: {exc}")
+            return
+        self.app.status.set(f"Saved planner plan to {path}")
+
+    def load_plan(self) -> None:
+        path = filedialog.askopenfilename(
+            title="Load Plan",
+            filetypes=[("Planner Plan", "*.json"), ("All Files", "*")],
+        )
+        if not path:
+            return
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                data = json.load(handle)
+        except Exception as exc:
+            messagebox.showerror("Load failed", f"Could not read plan.\n\nDetails: {exc}")
+            return
+        if not isinstance(data, dict):
+            messagebox.showerror("Load failed", "Plan file is not valid.")
+            return
+        self._apply_loaded_state(data)
+        self._persist_state()
+        self.app.status.set(f"Loaded planner plan from {path}")
+
     def _persist_state(self) -> None:
-        self.app.planner_state = {
+        self.app.planner_state = self._current_state()
+
+    def _current_state(self) -> dict[str, object]:
+        return {
+            "version": 1,
             "target_item_id": self.target_item_id,
             "target_item_kind": self.target_item_kind,
             "target_item_name": self.target_item_name.get(),
@@ -253,14 +305,32 @@ class PlannerTab(ttk.Frame):
         state = getattr(self.app, "planner_state", {}) or {}
         if not state:
             return
-        self.target_item_id = state.get("target_item_id")
-        self.target_item_kind = state.get("target_item_kind")
-        self.target_item_name.set(state.get("target_item_name") or "(none)")
+        self._apply_loaded_state(state)
+
+    def _apply_loaded_state(self, state: dict[str, object]) -> None:
+        item_id = state.get("target_item_id")
+        item_name = state.get("target_item_name") or "(none)"
+        item_kind = state.get("target_item_kind")
+        matched = None
+        if item_id is not None:
+            matched = next((item for item in self.app.items if item["id"] == item_id), None)
+        if matched is None and item_name:
+            matched = next((item for item in self.app.items if item["name"] == item_name), None)
+        if matched:
+            self.target_item_id = matched["id"]
+            self.target_item_kind = matched["kind"]
+            self.target_item_name.set(matched["name"])
+            self.target_qty_unit.set(self._unit_for_kind(matched["kind"]))
+        else:
+            self.target_item_id = item_id if isinstance(item_id, int) else None
+            self.target_item_kind = item_kind if isinstance(item_kind, str) else None
+            self.target_item_name.set(item_name)
+            self.target_qty_unit.set(state.get("target_unit") or "")
+
         self.target_qty_var.set(state.get("target_qty") or "1")
-        self.target_qty_unit.set(state.get("target_unit") or "")
         self.use_inventory_var.set(bool(state.get("use_inventory", True)))
         self.show_steps_var.set(bool(state.get("show_steps", True)))
-        self._toggle_steps()
+        self._toggle_steps_visibility(persist=False)
         self._set_text(self.shopping_text, state.get("shopping_text", ""))
         self._set_text(self.steps_text, state.get("steps_text", ""))
 
@@ -272,7 +342,7 @@ class PlannerTab(ttk.Frame):
         self.target_qty_unit.set("")
         self.use_inventory_var.set(True)
         self.show_steps_var.set(True)
-        self._toggle_steps()
+        self._toggle_steps_visibility(persist=False)
         self._set_text(self.shopping_text, "Run a plan to see required items.")
         self._set_text(self.steps_text, "Run a plan to see steps.")
 
@@ -282,3 +352,6 @@ class PlannerTab(ttk.Frame):
         except Exception:
             return False
         return bool(row and int(row["c"] or 0) > 0)
+
+    def _unit_for_kind(self, kind: str | None) -> str:
+        return "L" if (kind or "").strip().lower() == "fluid" else "count"
