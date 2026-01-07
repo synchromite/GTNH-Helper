@@ -161,8 +161,9 @@ class PlannerTab(ttk.Frame):
             steps_lines = []
             for idx, step in enumerate(result.steps, start=1):
                 inputs = ", ".join([f"{name} × {qty} {unit}" for name, qty, unit in step.inputs])
+                input_names = " + ".join([name for name, _, _ in step.inputs]) if step.inputs else "(none)"
                 steps_lines.append(
-                    f"{idx}. {step.recipe_name} → {step.output_item_name} "
+                    f"{idx}. {input_names} → {step.output_item_name} "
                     f"(x{step.multiplier}, output {step.output_qty})\n"
                     f"   Inputs: {inputs if inputs else '(none)'}"
                 )
