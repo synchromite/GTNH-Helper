@@ -1,5 +1,6 @@
 __pycache__/
 *~
+*.db
 *.pyc
 .enable_editor
 gtnh.db
