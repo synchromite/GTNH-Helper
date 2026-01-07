@@ -1,6 +1,6 @@
 import json
 import tkinter as tk
-from tkinter import ttk, messagebox, filedialog
+from tkinter import ttk, messagebox, filedialog, simpledialog
 
 from services.planner import PlannerService
 from ui_dialogs import AddRecipeDialog, ItemPickerDialog
@@ -376,9 +376,14 @@ class PlannerTab(ttk.Frame):
         if idx < 0 or idx >= len(self.build_steps):
             return
         if self.build_step_vars[idx].get():
+            if self.use_inventory_var.get() and not self._apply_step_inventory(idx):
+                self.build_step_vars[idx].set(False)
+                return
             self.build_completed_steps.add(idx)
             self._mark_dependency_chain(idx)
         else:
+            if self.use_inventory_var.get() and idx in self.build_completed_steps:
+                self._apply_step_inventory(idx, reverse=True)
             self.build_completed_steps.discard(idx)
         self._recalculate_build_steps()
 
@@ -442,6 +447,84 @@ class PlannerTab(ttk.Frame):
         self._build_step_dependencies()
         self._render_build_steps()
         self._recalculate_build_steps()
+
+    def _apply_step_inventory(self, idx: int, *, reverse: bool = False) -> bool:
+        step = self.build_steps[idx]
+        if not reverse:
+            inventory = self._effective_build_inventory()
+            missing = []
+            for item_id, name, qty, unit in step.inputs:
+                available = inventory.get(item_id, 0)
+                if available < qty:
+                    missing.append((item_id, name, qty, unit, available))
+
+            if missing:
+                missing_lines = [
+                    f"{name}: need {qty} {unit}, have {available}"
+                    for _item_id, name, qty, unit, available in missing
+                ]
+                message = "You don't have enough inventory to complete this step:\n\n" + "\n".join(missing_lines)
+                if not messagebox.askyesno("Missing inventory", f"{message}\n\nAdd missing items to inventory?"):
+                    messagebox.showinfo("Build step blocked", "Step not checked off due to missing inventory.")
+                    return False
+
+                for item_id, name, qty, unit, available in missing:
+                    add_qty = simpledialog.askinteger(
+                        "Add inventory",
+                        f"Add how many {name} ({unit})?\nMissing {qty - available} {unit}.",
+                        initialvalue=max(qty - available, 0),
+                        minvalue=0,
+                    )
+                    if add_qty:
+                        self._adjust_inventory_qty(item_id, add_qty)
+
+                self.build_base_inventory = self.planner.load_inventory()
+                inventory = self._effective_build_inventory()
+                still_missing = [
+                    (item_id, name, qty, unit, inventory.get(item_id, 0))
+                    for item_id, name, qty, unit, _available in missing
+                    if inventory.get(item_id, 0) < qty
+                ]
+                if still_missing:
+                    messagebox.showinfo("Build step blocked", "Step not checked off due to missing inventory.")
+                    return False
+
+        direction = -1 if reverse else 1
+        for item_id, _name, qty, _unit in step.inputs:
+            self._adjust_inventory_qty(item_id, -qty * direction)
+
+        output_qty = step.output_qty * step.multiplier
+        self._adjust_inventory_qty(step.output_item_id, output_qty * direction)
+        self.build_base_inventory = self.planner.load_inventory()
+        return True
+
+    def _adjust_inventory_qty(self, item_id: int, delta: int) -> None:
+        item = next((item for item in self.app.items if item["id"] == item_id), None)
+        if not item:
+            return
+        column = "qty_liters" if (item["kind"] or "").strip().lower() == "fluid" else "qty_count"
+        row = self.app.profile_conn.execute(
+            f"SELECT {column} FROM inventory WHERE item_id=?",
+            (item_id,),
+        ).fetchone()
+        current = 0
+        if row and row[column] is not None:
+            try:
+                current = int(float(row[column]))
+            except (TypeError, ValueError):
+                current = 0
+        new_qty = max(current + delta, 0)
+        if new_qty <= 0:
+            self.app.profile_conn.execute("DELETE FROM inventory WHERE item_id=?", (item_id,))
+        else:
+            count_val = new_qty if column == "qty_count" else None
+            liter_val = new_qty if column == "qty_liters" else None
+            self.app.profile_conn.execute(
+                "INSERT INTO inventory(item_id, qty_count, qty_liters) VALUES(?, ?, ?) "
+                "ON CONFLICT(item_id) DO UPDATE SET qty_count=excluded.qty_count, qty_liters=excluded.qty_liters",
+                (item_id, count_val, liter_val),
+            )
+        self.app.profile_conn.commit()
 
     def reset_build_steps(self) -> None:
         if not self.build_steps:
