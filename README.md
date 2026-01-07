@@ -10,7 +10,7 @@ A recipe database browser and inventory helper for GregTech New Horizons.
 - **Tier filtering**: (and 6x6 crafting unlock toggle) to narrow the recipe list.
 - **Tab customization**: enable/disable tabs and reorder them from the **Tabs** menu.
 - **Editor mode**: (optional) to add/edit/delete items and recipes.
-- **Recipe Planner**: Plan Recipes based on what you have in inventory. Punch in a complex recipe and it will go thru the process till it find's either something in your inventory or until it finds a base item, like an ore.  Then it gives you a shopping list letting you know what you need to gather.
+- **Recipe Planner**: Plan Recipes based on what you have in inventory. Punch in a complex recipe and it will go thru the process till it find's either something in your inventory or until it finds a     base item, like an ore.  Then it gives you a shopping list letting you know what you need to gather. Now includes a Build button. It will give you all the build steps and how many resources are       required for that build step. It intelligently tracks what you have in your inventory. As you add things to the inventory, items will get check off in the Build tracker.
 
 ## Modes
 The app runs in **client mode** by default:
