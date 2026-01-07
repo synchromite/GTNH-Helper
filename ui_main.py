@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 import datetime
-import json
 from pathlib import Path
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 
-from services.db import connect, connect_profile, get_setting, set_setting, DEFAULT_DB_PATH, export_db, merge_database
-from ui_constants import SETTINGS_CRAFT_6X6_UNLOCKED, SETTINGS_ENABLED_TIERS
+from services.db import DEFAULT_DB_PATH
+from services.db_lifecycle import DbLifecycle
+from services.items import fetch_items
+from services.tab_config import apply_tab_reorder, config_path, load_tab_config, save_tab_config
 from ui_tabs.inventory_tab import InventoryTab
 from ui_tabs.items_tab import ItemsTab
 from ui_tabs.planner_tab import PlannerTab
@@ -23,17 +24,8 @@ class App(tk.Tk):
         # next to this script enables editor capabilities.
         self.editor_enabled = self._detect_editor_enabled()
 
-        self.db_path: Path = DEFAULT_DB_PATH
-        self.conn = self._open_content_db(self.db_path)
-
-        # Per-user profile DB (stores tiers/unlocks/etc). Kept separate from content
-        # so players can keep progress across content DB updates.
-        self.profile_db_path: Path = self._profile_path_for_content(self.db_path)
-        self.profile_conn = connect_profile(self.profile_db_path)
-
-        # Backward-compat: older versions stored tiers/unlocks in the content DB.
-        # If we detect those and the profile is empty, copy them over.
-        self._migrate_profile_settings_if_needed()
+        self.db = DbLifecycle(editor_enabled=self.editor_enabled, db_path=DEFAULT_DB_PATH)
+        self._sync_db_handles()
 
         self.status = tk.StringVar(value="Ready")
 
@@ -73,85 +65,29 @@ class App(tk.Tk):
         except Exception:
             return False
 
-    def _profile_path_for_content(self, content_path: Path) -> Path:
-        try:
-            content_path = Path(content_path)
-            # Keep the profile next to the content DB for portability.
-            new_path = content_path.with_name("profile.db")
-            legacy_stem = content_path.stem or "gtnh"
-            legacy_path = content_path.with_name(f"{legacy_stem}.profile.db")
-            if legacy_path.exists() and not new_path.exists():
-                try:
-                    legacy_path.rename(new_path)
-                except Exception:
-                    return legacy_path
-            return new_path
-        except Exception:
-            return Path("profile.db")
-
-    def _open_content_db(self, path: Path):
-        """Open content DB respecting client/editor mode.
-
-        In client mode, we open the content DB read-only. If the file does not
-        exist yet, we fall back to an empty in-memory DB and prompt the user to
-        open a content DB.
-        """
-        try:
-            return connect(path, read_only=(not self.editor_enabled))
-        except Exception:
-            # Client-mode bootstrap: allow the app to start even without a DB.
-            # Users can File -> Open DB… to select the shipped content DB.
-            return connect(":memory:")
-
-    def _migrate_profile_settings_if_needed(self) -> None:
-        """One-time migration from content DB -> profile DB."""
-        try:
-            for k in (SETTINGS_ENABLED_TIERS, SETTINGS_CRAFT_6X6_UNLOCKED):
-                prof_v = get_setting(self.profile_conn, k, None)
-                if prof_v is not None and str(prof_v).strip() != "":
-                    continue
-                src_v = get_setting(self.conn, k, None)
-                if src_v is None or str(src_v).strip() == "":
-                    continue
-                set_setting(self.profile_conn, k, str(src_v))
-        except Exception:
-            # Non-fatal: worst case users re-check tiers once.
-            pass
+    def _sync_db_handles(self) -> None:
+        self.db_path = self.db.db_path
+        self.profile_db_path = self.db.profile_db_path
+        self.conn = self.db.conn
+        self.profile_conn = self.db.profile_conn
 
     # ---------- Tab configuration ----------
     def _config_path(self) -> Path:
         try:
             here = Path(__file__).resolve().parent
-            return here / "ui_config.json"
+            return config_path(here)
         except Exception:
-            return Path("ui_config.json")
+            return config_path(Path("."))
 
     def _load_ui_config(self) -> tuple[list[str], list[str]]:
-        default_order = list(self.tab_registry.keys())
-        default_enabled = list(default_order)
         path = self._config_path()
-        try:
-            raw = json.loads(path.read_text())
-        except Exception:
-            return default_order, default_enabled
-
-        order = raw.get("tab_order", default_order)
-        enabled = raw.get("enabled_tabs", default_enabled)
-        order = [tid for tid in order if tid in self.tab_registry]
-        for tid in default_order:
-            if tid not in order:
-                order.append(tid)
-        enabled = [tid for tid in enabled if tid in self.tab_registry]
-        if not enabled:
-            enabled = list(default_enabled)
-        enabled_ordered = [tid for tid in order if tid in enabled]
-        return order, enabled_ordered
+        config = load_tab_config(path, self.tab_registry.keys())
+        return config.order, config.enabled
 
     def _save_ui_config(self) -> None:
         path = self._config_path()
-        data = {"enabled_tabs": self.enabled_tabs, "tab_order": self.tab_order}
         try:
-            path.write_text(json.dumps(data, indent=2))
+            save_tab_config(path, self.tab_order, self.enabled_tabs)
         except Exception as exc:
             messagebox.showwarning("Config save failed", f"Could not save tab preferences.\n\nDetails: {exc}")
 
@@ -226,18 +162,16 @@ class App(tk.Tk):
                 except ValueError:
                     messagebox.showerror("Invalid order", "Each tab must have a numeric order.")
                     return
-                if order_val < 1 or order_val > len(self.tab_order):
-                    messagebox.showerror("Invalid order", "Order values must be within the allowed range.")
-                    return
                 orders[tab_id] = order_val
 
-            if len(set(orders.values())) != len(self.tab_order):
-                messagebox.showerror("Invalid order", "Order values must be unique.")
+            try:
+                config = apply_tab_reorder(self.tab_order, self.enabled_tabs, orders)
+            except ValueError as exc:
+                messagebox.showerror("Invalid order", str(exc))
                 return
 
-            self.tab_order = [tid for tid, _ in sorted(orders.items(), key=lambda item: item[1])]
-            enabled_set = set(self.enabled_tabs)
-            self.enabled_tabs = [tid for tid in self.tab_order if tid in enabled_set]
+            self.tab_order = config.order
+            self.enabled_tabs = config.enabled
             self._save_ui_config()
             self._rebuild_tabs()
             self.refresh_items()
@@ -292,28 +226,16 @@ class App(tk.Tk):
         mode = "Editor" if self.editor_enabled else "Client"
         self.title(f"GTNH Recipe DB — {mode} — {name}")
 
+    def destroy(self):
+        try:
+            self.db.close()
+        finally:
+            super().destroy()
+
     def _switch_db(self, new_path: Path):
         """Close current DB connection and open a new one."""
-        try:
-            if getattr(self, "conn", None) is not None:
-                self.conn.commit()
-                self.conn.close()
-        except Exception:
-            pass
-
-        try:
-            if getattr(self, "profile_conn", None) is not None:
-                self.profile_conn.commit()
-                self.profile_conn.close()
-        except Exception:
-            pass
-
-        self.db_path = Path(new_path)
-        self.conn = self._open_content_db(self.db_path)
-
-        self.profile_db_path = self._profile_path_for_content(self.db_path)
-        self.profile_conn = connect_profile(self.profile_db_path)
-        self._migrate_profile_settings_if_needed()
+        self.db.switch_db(Path(new_path))
+        self._sync_db_handles()
         self._update_title()
 
         # Reload UI from the new DB
@@ -362,7 +284,7 @@ class App(tk.Tk):
         if not path:
             return
         try:
-            export_db(self.conn, Path(path))
+            self.db.export_content_db(Path(path))
         except Exception as e:
             messagebox.showerror("Export failed", f"Could not export DB.\n\nDetails: {e}")
             return
@@ -381,7 +303,7 @@ class App(tk.Tk):
         if not path:
             return
         try:
-            export_db(self.profile_conn, Path(path))
+            self.db.export_profile_db(Path(path))
         except Exception as e:
             messagebox.showerror("Export failed", f"Could not export profile DB.\n\nDetails: {e}")
             return
@@ -410,7 +332,7 @@ class App(tk.Tk):
             return
 
         try:
-            stats = merge_database(self.conn, Path(path))
+            stats = self.db.merge_db(Path(path))
         except Exception as e:
             messagebox.showerror("Merge failed", f"Could not merge DB.\n\nDetails: {e}")
             return
@@ -431,36 +353,21 @@ class App(tk.Tk):
 
     # ---------- Tiers ----------
     def get_enabled_tiers(self):
-        # Stored per-player in the profile DB.
-        raw = get_setting(self.profile_conn, SETTINGS_ENABLED_TIERS, "")
-        if not raw:
-            return ["Stone Age"]  # default on first run
-        tiers = [t.strip() for t in raw.split(",") if t.strip()]
-        return tiers if tiers else ["Stone Age"]
+        return self.db.get_enabled_tiers()
 
     def set_enabled_tiers(self, tiers: list[str]):
-        set_setting(self.profile_conn, SETTINGS_ENABLED_TIERS, ",".join(tiers))
+        self.db.set_enabled_tiers(tiers)
 
     # ---------- Crafting grid unlocks ----------
     def is_crafting_6x6_unlocked(self) -> bool:
-        raw = (get_setting(self.profile_conn, SETTINGS_CRAFT_6X6_UNLOCKED, "0") or "0").strip()
-        return raw == "1"
+        return self.db.is_crafting_6x6_unlocked()
 
     def set_crafting_6x6_unlocked(self, unlocked: bool) -> None:
-        set_setting(self.profile_conn, SETTINGS_CRAFT_6X6_UNLOCKED, "1" if unlocked else "0")
+        self.db.set_crafting_6x6_unlocked(unlocked)
 
     # ---------- Tab delegates ----------
     def refresh_items(self) -> None:
-        self.items = self.conn.execute(
-            "SELECT i.id, i.key, COALESCE(i.display_name, i.key) AS name, i.kind, i.is_base, i.is_machine, i.machine_tier, "
-            "       i.machine_input_slots, i.machine_output_slots, i.machine_storage_slots, i.machine_power_slots, "
-            "       i.machine_circuit_slots, i.machine_input_tanks, i.machine_input_tank_capacity_l, "
-            "       i.machine_output_tanks, i.machine_output_tank_capacity_l, "
-            "       k.name AS item_kind_name "
-            "FROM items i "
-            "LEFT JOIN item_kinds k ON k.id = i.item_kind_id "
-            "ORDER BY name"
-        ).fetchall()
+        self.items = fetch_items(self.conn)
         if getattr(self, "items_tab", None) is not None:
             self.items_tab.render_items(self.items)
         if getattr(self, "inventory_tab", None) is not None:

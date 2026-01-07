@@ -1,0 +1,119 @@
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from pathlib import Path
+import sqlite3
+
+from services.db import (
+    DEFAULT_DB_PATH,
+    connect,
+    connect_profile,
+    export_db,
+    get_setting,
+    merge_database,
+    set_setting,
+)
+from ui_constants import SETTINGS_CRAFT_6X6_UNLOCKED, SETTINGS_ENABLED_TIERS
+
+
+@dataclass
+class DbLifecycle:
+    editor_enabled: bool
+    db_path: Path = DEFAULT_DB_PATH
+    conn: sqlite3.Connection | None = field(init=False, default=None)
+    profile_db_path: Path | None = field(init=False, default=None)
+    profile_conn: sqlite3.Connection | None = field(init=False, default=None)
+
+    def __post_init__(self) -> None:
+        self.db_path = Path(self.db_path)
+        self.conn = self._open_content_db(self.db_path)
+        self.profile_db_path = self._profile_path_for_content(self.db_path)
+        self.profile_conn = connect_profile(self.profile_db_path)
+        self._migrate_profile_settings_if_needed()
+
+    def close(self) -> None:
+        try:
+            if self.conn is not None:
+                self.conn.commit()
+                self.conn.close()
+        except Exception:
+            pass
+        finally:
+            self.conn = None
+
+        try:
+            if self.profile_conn is not None:
+                self.profile_conn.commit()
+                self.profile_conn.close()
+        except Exception:
+            pass
+        finally:
+            self.profile_conn = None
+
+    def switch_db(self, new_path: Path) -> None:
+        self.close()
+        self.db_path = Path(new_path)
+        self.conn = self._open_content_db(self.db_path)
+        self.profile_db_path = self._profile_path_for_content(self.db_path)
+        self.profile_conn = connect_profile(self.profile_db_path)
+        self._migrate_profile_settings_if_needed()
+
+    def export_content_db(self, target: Path) -> None:
+        export_db(self.conn, target)
+
+    def export_profile_db(self, target: Path) -> None:
+        export_db(self.profile_conn, target)
+
+    def merge_db(self, source: Path) -> dict:
+        return merge_database(self.conn, source)
+
+    def get_enabled_tiers(self) -> list[str]:
+        raw = get_setting(self.profile_conn, SETTINGS_ENABLED_TIERS, "")
+        if not raw:
+            return ["Stone Age"]
+        tiers = [t.strip() for t in raw.split(",") if t.strip()]
+        return tiers if tiers else ["Stone Age"]
+
+    def set_enabled_tiers(self, tiers: list[str]) -> None:
+        set_setting(self.profile_conn, SETTINGS_ENABLED_TIERS, ",".join(tiers))
+
+    def is_crafting_6x6_unlocked(self) -> bool:
+        raw = (get_setting(self.profile_conn, SETTINGS_CRAFT_6X6_UNLOCKED, "0") or "0").strip()
+        return raw == "1"
+
+    def set_crafting_6x6_unlocked(self, unlocked: bool) -> None:
+        set_setting(self.profile_conn, SETTINGS_CRAFT_6X6_UNLOCKED, "1" if unlocked else "0")
+
+    def _open_content_db(self, path: Path):
+        try:
+            return connect(path, read_only=(not self.editor_enabled))
+        except Exception:
+            return connect(":memory:")
+
+    def _profile_path_for_content(self, content_path: Path) -> Path:
+        try:
+            content_path = Path(content_path)
+            new_path = content_path.with_name("profile.db")
+            legacy_stem = content_path.stem or "gtnh"
+            legacy_path = content_path.with_name(f"{legacy_stem}.profile.db")
+            if legacy_path.exists() and not new_path.exists():
+                try:
+                    legacy_path.rename(new_path)
+                except Exception:
+                    return legacy_path
+            return new_path
+        except Exception:
+            return Path("profile.db")
+
+    def _migrate_profile_settings_if_needed(self) -> None:
+        try:
+            for key in (SETTINGS_ENABLED_TIERS, SETTINGS_CRAFT_6X6_UNLOCKED):
+                prof_val = get_setting(self.profile_conn, key, None)
+                if prof_val is not None and str(prof_val).strip() != "":
+                    continue
+                src_val = get_setting(self.conn, key, None)
+                if src_val is None or str(src_val).strip() == "":
+                    continue
+                set_setting(self.profile_conn, key, str(src_val))
+        except Exception:
+            pass
