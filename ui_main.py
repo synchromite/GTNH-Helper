@@ -3,7 +3,7 @@ import datetime
 import sys
 from pathlib import Path
 
-from PySide6 import QtCore, QtWidgets
+from PySide6 import QtCore, QtGui, QtWidgets
 
 from services.db import DEFAULT_DB_PATH
 from services.db_lifecycle import DbLifecycle
@@ -77,7 +77,7 @@ class App(QtWidgets.QMainWindow):
             "tiers": {"label": "Tiers"},
         }
         self.tab_order, self.enabled_tabs = self._load_ui_config()
-        self.tab_actions: dict[str, QtWidgets.QAction] = {}
+        self.tab_actions: dict[str, QtGui.QAction] = {}
         self.tab_widgets: dict[str, QtWidgets.QWidget] = {}
 
         self._build_menu()
@@ -206,7 +206,7 @@ class App(QtWidgets.QMainWindow):
 
         tabs_menu = menubar.addMenu("Tabs")
         for tab_id, meta in self.tab_registry.items():
-            action = QtWidgets.QAction(meta["label"], self)
+            action = QtGui.QAction(meta["label"], self)
             action.setCheckable(True)
             action.setChecked(tab_id in self.enabled_tabs)
             action.toggled.connect(lambda checked, tid=tab_id: self._toggle_tab(tid, checked))
