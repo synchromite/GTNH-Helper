@@ -1,12 +1,8 @@
 __pycache__/
 *~
 *.db
+*.json
 *.pyc
 .enable_editor
-gtnh.db
-gtnh.profile.db
-gtnh.profile.profile.db
 gtnh_export*
 gtnh_profile*
-README.md
-LICENSE
