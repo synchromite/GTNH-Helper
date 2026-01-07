@@ -455,7 +455,7 @@ class PlannerTab(ttk.Frame):
         self._toggle_steps_visibility()
 
     def _toggle_steps_visibility(self, *, persist: bool = True) -> None:
-        panes = set(self.results_pane.panes())
+        panes = {str(pane) for pane in self.results_pane.panes()}
         steps_id = str(self.steps_frame)
         if self.show_steps_var.get():
             if steps_id not in panes:
