@@ -362,7 +362,10 @@ class PlannerTab(ttk.Frame):
         return False
 
     def _on_mousewheel(self, event) -> None:
-        widget_at = self.winfo_containing(event.x_root, event.y_root)
+        try:
+            widget_at = self.winfo_containing(event.x_root, event.y_root)
+        except KeyError:
+            return
         if not self._is_descendant(widget_at, self.build_canvas):
             return
         if event.num == 4:
