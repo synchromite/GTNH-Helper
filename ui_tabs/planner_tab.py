@@ -331,10 +331,10 @@ class PlannerTab(ttk.Frame):
             machine_line = f"Machine: {machine_name}"
         circuit_text = "(none)" if step.circuit in (None, "") else step.circuit
         return (
-            f"{idx}. Output: {step.output_item_name} × {total_output} {step.output_unit}\n"
+            f"{idx}. Inputs: {inputs_text}\n"
             f"   {machine_line}\n"
             f"   Circuit: {circuit_text}\n"
-            f"   Inputs: {inputs_text}"
+            f"   Output: {step.output_item_name} × {total_output} {step.output_unit}"
         )
 
     def _set_build_placeholder(self, text: str) -> None:
