@@ -1,0 +1,90 @@
+import sqlite3
+
+import pytest
+
+from services.db import ensure_schema, connect_profile
+from services.planner import PlannerService
+
+
+def _setup_conn():
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    ensure_schema(conn)
+    return conn
+
+
+def _insert_item(conn, *, key, name, kind="item", is_base=0):
+    conn.execute(
+        "INSERT INTO items(key, display_name, kind, is_base) VALUES(?,?,?,?)",
+        (key, name, kind, is_base),
+    )
+    return conn.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
+
+
+def _insert_recipe(conn, *, name, method="crafting"):
+    conn.execute(
+        "INSERT INTO recipes(name, method) VALUES(?, ?)",
+        (name, method),
+    )
+    return conn.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
+
+
+def _insert_line(conn, *, recipe_id, direction, item_id, qty_count=None, qty_liters=None):
+    conn.execute(
+        "INSERT INTO recipe_lines(recipe_id, direction, item_id, qty_count, qty_liters) "
+        "VALUES(?,?,?,?,?)",
+        (recipe_id, direction, item_id, qty_count, qty_liters),
+    )
+
+
+def test_plan_simple_chain_with_inventory_override():
+    conn = _setup_conn()
+    profile_conn = connect_profile(":memory:")
+
+    item_a = _insert_item(conn, key="item_a", name="Item A", is_base=1)
+    item_b = _insert_item(conn, key="item_b", name="Item B")
+    item_c = _insert_item(conn, key="item_c", name="Item C")
+
+    recipe_b = _insert_recipe(conn, name="Make B")
+    _insert_line(conn, recipe_id=recipe_b, direction="out", item_id=item_b, qty_count=1)
+    _insert_line(conn, recipe_id=recipe_b, direction="in", item_id=item_a, qty_count=2)
+
+    recipe_c = _insert_recipe(conn, name="Make C")
+    _insert_line(conn, recipe_id=recipe_c, direction="out", item_id=item_c, qty_count=1)
+    _insert_line(conn, recipe_id=recipe_c, direction="in", item_id=item_b, qty_count=1)
+
+    planner = PlannerService(conn, profile_conn)
+    result = planner.plan(
+        item_c,
+        1,
+        use_inventory=True,
+        enabled_tiers=[],
+        crafting_6x6_unlocked=True,
+        inventory_override={item_a: 1},
+    )
+
+    assert result.errors == []
+    assert result.missing_recipes == []
+    assert result.shopping_list == [("Item A", 1, "count")]
+    assert [step.output_item_name for step in result.steps] == ["Item B", "Item C"]
+
+
+def test_plan_missing_recipe_reports_error():
+    conn = _setup_conn()
+    profile_conn = connect_profile(":memory:")
+
+    item_a = _insert_item(conn, key="item_a", name="Item A")
+
+    planner = PlannerService(conn, profile_conn)
+    result = planner.plan(
+        item_a,
+        3,
+        use_inventory=False,
+        enabled_tiers=[],
+        crafting_6x6_unlocked=True,
+    )
+
+    assert result.errors == ["No recipe found for Item A."]
+    assert result.missing_recipes == [(item_a, "Item A", 3)]
+    assert result.steps == []
+    assert result.shopping_list == []
