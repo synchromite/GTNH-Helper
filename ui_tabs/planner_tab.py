@@ -58,11 +58,13 @@ class PlannerTab(ttk.Frame):
 
         controls.columnconfigure(1, weight=1)
 
-        results = ttk.Frame(self)
-        results.pack(fill="both", expand=True, pady=(8, 0))
+        self.main_pane = ttk.Panedwindow(self, orient="vertical")
+        self.main_pane.pack(fill="both", expand=True, pady=(8, 0))
 
-        shopping_frame = ttk.LabelFrame(results, text="Shopping List", padding=8)
-        shopping_frame.pack(side="left", fill="both", expand=True, padx=(0, 8))
+        self.results_pane = ttk.Panedwindow(self.main_pane, orient="horizontal")
+        self.main_pane.add(self.results_pane, weight=1, minsize=220)
+
+        shopping_frame = ttk.LabelFrame(self.results_pane, text="Shopping List", padding=8)
         shopping_header = ttk.Frame(shopping_frame)
         shopping_header.pack(fill="x", pady=(0, 6))
         shopping_buttons = ttk.Frame(shopping_header)
@@ -81,17 +83,9 @@ class PlannerTab(ttk.Frame):
         self.shopping_text.pack(fill="both", expand=True)
         self._set_text(self.shopping_text, "Run a plan to see required items.")
 
-        steps_frame = ttk.LabelFrame(results, text="Process Steps", padding=8)
-        steps_frame.pack(side="right", fill="both", expand=True)
-        self.show_steps_var = tk.BooleanVar(value=True)
-        steps_header = ttk.Frame(steps_frame)
+        self.steps_frame = ttk.LabelFrame(self.results_pane, text="Process Steps", padding=8)
+        steps_header = ttk.Frame(self.steps_frame)
         steps_header.pack(fill="x", pady=(0, 6))
-        ttk.Checkbutton(
-            steps_header,
-            text="Show process steps",
-            variable=self.show_steps_var,
-            command=self._toggle_steps,
-        ).pack(side="left")
         steps_buttons = ttk.Frame(steps_header)
         steps_buttons.pack(side="right")
         ttk.Button(
@@ -104,12 +98,22 @@ class PlannerTab(ttk.Frame):
             text="Copy",
             command=lambda: self._copy_text(self.steps_text, "Process steps are empty."),
         ).pack(side="right", padx=(0, 6))
-        self.steps_text = tk.Text(steps_frame, wrap="word", height=18)
+        self.steps_text = tk.Text(self.steps_frame, wrap="word", height=18)
         self.steps_text.pack(fill="both", expand=True)
         self._set_text(self.steps_text, "Run a plan to see steps.")
 
-        build_frame = ttk.LabelFrame(self, text="Build Steps", padding=8)
-        build_frame.pack(fill="both", expand=True, pady=(8, 0))
+        self.results_pane.add(shopping_frame, weight=1, minsize=240)
+
+        self.show_steps_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            controls,
+            text="Show Process Steps",
+            variable=self.show_steps_var,
+            command=self._toggle_steps,
+        ).grid(row=3, column=0, columnspan=2, sticky="w", pady=(6, 0))
+
+        build_frame = ttk.LabelFrame(self.main_pane, text="Build Steps", padding=8)
+        self.main_pane.add(build_frame, weight=1, minsize=200)
         build_header = ttk.Frame(build_frame)
         build_header.pack(fill="x", pady=(0, 6))
         ttk.Label(build_header, text="Check off each step as you complete it.").pack(side="left")
@@ -451,10 +455,14 @@ class PlannerTab(ttk.Frame):
         self._toggle_steps_visibility()
 
     def _toggle_steps_visibility(self, *, persist: bool = True) -> None:
+        panes = set(self.results_pane.panes())
+        steps_id = str(self.steps_frame)
         if self.show_steps_var.get():
-            self.steps_text.pack(fill="both", expand=True)
+            if steps_id not in panes:
+                self.results_pane.add(self.steps_frame, weight=1, minsize=200)
         else:
-            self.steps_text.pack_forget()
+            if steps_id in panes:
+                self.results_pane.forget(self.steps_frame)
         if persist:
             self._persist_state()
 
@@ -591,7 +599,7 @@ class PlannerTab(ttk.Frame):
 
         self.target_qty_var.set(state.get("target_qty") or "1")
         self.use_inventory_var.set(bool(state.get("use_inventory", True)))
-        self.show_steps_var.set(bool(state.get("show_steps", True)))
+        self.show_steps_var.set(bool(state.get("show_steps", False)))
         self._toggle_steps_visibility(persist=False)
         self._set_text(self.shopping_text, state.get("shopping_text", ""))
         self._set_text(self.steps_text, state.get("steps_text", ""))
@@ -605,7 +613,7 @@ class PlannerTab(ttk.Frame):
         self.target_qty_var.set("1")
         self.target_qty_unit.set("")
         self.use_inventory_var.set(True)
-        self.show_steps_var.set(True)
+        self.show_steps_var.set(False)
         self.last_plan_run = False
         self.last_plan_used_inventory = False
         self._toggle_steps_visibility(persist=False)
