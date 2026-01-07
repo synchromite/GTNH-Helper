@@ -210,13 +210,15 @@ class PlannerTab(ttk.Frame):
         )
 
         if result.errors:
-            self._handle_plan_errors(result.errors)
-            self._set_text(self.shopping_text, "")
-            self._set_text(self.steps_text, "")
-            self.last_plan_run = False
-            self.last_plan_used_inventory = False
-            self._persist_state()
-            return
+            filtered_errors = self._filter_plan_errors(result)
+            if filtered_errors:
+                self._handle_plan_errors(filtered_errors)
+                self._set_text(self.shopping_text, "")
+                self._set_text(self.steps_text, "")
+                self.last_plan_run = False
+                self.last_plan_used_inventory = False
+                self._persist_state()
+                return
 
         if not result.shopping_list:
             self._set_text(self.shopping_text, "Nothing needed. Inventory already covers this request.")
@@ -557,6 +559,21 @@ class PlannerTab(ttk.Frame):
                 f"{message}\n\nNotify the developer or switch to edit mode and add a recipe.",
             )
         self.app.status.set("Planner failed: missing recipe")
+
+    def _filter_plan_errors(self, result) -> list[str]:
+        if not self.use_inventory_var.get():
+            return result.errors
+        inventory = self.planner.load_inventory()
+        missing_map = {item_id: (name, qty) for item_id, name, qty in result.missing_recipes}
+        filtered = [
+            err
+            for err in result.errors
+            if not err.startswith("No recipe found for ")
+        ]
+        for item_id, (name, qty_needed) in missing_map.items():
+            if inventory.get(item_id, 0) < qty_needed:
+                filtered.append(f"No recipe found for {name}.")
+        return filtered
 
     def _toggle_steps(self):
         self._toggle_steps_visibility()

@@ -31,6 +31,7 @@ class PlanResult:
     shopping_list: list[tuple[str, int, str]]
     steps: list[PlanStep]
     errors: list[str]
+    missing_recipes: list[tuple[int, str, int]]
 
 
 class PlannerService:
@@ -55,6 +56,7 @@ class PlannerService:
         else:
             inventory = self._load_inventory() if use_inventory else {}
         errors: list[str] = []
+        missing_recipes: list[tuple[int, str, int]] = []
         steps: list[PlanStep] = []
         shopping_needed: dict[int, int] = {}
         visiting: set[int] = set()
@@ -89,6 +91,7 @@ class PlannerService:
             recipe = self._pick_recipe_for_item(item_id, enabled_tiers, crafting_6x6_unlocked)
             if not recipe:
                 errors.append(f"No recipe found for {item['name']}.")
+                missing_recipes.append((item_id, item["name"], qty_needed))
                 visiting.remove(item_id)
                 return
 
@@ -163,7 +166,12 @@ class PlannerService:
 
         shopping_list.sort(key=lambda row: row[0].lower())
 
-        return PlanResult(shopping_list=shopping_list, steps=steps, errors=errors)
+        return PlanResult(
+            shopping_list=shopping_list,
+            steps=steps,
+            errors=errors,
+            missing_recipes=missing_recipes,
+        )
 
     # ---------- Data loaders ----------
     def _load_items(self) -> dict[int, dict]:
