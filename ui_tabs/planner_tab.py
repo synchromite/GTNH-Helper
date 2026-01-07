@@ -81,6 +81,7 @@ class PlannerTab(ttk.Frame):
         self.target_qty_unit.set("L" if self.target_item_kind == "fluid" else "count")
 
     def run_plan(self):
+        self.planner = PlannerService(self.app.conn, self.app.profile_conn)
         if self.target_item_id is None:
             messagebox.showinfo("Select an item", "Choose a target item first.")
             return
