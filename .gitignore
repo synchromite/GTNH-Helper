@@ -1,6 +1,7 @@
 __pycache__/
 *~
 *.pyc
+.enable_editor
 gtnh.db
 gtnh.profile.db
 gtnh.profile.profile.db
