@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import sqlite3
 from dataclasses import dataclass, field
 from pathlib import Path
-import sqlite3
 
 from services.db import (
     DEFAULT_DB_PATH,
@@ -64,7 +64,7 @@ class DbLifecycle:
     def export_profile_db(self, target: Path) -> None:
         export_db(self.profile_conn, target)
 
-    def merge_db(self, source: Path) -> dict:
+    def merge_db(self, source: Path) -> dict[str, int]:
         return merge_database(self.conn, source)
 
     def get_enabled_tiers(self) -> list[str]:
@@ -84,7 +84,7 @@ class DbLifecycle:
     def set_crafting_6x6_unlocked(self, unlocked: bool) -> None:
         set_setting(self.profile_conn, SETTINGS_CRAFT_6X6_UNLOCKED, "1" if unlocked else "0")
 
-    def _open_content_db(self, path: Path):
+    def _open_content_db(self, path: Path) -> sqlite3.Connection:
         try:
             return connect(path, read_only=(not self.editor_enabled))
         except Exception:
