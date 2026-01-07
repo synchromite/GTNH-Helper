@@ -24,6 +24,7 @@ class PlanStep:
     output_unit: str
     multiplier: int
     inputs: list[tuple[int, str, int, str]]
+    byproducts: list[tuple[int, str, int, str, float]]
 
 
 @dataclass
@@ -121,6 +122,29 @@ class PlannerService:
                 )
                 plan_item(line["item_id"], input_qty * multiplier)
 
+            byproducts = []
+            output_lines = self._recipe_outputs(recipe["id"])
+            for line in output_lines:
+                if line["item_id"] == item_id:
+                    continue
+                output_item = items.get(line["item_id"])
+                if not output_item:
+                    continue
+                output_qty_line = self._line_qty(line, output_item["kind"])
+                if output_qty_line <= 0:
+                    continue
+                chance = line["chance_percent"]
+                chance_value = float(chance) if chance is not None else 100.0
+                byproducts.append(
+                    (
+                        output_item["id"],
+                        output_item["name"],
+                        output_qty_line * multiplier,
+                        self._unit_for_kind(output_item["kind"]),
+                        chance_value,
+                    )
+                )
+
             machine_item_name = ""
             if recipe["machine_item_id"] is not None:
                 machine_item = items.get(recipe["machine_item_id"])
@@ -151,6 +175,7 @@ class PlannerService:
                     output_unit=self._unit_for_kind(item["kind"]),
                     multiplier=multiplier,
                     inputs=inputs,
+                    byproducts=byproducts,
                 )
             )
             visiting.remove(item_id)
@@ -239,6 +264,13 @@ class PlannerService:
     def _recipe_inputs(self, recipe_id: int):
         return self.conn.execute(
             "SELECT item_id, qty_count, qty_liters FROM recipe_lines WHERE recipe_id=? AND direction='in'",
+            (recipe_id,),
+        ).fetchall()
+
+    def _recipe_outputs(self, recipe_id: int):
+        return self.conn.execute(
+            "SELECT item_id, qty_count, qty_liters, chance_percent FROM recipe_lines "
+            "WHERE recipe_id=? AND direction='out'",
             (recipe_id,),
         ).fetchall()
 

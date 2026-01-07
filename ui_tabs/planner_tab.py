@@ -23,6 +23,7 @@ class PlannerTab(ttk.Frame):
         self.build_step_dependencies: list[set[int]] = []
         self.build_completed_steps: set[int] = set()
         self.build_base_inventory: dict[int, int] = {}
+        self.build_step_byproducts: dict[int, list[tuple[int, int]]] = {}
 
         notebook.add(self, text="Planner")
 
@@ -261,6 +262,7 @@ class PlannerTab(ttk.Frame):
 
         self.build_base_inventory = self.planner.load_inventory() if self.use_inventory_var.get() else {}
         self.build_completed_steps = set()
+        self.build_step_byproducts = {}
         result = self.planner.plan(
             self.target_item_id,
             qty,
@@ -449,6 +451,7 @@ class PlannerTab(ttk.Frame):
         self.build_base_inventory = self.planner.load_inventory()
         self.build_steps = result.steps
         self.build_completed_steps = set()
+        self.build_step_byproducts = {}
         self._build_step_dependencies()
         self._render_build_steps()
         self._recalculate_build_steps()
@@ -500,7 +503,40 @@ class PlannerTab(ttk.Frame):
 
         output_qty = step.output_qty * step.multiplier
         self._adjust_inventory_qty(step.output_item_id, output_qty * direction)
+        if not self._apply_step_byproducts(idx, direction):
+            return False
         self.build_base_inventory = self.planner.load_inventory()
+        return True
+
+    def _apply_step_byproducts(self, idx: int, direction: int) -> bool:
+        if direction < 0:
+            applied = self.build_step_byproducts.pop(idx, [])
+            for item_id, qty in applied:
+                self._adjust_inventory_qty(item_id, -qty)
+            return True
+
+        step = self.build_steps[idx]
+        applied: list[tuple[int, int]] = []
+        for item_id, name, qty, unit, chance in step.byproducts:
+            if chance >= 100:
+                self._adjust_inventory_qty(item_id, qty)
+                applied.append((item_id, qty))
+                continue
+            if not messagebox.askyesno(
+                "Byproduct check",
+                f"Did this step produce any {name} ({unit})?",
+            ):
+                continue
+            add_qty = simpledialog.askinteger(
+                "Add byproduct",
+                f"How many {name} ({unit}) were produced?",
+                minvalue=0,
+            )
+            if add_qty:
+                self._adjust_inventory_qty(item_id, add_qty)
+                applied.append((item_id, add_qty))
+        if applied:
+            self.build_step_byproducts[idx] = applied
         return True
 
     def _adjust_inventory_qty(self, item_id: int, delta: int) -> None:
@@ -535,6 +571,7 @@ class PlannerTab(ttk.Frame):
         if not self.build_steps:
             return
         self.build_completed_steps = set()
+        self.build_step_byproducts = {}
         self._recalculate_build_steps()
 
     def clear_build_steps(self, *, persist: bool = True) -> None:
@@ -542,6 +579,7 @@ class PlannerTab(ttk.Frame):
         self.build_completed_steps = set()
         self.build_step_dependencies = []
         self.build_base_inventory = {}
+        self.build_step_byproducts = {}
         self._set_build_placeholder("Run a plan, then click Build to get step-by-step instructions.")
         if persist:
             self._persist_state()
