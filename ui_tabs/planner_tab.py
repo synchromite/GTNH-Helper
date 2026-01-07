@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, filedialog
 
 from services.planner import PlannerService
 from ui_dialogs import AddRecipeDialog, ItemPickerDialog
@@ -50,6 +50,20 @@ class PlannerTab(ttk.Frame):
 
         shopping_frame = ttk.LabelFrame(results, text="Shopping List", padding=8)
         shopping_frame.pack(side="left", fill="both", expand=True, padx=(0, 8))
+        shopping_header = ttk.Frame(shopping_frame)
+        shopping_header.pack(fill="x", pady=(0, 6))
+        shopping_buttons = ttk.Frame(shopping_header)
+        shopping_buttons.pack(side="right")
+        ttk.Button(
+            shopping_buttons,
+            text="Save…",
+            command=lambda: self._save_text(self.shopping_text, "shopping_list.txt"),
+        ).pack(side="right")
+        ttk.Button(
+            shopping_buttons,
+            text="Copy",
+            command=lambda: self._copy_text(self.shopping_text, "Shopping list is empty."),
+        ).pack(side="right", padx=(0, 6))
         self.shopping_text = tk.Text(shopping_frame, wrap="word", height=18)
         self.shopping_text.pack(fill="both", expand=True)
         self._set_text(self.shopping_text, "Run a plan to see required items.")
@@ -57,15 +71,30 @@ class PlannerTab(ttk.Frame):
         steps_frame = ttk.LabelFrame(results, text="Process Steps", padding=8)
         steps_frame.pack(side="right", fill="both", expand=True)
         self.show_steps_var = tk.BooleanVar(value=True)
+        steps_header = ttk.Frame(steps_frame)
+        steps_header.pack(fill="x", pady=(0, 6))
         ttk.Checkbutton(
-            steps_frame,
+            steps_header,
             text="Show process steps",
             variable=self.show_steps_var,
             command=self._toggle_steps,
-        ).pack(anchor="w", pady=(0, 6))
+        ).pack(side="left")
+        steps_buttons = ttk.Frame(steps_header)
+        steps_buttons.pack(side="right")
+        ttk.Button(
+            steps_buttons,
+            text="Save…",
+            command=lambda: self._save_text(self.steps_text, "process_steps.txt"),
+        ).pack(side="right")
+        ttk.Button(
+            steps_buttons,
+            text="Copy",
+            command=lambda: self._copy_text(self.steps_text, "Process steps are empty."),
+        ).pack(side="right", padx=(0, 6))
         self.steps_text = tk.Text(steps_frame, wrap="word", height=18)
         self.steps_text.pack(fill="both", expand=True)
         self._set_text(self.steps_text, "Run a plan to see steps.")
+        self._restore_state()
 
     def pick_target_item(self):
         if not self.app.items:
@@ -79,6 +108,7 @@ class PlannerTab(ttk.Frame):
         self.target_item_kind = dlg.result["kind"]
         self.target_item_name.set(dlg.result["name"])
         self.target_qty_unit.set("L" if self.target_item_kind == "fluid" else "count")
+        self._persist_state()
 
     def run_plan(self):
         self.planner = PlannerService(self.app.conn, self.app.profile_conn)
@@ -115,6 +145,7 @@ class PlannerTab(ttk.Frame):
             self._handle_plan_errors(result.errors)
             self._set_text(self.shopping_text, "")
             self._set_text(self.steps_text, "")
+            self._persist_state()
             return
 
         if not result.shopping_list:
@@ -137,6 +168,7 @@ class PlannerTab(ttk.Frame):
             self._set_text(self.steps_text, "No process steps generated.")
 
         self.app.status.set("Planner run complete")
+        self._persist_state()
 
     def _handle_plan_errors(self, errors: list[str]) -> None:
         message = "\n".join(errors)
@@ -160,17 +192,89 @@ class PlannerTab(ttk.Frame):
             self.steps_text.pack(fill="both", expand=True)
         else:
             self.steps_text.pack_forget()
+        self._persist_state()
 
     def clear_results(self):
         self._set_text(self.shopping_text, "")
         self._set_text(self.steps_text, "")
         self.app.status.set("Planner cleared")
+        self._persist_state()
 
     def _set_text(self, widget: tk.Text, text: str) -> None:
         widget.configure(state="normal")
         widget.delete("1.0", tk.END)
         widget.insert("1.0", text)
         widget.configure(state="disabled")
+
+    def _copy_text(self, widget: tk.Text, empty_message: str) -> None:
+        text = widget.get("1.0", tk.END).strip()
+        if not text:
+            messagebox.showinfo("Nothing to copy", empty_message)
+            return
+        self.clipboard_clear()
+        self.clipboard_append(text)
+        self.app.status.set("Copied to clipboard")
+
+    def _save_text(self, widget: tk.Text, default_name: str) -> None:
+        text = widget.get("1.0", tk.END).strip()
+        if not text:
+            messagebox.showinfo("Nothing to save", "There is no content to save yet.")
+            return
+        path = filedialog.asksaveasfilename(
+            title="Save Planner Output",
+            defaultextension=".txt",
+            initialfile=default_name,
+            filetypes=[("Text Files", "*.txt"), ("All Files", "*")],
+        )
+        if not path:
+            return
+        try:
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write(text)
+        except Exception as exc:
+            messagebox.showerror("Save failed", f"Could not save file.\n\nDetails: {exc}")
+            return
+        self.app.status.set(f"Saved planner output to {path}")
+
+    def _persist_state(self) -> None:
+        self.app.planner_state = {
+            "target_item_id": self.target_item_id,
+            "target_item_kind": self.target_item_kind,
+            "target_item_name": self.target_item_name.get(),
+            "target_qty": self.target_qty_var.get(),
+            "target_unit": self.target_qty_unit.get(),
+            "use_inventory": self.use_inventory_var.get(),
+            "shopping_text": self.shopping_text.get("1.0", tk.END).rstrip(),
+            "steps_text": self.steps_text.get("1.0", tk.END).rstrip(),
+            "show_steps": self.show_steps_var.get(),
+        }
+
+    def _restore_state(self) -> None:
+        state = getattr(self.app, "planner_state", {}) or {}
+        if not state:
+            return
+        self.target_item_id = state.get("target_item_id")
+        self.target_item_kind = state.get("target_item_kind")
+        self.target_item_name.set(state.get("target_item_name") or "(none)")
+        self.target_qty_var.set(state.get("target_qty") or "1")
+        self.target_qty_unit.set(state.get("target_unit") or "")
+        self.use_inventory_var.set(bool(state.get("use_inventory", True)))
+        self.show_steps_var.set(bool(state.get("show_steps", True)))
+        self._toggle_steps()
+        self._set_text(self.shopping_text, state.get("shopping_text", ""))
+        self._set_text(self.steps_text, state.get("steps_text", ""))
+
+    def reset_state(self) -> None:
+        self.target_item_id = None
+        self.target_item_kind = None
+        self.target_item_name.set("(none)")
+        self.target_qty_var.set("1")
+        self.target_qty_unit.set("")
+        self.use_inventory_var.set(True)
+        self.show_steps_var.set(True)
+        self._toggle_steps()
+        self._set_text(self.shopping_text, "Run a plan to see required items.")
+        self._set_text(self.steps_text, "Run a plan to see steps.")
 
     def _has_recipes(self) -> bool:
         try:
