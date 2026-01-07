@@ -226,6 +226,12 @@ class App(tk.Tk):
         mode = "Editor" if self.editor_enabled else "Client"
         self.title(f"GTNH Recipe DB — {mode} — {name}")
 
+    def destroy(self):
+        try:
+            self.db.close()
+        finally:
+            super().destroy()
+
     def _switch_db(self, new_path: Path):
         """Close current DB connection and open a new one."""
         self.db.switch_db(Path(new_path))

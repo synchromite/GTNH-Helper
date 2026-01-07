@@ -1,5 +1,8 @@
+"""Database lifecycle helpers for content and profile DB handling."""
+
 from __future__ import annotations
 
+import sqlite3
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -19,9 +22,9 @@ from ui_constants import SETTINGS_CRAFT_6X6_UNLOCKED, SETTINGS_ENABLED_TIERS
 class DbLifecycle:
     editor_enabled: bool
     db_path: Path = DEFAULT_DB_PATH
-    conn: object = field(init=False, default=None)
+    conn: sqlite3.Connection | None = field(init=False, default=None)
     profile_db_path: Path | None = field(init=False, default=None)
-    profile_conn: object = field(init=False, default=None)
+    profile_conn: sqlite3.Connection | None = field(init=False, default=None)
 
     def __post_init__(self) -> None:
         self.db_path = Path(self.db_path)
@@ -37,6 +40,8 @@ class DbLifecycle:
                 self.conn.close()
         except Exception:
             pass
+        finally:
+            self.conn = None
 
         try:
             if self.profile_conn is not None:
@@ -44,6 +49,8 @@ class DbLifecycle:
                 self.profile_conn.close()
         except Exception:
             pass
+        finally:
+            self.profile_conn = None
 
     def switch_db(self, new_path: Path) -> None:
         self.close()
@@ -59,7 +66,7 @@ class DbLifecycle:
     def export_profile_db(self, target: Path) -> None:
         export_db(self.profile_conn, target)
 
-    def merge_db(self, source: Path) -> dict:
+    def merge_db(self, source: Path) -> dict[str, int]:
         return merge_database(self.conn, source)
 
     def get_enabled_tiers(self) -> list[str]:
@@ -79,36 +86,9 @@ class DbLifecycle:
     def set_crafting_6x6_unlocked(self, unlocked: bool) -> None:
         set_setting(self.profile_conn, SETTINGS_CRAFT_6X6_UNLOCKED, "1" if unlocked else "0")
 
-    def _open_content_db(self, path: Path):
+    def _open_content_db(self, path: Path) -> sqlite3.Connection:
         try:
             return connect(path, read_only=(not self.editor_enabled))
         except Exception:
             return connect(":memory:")
 
-    def _profile_path_for_content(self, content_path: Path) -> Path:
-        try:
-            content_path = Path(content_path)
-            new_path = content_path.with_name("profile.db")
-            legacy_stem = content_path.stem or "gtnh"
-            legacy_path = content_path.with_name(f"{legacy_stem}.profile.db")
-            if legacy_path.exists() and not new_path.exists():
-                try:
-                    legacy_path.rename(new_path)
-                except Exception:
-                    return legacy_path
-            return new_path
-        except Exception:
-            return Path("profile.db")
-
-    def _migrate_profile_settings_if_needed(self) -> None:
-        try:
-            for key in (SETTINGS_ENABLED_TIERS, SETTINGS_CRAFT_6X6_UNLOCKED):
-                prof_val = get_setting(self.profile_conn, key, None)
-                if prof_val is not None and str(prof_val).strip() != "":
-                    continue
-                src_val = get_setting(self.conn, key, None)
-                if src_val is None or str(src_val).strip() == "":
-                    continue
-                set_setting(self.profile_conn, key, str(src_val))
-        except Exception:
-            pass
