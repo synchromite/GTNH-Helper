@@ -1564,7 +1564,7 @@ class EditRecipeDialog(tk.Toplevel):
 
         # Row 3 (seconds input; stored as ticks)
         ttk.Label(frm, text="Duration (seconds)").grid(row=3, column=0, sticky="w")
-        seconds = "" if r["duration_ticks"] is None else str(int(r["duration_ticks"] / TPS))
+        seconds = "" if r["duration_ticks"] is None else f"{(r['duration_ticks'] / TPS):g}"
         self.duration_seconds_var = tk.StringVar(value=seconds)
         ttk.Entry(frm, textvariable=self.duration_seconds_var, width=10).grid(row=3, column=1, sticky="w", padx=8)
 
@@ -1898,6 +1898,18 @@ class EditRecipeDialog(tk.Toplevel):
             raise ValueError("Must be an integer.")
         return int(s)
 
+    def _parse_float_opt(self, s: str) -> float | None:
+        s = (s or "").strip()
+        if s == "":
+            return None
+        try:
+            v = float(s)
+        except ValueError as exc:
+            raise ValueError("Must be a number.") from exc
+        if v < 0:
+            raise ValueError("Must be zero or greater.")
+        return v
+
     def save(self):
         name = self.name_var.get().strip()
         if not name:
@@ -1924,13 +1936,13 @@ class EditRecipeDialog(tk.Toplevel):
 
         try:
             circuit = self._parse_int_opt(self.circuit_var.get())
-            duration_s = self._parse_int_opt(self.duration_seconds_var.get())
+            duration_s = self._parse_float_opt(self.duration_seconds_var.get())
             eut = self._parse_int_opt(self.eut_var.get())
         except ValueError as e:
             messagebox.showerror("Invalid number", str(e))
             return
 
-        duration_ticks = None if duration_s is None else duration_s * TPS
+        duration_ticks = None if duration_s is None else int(round(duration_s * TPS))
 
         if not self.inputs and not self.outputs:
             if not messagebox.askyesno("No lines?", "No inputs/outputs added. Save anyway?"):
@@ -2540,6 +2552,18 @@ class AddRecipeDialog(tk.Toplevel):
             raise ValueError("Must be an integer.")
         return int(s)
 
+    def _parse_float_opt(self, s: str) -> float | None:
+        s = (s or "").strip()
+        if s == "":
+            return None
+        try:
+            v = float(s)
+        except ValueError as exc:
+            raise ValueError("Must be a number.") from exc
+        if v < 0:
+            raise ValueError("Must be zero or greater.")
+        return v
+
     def _get_or_create_item_confirm(self, key: str, kind: str):
         row = self.app.conn.execute("SELECT id FROM items WHERE key=?", (key,)).fetchone()
         if row:
@@ -2583,13 +2607,13 @@ class AddRecipeDialog(tk.Toplevel):
 
         try:
             circuit = self._parse_int_opt(self.circuit_var.get())
-            duration_s = self._parse_int_opt(self.duration_seconds_var.get())
+            duration_s = self._parse_float_opt(self.duration_seconds_var.get())
             eut = self._parse_int_opt(self.eut_var.get())
         except ValueError as e:
             messagebox.showerror("Invalid number", str(e))
             return
 
-        duration_ticks = None if duration_s is None else duration_s * TPS
+        duration_ticks = None if duration_s is None else int(round(duration_s * TPS))
 
         if not self.inputs and not self.outputs:
             if not messagebox.askyesno("No lines?", "No inputs/outputs added. Save anyway?"):
