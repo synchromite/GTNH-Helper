@@ -542,26 +542,6 @@ class AddItemDialog(tk.Toplevel):
             raise ValueError("Must be a whole number.")
         return int(s)
 
-    def _parse_int_nonneg(self, s: str, default: int = 0) -> int:
-        s = (s or "").strip()
-        if s == "":
-            return default
-        try:
-            v = int(float(s))
-        except Exception as exc:
-            raise ValueError("Must be a whole number.") from exc
-        if v < 0:
-            raise ValueError("Must be 0 or greater.")
-        return v
-
-    def _parse_int_opt(self, s: str) -> int | None:
-        s = (s or "").strip()
-        if s == "":
-            return None
-        if not s.isdigit():
-            raise ValueError("Must be a whole number.")
-        return int(s)
-
     def _on_slots_changed(self):
         # Only rebuild when machine fields are enabled
         is_enabled = self.machine_tier_combo.cget("state") != "disabled"
@@ -1409,56 +1389,6 @@ class EditItemDialog(tk.Toplevel):
             self.app.status.set(f"Updated item: {display_name}")
 
         self.destroy()
-
-    def _toggle_machine_fields(self):
-        # Machines are only valid for "item" (not "fluid").
-        if (self.kind_var.get() or "").strip().lower() == "fluid":
-            self.machine_tier_combo.configure(state="disabled")
-            self.machine_tier_var.set(NONE_TIER_LABEL)
-            self.machine_input_slots_spin.configure(state="disabled")
-            self.machine_output_slots_spin.configure(state="disabled")
-            self.machine_input_slots_var.set("1")
-            self.machine_output_slots_var.set("1")
-            self.machine_storage_slots_var.set("0")
-            self.machine_power_slots_var.set("0")
-            self.machine_circuit_slots_var.set("0")
-            self.machine_input_tanks_var.set("0")
-            self.machine_input_tank_capacity_var.set("")
-            self.machine_output_tanks_var.set("0")
-            self.machine_output_tank_capacity_var.set("")
-            for w in self._extra_machine_widgets:
-                w.configure(state="disabled")
-            self._rebuild_slot_type_ui(0, 0)
-            return
-
-        # Enabled automatically when Item Kind is set to 'Machine'
-        is_m = False
-        if getattr(self, "machine_kind_id", None) is not None and self.item_kind_id is not None:
-            is_m = self.item_kind_id == self.machine_kind_id
-        else:
-            is_m = ((self.item_kind_var.get() or "").strip().lower() == "machine")
-
-        self.machine_tier_combo.configure(state="readonly" if is_m else "disabled")
-        self.machine_input_slots_spin.configure(state="normal" if is_m else "disabled")
-        self.machine_output_slots_spin.configure(state="normal" if is_m else "disabled")
-        for w in self._extra_machine_widgets:
-            w.configure(state="normal" if is_m else "disabled")
-
-        if not is_m:
-            self.machine_tier_var.set(NONE_TIER_LABEL)
-            self.machine_input_slots_var.set("1")
-            self.machine_output_slots_var.set("1")
-            self.machine_storage_slots_var.set("0")
-            self.machine_power_slots_var.set("0")
-            self.machine_circuit_slots_var.set("0")
-            self.machine_input_tanks_var.set("0")
-            self.machine_input_tank_capacity_var.set("")
-            self.machine_output_tanks_var.set("0")
-            self.machine_output_tank_capacity_var.set("")
-            self._rebuild_slot_type_ui(0, 0)
-            return
-
-        self._on_slots_changed()
 
 class EditRecipeDialog(tk.Toplevel):
     def __init__(self, app, recipe_id: int):
