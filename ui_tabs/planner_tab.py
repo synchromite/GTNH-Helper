@@ -16,6 +16,13 @@ class PlannerTab(ttk.Frame):
         self.target_item_kind = None
         self.last_plan_run = False
         self.last_plan_used_inventory = False
+        self.build_steps: list = []
+        self.build_step_vars: list[tk.BooleanVar] = []
+        self.build_step_checks: list[ttk.Checkbutton] = []
+        self.build_step_labels: list[ttk.Label] = []
+        self.build_step_dependencies: list[set[int]] = []
+        self.build_completed_steps: set[int] = set()
+        self.build_base_inventory: dict[int, int] = {}
 
         notebook.add(self, text="Planner")
 
@@ -44,6 +51,7 @@ class PlannerTab(ttk.Frame):
         btns = ttk.Frame(controls)
         btns.grid(row=0, column=3, rowspan=3, sticky="e", padx=(20, 0))
         ttk.Button(btns, text="Plan", command=self.run_plan).pack(anchor="e", pady=(0, 6))
+        ttk.Button(btns, text="Build", command=self.run_build).pack(anchor="e", pady=(0, 6))
         ttk.Button(btns, text="Clear", command=self.clear_results).pack(anchor="e", pady=(0, 6))
         ttk.Button(btns, text="Save Plan…", command=self.save_plan).pack(anchor="e", pady=(0, 6))
         ttk.Button(btns, text="Load Plan…", command=self.load_plan).pack(anchor="e")
@@ -99,6 +107,28 @@ class PlannerTab(ttk.Frame):
         self.steps_text = tk.Text(steps_frame, wrap="word", height=18)
         self.steps_text.pack(fill="both", expand=True)
         self._set_text(self.steps_text, "Run a plan to see steps.")
+
+        build_frame = ttk.LabelFrame(self, text="Build Steps", padding=8)
+        build_frame.pack(fill="both", expand=True, pady=(8, 0))
+        build_header = ttk.Frame(build_frame)
+        build_header.pack(fill="x", pady=(0, 6))
+        ttk.Label(build_header, text="Check off each step as you complete it.").pack(side="left")
+        build_buttons = ttk.Frame(build_header)
+        build_buttons.pack(side="right")
+        ttk.Button(build_buttons, text="Reset Checks", command=self.reset_build_steps).pack(side="right")
+
+        self.build_canvas = tk.Canvas(build_frame, borderwidth=0, highlightthickness=0)
+        self.build_scrollbar = ttk.Scrollbar(build_frame, orient="vertical", command=self.build_canvas.yview)
+        self.build_canvas.configure(yscrollcommand=self.build_scrollbar.set)
+        self.build_canvas.pack(side="left", fill="both", expand=True)
+        self.build_scrollbar.pack(side="right", fill="y")
+        self.build_steps_container = ttk.Frame(self.build_canvas)
+        self.build_canvas.create_window((0, 0), window=self.build_steps_container, anchor="nw")
+        self.build_steps_container.bind(
+            "<Configure>",
+            lambda _e: self.build_canvas.configure(scrollregion=self.build_canvas.bbox("all")),
+        )
+        self._set_build_placeholder("Run a plan, then click Build to get step-by-step instructions.")
         self._restore_state()
 
     def pick_target_item(self):
@@ -125,6 +155,7 @@ class PlannerTab(ttk.Frame):
             return
 
         self._run_plan_with_qty(qty, set_status=True)
+        self.clear_build_steps(persist=False)
 
     def on_inventory_changed(self) -> None:
         if not self.last_plan_run or not self.last_plan_used_inventory or not self.use_inventory_var.get():
@@ -136,6 +167,7 @@ class PlannerTab(ttk.Frame):
             self.app.status.set("Planner not updated: invalid quantity.")
             return
         self._run_plan_with_qty(qty, set_status=False)
+        self._refresh_build_inventory()
 
     def _parse_target_qty(self, *, show_errors: bool) -> int | None:
         raw_qty = self.target_qty_var.get().strip()
@@ -189,8 +221,8 @@ class PlannerTab(ttk.Frame):
         if result.steps:
             steps_lines = []
             for idx, step in enumerate(result.steps, start=1):
-                inputs = ", ".join([f"{name} × {qty} {unit}" for name, qty, unit in step.inputs])
-                input_names = " + ".join([name for name, _, _ in step.inputs]) if step.inputs else "(none)"
+                inputs = ", ".join([f"{name} × {qty} {unit}" for _item_id, name, qty, unit in step.inputs])
+                input_names = " + ".join([name for _item_id, name, _qty, _unit in step.inputs]) if step.inputs else "(none)"
                 steps_lines.append(
                     f"{idx}. {input_names} → {step.output_item_name} "
                     f"(x{step.multiplier}, output {step.output_qty})\n"
@@ -205,6 +237,172 @@ class PlannerTab(ttk.Frame):
         if set_status:
             self.app.status.set("Planner run complete")
         self._persist_state()
+
+    def run_build(self) -> None:
+        self.planner = PlannerService(self.app.conn, self.app.profile_conn)
+        if self.target_item_id is None:
+            messagebox.showinfo("Select an item", "Choose a target item first.")
+            return
+        qty = self._parse_target_qty(show_errors=True)
+        if qty is None:
+            return
+        if not self._has_recipes():
+            messagebox.showinfo("No recipes", "There are no recipes to plan against.")
+            self.app.status.set("Build failed: missing recipes")
+            return
+
+        self.build_base_inventory = self.planner.load_inventory() if self.use_inventory_var.get() else {}
+        self.build_completed_steps = set()
+        result = self.planner.plan(
+            self.target_item_id,
+            qty,
+            use_inventory=self.use_inventory_var.get(),
+            enabled_tiers=self.app.get_enabled_tiers(),
+            crafting_6x6_unlocked=self.app.is_crafting_6x6_unlocked(),
+        )
+
+        if result.errors:
+            self._handle_plan_errors(result.errors)
+            self.clear_build_steps(persist=False)
+            return
+
+        self.build_steps = result.steps
+        self._build_step_dependencies()
+        self._render_build_steps()
+        self._recalculate_build_steps()
+        self.app.status.set("Build steps ready")
+
+    def _build_step_dependencies(self) -> None:
+        producers: dict[int, list[int]] = {}
+        for idx, step in enumerate(self.build_steps):
+            producers.setdefault(step.output_item_id, []).append(idx)
+
+        self.build_step_dependencies = []
+        for step in self.build_steps:
+            deps: set[int] = set()
+            for item_id, _name, _qty, _unit in step.inputs:
+                deps.update(producers.get(item_id, []))
+            self.build_step_dependencies.append(deps)
+
+    def _render_build_steps(self) -> None:
+        for widget in self.build_steps_container.winfo_children():
+            widget.destroy()
+        self.build_step_vars = []
+        self.build_step_checks = []
+        self.build_step_labels = []
+
+        if not self.build_steps:
+            self._set_build_placeholder("No build steps generated.")
+            return
+
+        for idx, step in enumerate(self.build_steps, start=1):
+            row = ttk.Frame(self.build_steps_container)
+            row.pack(fill="x", anchor="w", pady=2)
+            var = tk.BooleanVar(value=False)
+            chk = ttk.Checkbutton(
+                row,
+                variable=var,
+                command=lambda i=idx - 1: self._on_build_step_toggle(i),
+            )
+            chk.pack(side="left")
+            label = ttk.Label(row, text=self._format_build_step(idx, step), justify="left")
+            label.pack(side="left", fill="x", expand=True, padx=(4, 0))
+            self.build_step_vars.append(var)
+            self.build_step_checks.append(chk)
+            self.build_step_labels.append(label)
+
+    def _format_build_step(self, idx: int, step) -> str:
+        total_output = step.output_qty * step.multiplier
+        input_lines = [f"{name} × {qty} {unit}" for _item_id, name, qty, unit in step.inputs]
+        inputs_text = ", ".join(input_lines) if input_lines else "(none)"
+        method = (step.method or "machine").strip().lower()
+        if method == "crafting":
+            station = step.station_item_name or "(none)"
+            grid = step.grid_size or ""
+            grid_label = f" ({grid})" if grid else ""
+            machine_line = f"Crafting{grid_label} at {station}"
+        else:
+            machine_name = step.machine_item_name or step.machine or "(unknown)"
+            machine_line = f"Machine: {machine_name}"
+        circuit_text = "(none)" if step.circuit in (None, "") else step.circuit
+        return (
+            f"{idx}. Output: {step.output_item_name} × {total_output} {step.output_unit}\n"
+            f"   {machine_line}\n"
+            f"   Circuit: {circuit_text}\n"
+            f"   Inputs: {inputs_text}"
+        )
+
+    def _set_build_placeholder(self, text: str) -> None:
+        for widget in self.build_steps_container.winfo_children():
+            widget.destroy()
+        label = ttk.Label(self.build_steps_container, text=text, justify="left")
+        label.pack(anchor="w")
+        self.build_step_vars = []
+        self.build_step_checks = []
+        self.build_step_labels = []
+
+    def _on_build_step_toggle(self, idx: int) -> None:
+        if idx < 0 or idx >= len(self.build_steps):
+            return
+        if self.build_step_vars[idx].get():
+            self.build_completed_steps.add(idx)
+            self._mark_dependency_chain(idx)
+        else:
+            self.build_completed_steps.discard(idx)
+        self._recalculate_build_steps()
+
+    def _mark_dependency_chain(self, idx: int) -> None:
+        stack = list(self.build_step_dependencies[idx])
+        while stack:
+            dep = stack.pop()
+            if dep in self.build_completed_steps:
+                continue
+            self.build_completed_steps.add(dep)
+            stack.extend(self.build_step_dependencies[dep])
+
+    def _effective_build_inventory(self) -> dict[int, int]:
+        inventory = dict(self.build_base_inventory)
+        for idx in self.build_completed_steps:
+            if idx < 0 or idx >= len(self.build_steps):
+                continue
+            step = self.build_steps[idx]
+            qty = step.output_qty * step.multiplier
+            inventory[step.output_item_id] = inventory.get(step.output_item_id, 0) + qty
+        return inventory
+
+    def _recalculate_build_steps(self) -> None:
+        inventory = self._effective_build_inventory()
+        for idx, step in enumerate(self.build_steps):
+            needed = step.output_qty * step.multiplier
+            auto_done = inventory.get(step.output_item_id, 0) >= needed
+            is_done = auto_done or idx in self.build_completed_steps
+            self.build_step_vars[idx].set(is_done)
+            label = self.build_step_labels[idx]
+            label.configure(foreground="gray" if is_done else "")
+
+    def _refresh_build_inventory(self) -> None:
+        if not self.build_steps:
+            return
+        if self.use_inventory_var.get():
+            self.build_base_inventory = self.planner.load_inventory()
+        else:
+            self.build_base_inventory = {}
+        self._recalculate_build_steps()
+
+    def reset_build_steps(self) -> None:
+        if not self.build_steps:
+            return
+        self.build_completed_steps = set()
+        self._recalculate_build_steps()
+
+    def clear_build_steps(self, *, persist: bool = True) -> None:
+        self.build_steps = []
+        self.build_completed_steps = set()
+        self.build_step_dependencies = []
+        self.build_base_inventory = {}
+        self._set_build_placeholder("Run a plan, then click Build to get step-by-step instructions.")
+        if persist:
+            self._persist_state()
 
     def _handle_plan_errors(self, errors: list[str]) -> None:
         message = "\n".join(errors)
@@ -239,6 +437,7 @@ class PlannerTab(ttk.Frame):
         self._set_text(self.steps_text, "")
         self.last_plan_run = False
         self.last_plan_used_inventory = False
+        self.clear_build_steps(persist=False)
         self.app.status.set("Planner cleared")
         self._persist_state()
 
@@ -386,6 +585,7 @@ class PlannerTab(ttk.Frame):
         self._toggle_steps_visibility(persist=False)
         self._set_text(self.shopping_text, "Run a plan to see required items.")
         self._set_text(self.steps_text, "Run a plan to see steps.")
+        self.clear_build_steps(persist=False)
 
     def _has_recipes(self) -> bool:
         try:

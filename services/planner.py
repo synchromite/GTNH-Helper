@@ -10,11 +10,20 @@ from typing import Iterable
 class PlanStep:
     recipe_id: int
     recipe_name: str
+    method: str
+    machine: str | None
+    machine_item_id: int | None
+    machine_item_name: str
+    grid_size: str | None
+    station_item_id: int | None
+    station_item_name: str
+    circuit: str | None
     output_item_id: int
     output_item_name: str
     output_qty: int
+    output_unit: str
     multiplier: int
-    inputs: list[tuple[str, int, str]]
+    inputs: list[tuple[int, str, int, str]]
 
 
 @dataclass
@@ -38,9 +47,13 @@ class PlannerService:
         use_inventory: bool,
         enabled_tiers: Iterable[str],
         crafting_6x6_unlocked: bool,
+        inventory_override: dict[int, int] | None = None,
     ) -> PlanResult:
         items = self._load_items()
-        inventory = self._load_inventory() if use_inventory else {}
+        if inventory_override is not None:
+            inventory = dict(inventory_override)
+        else:
+            inventory = self._load_inventory() if use_inventory else {}
         errors: list[str] = []
         steps: list[PlanStep] = []
         shopping_needed: dict[int, int] = {}
@@ -95,16 +108,44 @@ class PlannerService:
                 input_qty = self._line_qty(line, input_item["kind"])
                 if input_qty <= 0:
                     continue
-                inputs.append((input_item["name"], input_qty * multiplier, self._unit_for_kind(input_item["kind"])))
+                inputs.append(
+                    (
+                        input_item["id"],
+                        input_item["name"],
+                        input_qty * multiplier,
+                        self._unit_for_kind(input_item["kind"]),
+                    )
+                )
                 plan_item(line["item_id"], input_qty * multiplier)
+
+            machine_item_name = ""
+            if recipe["machine_item_id"] is not None:
+                machine_item = items.get(recipe["machine_item_id"])
+                if machine_item:
+                    machine_item_name = machine_item["name"]
+
+            station_item_name = ""
+            if recipe["station_item_id"] is not None:
+                station_item = items.get(recipe["station_item_id"])
+                if station_item:
+                    station_item_name = station_item["name"]
 
             steps.append(
                 PlanStep(
                     recipe_id=recipe["id"],
                     recipe_name=recipe["name"],
+                    method=(recipe["method"] or "machine").strip().lower(),
+                    machine=recipe["machine"],
+                    machine_item_id=recipe["machine_item_id"],
+                    machine_item_name=machine_item_name,
+                    grid_size=recipe["grid_size"],
+                    station_item_id=recipe["station_item_id"],
+                    station_item_name=station_item_name,
+                    circuit=None if recipe["circuit"] is None else str(recipe["circuit"]),
                     output_item_id=item_id,
                     output_item_name=item["name"],
                     output_qty=output_qty,
+                    output_unit=self._unit_for_kind(item["kind"]),
                     multiplier=multiplier,
                     inputs=inputs,
                 )
@@ -145,6 +186,9 @@ class PlannerService:
             inventory[row["item_id"]] = max(qty_int, 0)
         return inventory
 
+    def load_inventory(self) -> dict[int, int]:
+        return self._load_inventory()
+
     # ---------- Recipe helpers ----------
     def _pick_recipe_for_item(
         self,
@@ -159,7 +203,8 @@ class PlannerService:
         else:
             tier_clause = "AND (r.tier IS NULL OR TRIM(r.tier)='') "
         sql = (
-            "SELECT r.id, r.name, r.method, r.grid_size, r.tier "
+            "SELECT r.id, r.name, r.method, r.machine, r.machine_item_id, r.grid_size, "
+            "r.station_item_id, r.circuit, r.tier "
             "FROM recipes r "
             "JOIN recipe_lines rl ON rl.recipe_id = r.id "
             "WHERE rl.direction='out' AND rl.item_id=? "
