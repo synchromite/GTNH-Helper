@@ -25,7 +25,9 @@ Remove the file to switch back to client mode.
 
 Profile data is kept separate so your progress survives content DB updates.
 
+## In progress
+- Build planner. - 2026.01.06
+
 ## Planned
-- Build planner.
 - Machine tier dropdown/display polish.
 - Optional hiding of Item/Recipe tabs when editor mode is disabled.
