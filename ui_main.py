@@ -1,24 +1,62 @@
 #!/usr/bin/env python3
 import datetime
+import sys
 from pathlib import Path
-import tkinter as tk
-from tkinter import ttk, messagebox, filedialog
+
+from PySide6 import QtCore, QtWidgets
 
 from services.db import DEFAULT_DB_PATH
 from services.db_lifecycle import DbLifecycle
 from services.items import fetch_items
 from services.tab_config import apply_tab_reorder, config_path, load_tab_config, save_tab_config
-from ui_tabs.inventory_tab import InventoryTab
-from ui_tabs.items_tab import ItemsTab
-from ui_tabs.planner_tab import PlannerTab
-from ui_tabs.recipes_tab import RecipesTab
-from ui_tabs.tiers_tab import TiersTab
 
 
-class App(tk.Tk):
+class ReorderTabsDialog(QtWidgets.QDialog):
+    def __init__(self, tab_order: list[str], tab_registry: dict[str, dict[str, str]], parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Reorder Tabs")
+        self._tab_order = tab_order
+        self._tab_registry = tab_registry
+        self._spins: dict[str, QtWidgets.QSpinBox] = {}
+
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.addWidget(QtWidgets.QLabel("Set the order number for each tab (1 = first)."))
+
+        form = QtWidgets.QFormLayout()
+        for idx, tab_id in enumerate(tab_order, start=1):
+            label = tab_registry[tab_id]["label"]
+            spin = QtWidgets.QSpinBox()
+            spin.setMinimum(1)
+            spin.setMaximum(len(tab_order))
+            spin.setValue(idx)
+            form.addRow(label, spin)
+            self._spins[tab_id] = spin
+
+        layout.addLayout(form)
+
+        buttons = QtWidgets.QDialogButtonBox(
+            QtWidgets.QDialogButtonBox.StandardButton.Ok
+            | QtWidgets.QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def build_orders(self) -> dict[str, int]:
+        return {tab_id: spin.value() for tab_id, spin in self._spins.items()}
+
+
+class PlaceholderTab(QtWidgets.QWidget):
+    def __init__(self, label: str, parent=None):
+        super().__init__(parent)
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.addWidget(QtWidgets.QLabel(f"{label} (Qt UI pending)", alignment=QtCore.Qt.AlignmentFlag.AlignCenter))
+
+
+class App(QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
-        self.geometry("1100x700")
+        self.resize(1100, 700)
 
         # Default behavior is "client mode". Creating a file named `.enable_editor`
         # next to this script enables editor capabilities.
@@ -27,18 +65,20 @@ class App(tk.Tk):
         self.db = DbLifecycle(editor_enabled=self.editor_enabled, db_path=DEFAULT_DB_PATH)
         self._sync_db_handles()
 
-        self.status = tk.StringVar(value="Ready")
+        self.status_bar = self.statusBar()
+        self.status_bar.showMessage("Ready")
         self.planner_state: dict[str, object] = {}
 
         self.tab_registry = {
-            "items": {"label": "Items", "class": ItemsTab, "attr": "items_tab"},
-            "recipes": {"label": "Recipes", "class": RecipesTab, "attr": "recipes_tab"},
-            "inventory": {"label": "Inventory", "class": InventoryTab, "attr": "inventory_tab"},
-            "planner": {"label": "Planner", "class": PlannerTab, "attr": "planner_tab"},
-            "tiers": {"label": "Tiers", "class": TiersTab, "attr": "tiers_tab"},
+            "items": {"label": "Items"},
+            "recipes": {"label": "Recipes"},
+            "inventory": {"label": "Inventory"},
+            "planner": {"label": "Planner"},
+            "tiers": {"label": "Tiers"},
         }
         self.tab_order, self.enabled_tabs = self._load_ui_config()
-        self.tab_vars: dict[str, tk.BooleanVar] = {}
+        self.tab_actions: dict[str, QtWidgets.QAction] = {}
+        self.tab_widgets: dict[str, QtWidgets.QWidget] = {}
 
         self._build_menu()
         self._update_title()
@@ -46,13 +86,10 @@ class App(tk.Tk):
         self.items: list = []
         self.recipes: list = []
 
-        self.nb = ttk.Notebook(self)
-        self.nb.pack(fill="both", expand=True)
+        self.nb = QtWidgets.QTabWidget()
+        self.setCentralWidget(self.nb)
 
         self._rebuild_tabs()
-
-        statusbar = ttk.Label(self, textvariable=self.status, anchor="w")
-        statusbar.pack(fill="x")
 
         self.refresh_items()
         self.refresh_recipes()
@@ -90,35 +127,34 @@ class App(tk.Tk):
         try:
             save_tab_config(path, self.tab_order, self.enabled_tabs)
         except Exception as exc:
-            messagebox.showwarning("Config save failed", f"Could not save tab preferences.\n\nDetails: {exc}")
+            QtWidgets.QMessageBox.warning(
+                self,
+                "Config save failed",
+                f"Could not save tab preferences.\n\nDetails: {exc}",
+            )
+
+    def _create_tab_widget(self, tab_id: str) -> QtWidgets.QWidget:
+        label = self.tab_registry[tab_id]["label"]
+        return PlaceholderTab(label)
 
     def _rebuild_tabs(self) -> None:
-        for meta in self.tab_registry.values():
-            attr = meta["attr"]
-            tab = getattr(self, attr, None)
-            if tab is not None:
-                try:
-                    self.nb.forget(tab)
-                except Exception:
-                    pass
-                tab.destroy()
-            setattr(self, attr, None)
-
+        self.nb.clear()
+        self.tab_widgets = {}
         for tab_id in self.tab_order:
             if tab_id not in self.enabled_tabs:
                 continue
-            meta = self.tab_registry[tab_id]
-            tab = meta["class"](self.nb, self)
-            setattr(self, meta["attr"], tab)
+            widget = self._create_tab_widget(tab_id)
+            self.tab_widgets[tab_id] = widget
+            self.nb.addTab(widget, self.tab_registry[tab_id]["label"])
 
-    def _toggle_tab(self, tab_id: str) -> None:
+    def _toggle_tab(self, tab_id: str, checked: bool) -> None:
         enabled = set(self.enabled_tabs)
-        if self.tab_vars[tab_id].get():
+        if checked:
             enabled.add(tab_id)
         else:
             if tab_id in enabled and len(enabled) == 1:
-                messagebox.showinfo("Tabs", "At least one tab must remain enabled.")
-                self.tab_vars[tab_id].set(True)
+                QtWidgets.QMessageBox.information(self, "Tabs", "At least one tab must remain enabled.")
+                self.tab_actions[tab_id].setChecked(True)
                 return
             enabled.discard(tab_id)
 
@@ -130,110 +166,70 @@ class App(tk.Tk):
         self._tiers_load_from_db()
 
     def _open_reorder_tabs_dialog(self) -> None:
-        dialog = tk.Toplevel(self)
-        dialog.title("Reorder Tabs")
-        dialog.transient(self)
-        dialog.grab_set()
+        dialog = ReorderTabsDialog(self.tab_order, self.tab_registry, self)
+        if dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted:
+            return
 
-        ttk.Label(
-            dialog,
-            text="Set the order number for each tab (1 = first).",
-        ).pack(anchor="w", padx=10, pady=(10, 0))
+        orders = dialog.build_orders()
+        try:
+            config = apply_tab_reorder(self.tab_order, self.enabled_tabs, orders)
+        except ValueError as exc:
+            QtWidgets.QMessageBox.warning(self, "Invalid order", str(exc))
+            return
 
-        body = ttk.Frame(dialog, padding=10)
-        body.pack(fill="both", expand=True)
-
-        rows: list[tuple[str, tk.StringVar]] = []
-        for idx, tab_id in enumerate(self.tab_order, start=1):
-            label = self.tab_registry[tab_id]["label"]
-            ttk.Label(body, text=label).grid(row=idx, column=0, sticky="w", padx=(0, 12), pady=4)
-            var = tk.StringVar(value=str(idx))
-            spin = ttk.Spinbox(body, from_=1, to=len(self.tab_order), textvariable=var, width=6)
-            spin.grid(row=idx, column=1, sticky="w", pady=4)
-            rows.append((tab_id, var))
-
-        btns = ttk.Frame(dialog, padding=(10, 0, 10, 10))
-        btns.pack(fill="x")
-
-        def apply_changes() -> None:
-            orders: dict[str, int] = {}
-            for tab_id, var in rows:
-                try:
-                    order_val = int(var.get())
-                except ValueError:
-                    messagebox.showerror("Invalid order", "Each tab must have a numeric order.")
-                    return
-                orders[tab_id] = order_val
-
-            try:
-                config = apply_tab_reorder(self.tab_order, self.enabled_tabs, orders)
-            except ValueError as exc:
-                messagebox.showerror("Invalid order", str(exc))
-                return
-
-            self.tab_order = config.order
-            self.enabled_tabs = config.enabled
-            self._save_ui_config()
-            self._rebuild_tabs()
-            self.refresh_items()
-            self.refresh_recipes()
-            self._tiers_load_from_db()
-            dialog.destroy()
-
-        ttk.Button(btns, text="Apply", command=apply_changes).pack(side="right")
-        ttk.Button(btns, text="Cancel", command=dialog.destroy).pack(side="right", padx=(0, 8))
+        self.tab_order = config.order
+        self.enabled_tabs = config.enabled
+        self._save_ui_config()
+        self._rebuild_tabs()
+        self.refresh_items()
+        self.refresh_recipes()
+        self._tiers_load_from_db()
 
     # ---------- Menu / DB handling ----------
-    def _build_menu(self):
-        menubar = tk.Menu(self)
+    def _build_menu(self) -> None:
+        menubar = self.menuBar()
 
-        filem = tk.Menu(menubar, tearoff=0)
-        filem.add_command(label="Open DB…", command=self.menu_open_db)
+        file_menu = menubar.addMenu("File")
+        file_menu.addAction("Open DB…", self.menu_open_db)
         if self.editor_enabled:
-            filem.add_command(label="New DB…", command=self.menu_new_db)
-            filem.add_separator()
-            filem.add_command(label="Export Content DB…", command=self.menu_export_content_db)
-            filem.add_command(label="Export Profile DB…", command=self.menu_export_profile_db)
-            filem.add_command(label="Merge DB…", command=self.menu_merge_db)
+            file_menu.addAction("New DB…", self.menu_new_db)
+            file_menu.addSeparator()
+            file_menu.addAction("Export Content DB…", self.menu_export_content_db)
+            file_menu.addAction("Export Profile DB…", self.menu_export_profile_db)
+            file_menu.addAction("Merge DB…", self.menu_merge_db)
         else:
-            filem.add_separator()
-            filem.add_command(label="Export Content DB…", command=self.menu_export_content_db)
-            filem.add_command(label="Export Profile DB…", command=self.menu_export_profile_db)
-        filem.add_separator()
-        filem.add_command(label="Quit", command=self.destroy)
+            file_menu.addSeparator()
+            file_menu.addAction("Export Content DB…", self.menu_export_content_db)
+            file_menu.addAction("Export Profile DB…", self.menu_export_profile_db)
+        file_menu.addSeparator()
+        file_menu.addAction("Quit", self.close)
 
-        menubar.add_cascade(label="File", menu=filem)
-
-        tabs_menu = tk.Menu(menubar, tearoff=0)
+        tabs_menu = menubar.addMenu("Tabs")
         for tab_id, meta in self.tab_registry.items():
-            var = tk.BooleanVar(value=tab_id in self.enabled_tabs)
-            self.tab_vars[tab_id] = var
-            tabs_menu.add_checkbutton(
-                label=meta["label"],
-                variable=var,
-                command=lambda tid=tab_id: self._toggle_tab(tid),
-            )
-        tabs_menu.add_separator()
-        tabs_menu.add_command(label="Reorder Tabs…", command=self._open_reorder_tabs_dialog)
-        menubar.add_cascade(label="Tabs", menu=tabs_menu)
+            action = QtWidgets.QAction(meta["label"], self)
+            action.setCheckable(True)
+            action.setChecked(tab_id in self.enabled_tabs)
+            action.toggled.connect(lambda checked, tid=tab_id: self._toggle_tab(tid, checked))
+            tabs_menu.addAction(action)
+            self.tab_actions[tab_id] = action
+        tabs_menu.addSeparator()
+        tabs_menu.addAction("Reorder Tabs…", self._open_reorder_tabs_dialog)
 
-        self.config(menu=menubar)
-
-    def _update_title(self):
+    def _update_title(self) -> None:
         try:
             name = self.db_path.name
         except Exception:
             name = "(unknown)"
         mode = "Editor" if self.editor_enabled else "Client"
-        self.title(f"GTNH Recipe DB — {mode} — {name}")
+        self.setWindowTitle(f"GTNH Recipe DB — {mode} — {name}")
 
-    def destroy(self):
+    def closeEvent(self, event) -> None:
         try:
             self.db.close()
         finally:
-            super().destroy()
+            event.accept()
 
-    def _switch_db(self, new_path: Path):
+    def _switch_db(self, new_path: Path) -> None:
         """Close current DB connection and open a new one."""
         self.db.switch_db(Path(new_path))
         self._sync_db_handles()
@@ -243,102 +239,108 @@ class App(tk.Tk):
         self.refresh_items()
         self.refresh_recipes()
         self._tiers_load_from_db()
-        if getattr(self, "items_tab", None) is not None:
-            self.items_tab._item_details_set("")
-        if getattr(self, "recipes_tab", None) is not None:
-            self.recipes_tab._recipe_details_set("")
         self.planner_state = {}
-        if getattr(self, "planner_tab", None) is not None:
-            self.planner_tab.reset_state()
 
-    def menu_open_db(self):
-        path = filedialog.askopenfilename(
-            title="Open GTNH DB",
-            filetypes=[("SQLite DB", "*.db"), ("All files", "*")],
+    def menu_open_db(self) -> None:
+        path, _ = QtWidgets.QFileDialog.getOpenFileName(
+            self,
+            "Open GTNH DB",
+            str(self.db_path),
+            "SQLite DB (*.db);;All files (*)",
         )
         if not path:
             return
         self._switch_db(Path(path))
-        self.status.set(f"Opened DB: {Path(path).name}")
+        self.status_bar.showMessage(f"Opened DB: {Path(path).name}")
 
-    def menu_new_db(self):
+    def menu_new_db(self) -> None:
         if not self.editor_enabled:
-            messagebox.showinfo("Editor locked", "This copy is running in client mode.\n\nTo enable editing, create a file named '.enable_editor' next to the app.")
+            QtWidgets.QMessageBox.information(
+                self,
+                "Editor locked",
+                "This copy is running in client mode.\n\n"
+                "To enable editing, create a file named '.enable_editor' next to the app.",
+            )
             return
-        path = filedialog.asksaveasfilename(
-            title="Create / Choose DB",
-            defaultextension=".db",
-            filetypes=[("SQLite DB", "*.db"), ("All files", "*")],
-            initialfile="gtnh.db",
+        path, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self,
+            "Create / Choose DB",
+            "gtnh.db",
+            "SQLite DB (*.db);;All files (*)",
         )
         if not path:
             return
         self._switch_db(Path(path))
-        self.status.set(f"Using DB: {Path(path).name}")
+        self.status_bar.showMessage(f"Using DB: {Path(path).name}")
 
-    def menu_export_content_db(self):
+    def menu_export_content_db(self) -> None:
         ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         default = f"gtnh_export_{ts}.db"
-        path = filedialog.asksaveasfilename(
-            title="Export Content DB",
-            defaultextension=".db",
-            filetypes=[("SQLite DB", "*.db"), ("All files", "*")],
-            initialfile=default,
+        path, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self,
+            "Export Content DB",
+            default,
+            "SQLite DB (*.db);;All files (*)",
         )
         if not path:
             return
         try:
             self.db.export_content_db(Path(path))
-        except Exception as e:
-            messagebox.showerror("Export failed", f"Could not export DB.\n\nDetails: {e}")
+        except Exception as exc:
+            QtWidgets.QMessageBox.critical(self, "Export failed", f"Could not export DB.\n\nDetails: {exc}")
             return
-        self.status.set(f"Exported content DB to: {Path(path).name}")
-        messagebox.showinfo("Export complete", f"Exported content DB to:\n\n{path}")
+        self.status_bar.showMessage(f"Exported content DB to: {Path(path).name}")
+        QtWidgets.QMessageBox.information(self, "Export complete", f"Exported content DB to:\n\n{path}")
 
-    def menu_export_profile_db(self):
+    def menu_export_profile_db(self) -> None:
         ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         default = f"gtnh_profile_export_{ts}.db"
-        path = filedialog.asksaveasfilename(
-            title="Export Profile DB",
-            defaultextension=".db",
-            filetypes=[("SQLite DB", "*.db"), ("All files", "*")],
-            initialfile=default,
+        path, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self,
+            "Export Profile DB",
+            default,
+            "SQLite DB (*.db);;All files (*)",
         )
         if not path:
             return
         try:
             self.db.export_profile_db(Path(path))
-        except Exception as e:
-            messagebox.showerror("Export failed", f"Could not export profile DB.\n\nDetails: {e}")
+        except Exception as exc:
+            QtWidgets.QMessageBox.critical(
+                self, "Export failed", f"Could not export profile DB.\n\nDetails: {exc}"
+            )
             return
-        self.status.set(f"Exported profile DB to: {Path(path).name}")
-        messagebox.showinfo("Export complete", f"Exported profile DB to:\n\n{path}")
+        self.status_bar.showMessage(f"Exported profile DB to: {Path(path).name}")
+        QtWidgets.QMessageBox.information(self, "Export complete", f"Exported profile DB to:\n\n{path}")
 
-    def menu_merge_db(self):
+    def menu_merge_db(self) -> None:
         if not self.editor_enabled:
-            messagebox.showinfo("Editor locked", "Merging is only available in editor mode.")
+            QtWidgets.QMessageBox.information(self, "Editor locked", "Merging is only available in editor mode.")
             return
-        path = filedialog.askopenfilename(
-            title="Merge another DB into this one",
-            filetypes=[("SQLite DB", "*.db"), ("All files", "*")],
+        path, _ = QtWidgets.QFileDialog.getOpenFileName(
+            self,
+            "Merge another DB into this one",
+            str(self.db_path),
+            "SQLite DB (*.db);;All files (*)",
         )
         if not path:
             return
 
-        ok = messagebox.askyesno(
+        ok = QtWidgets.QMessageBox.question(
+            self,
             "Merge DB?",
             "This will import Items, Recipes, and Recipe Lines from another DB into your current DB.\n\n"
             "It will NOT delete anything.\n"
             "If recipe names collide, imported recipes get a suffix like '(import 2)'.\n\n"
             "Continue?",
         )
-        if not ok:
+        if ok != QtWidgets.QMessageBox.StandardButton.Yes:
             return
 
         try:
             stats = self.db.merge_db(Path(path))
-        except Exception as e:
-            messagebox.showerror("Merge failed", f"Could not merge DB.\n\nDetails: {e}")
+        except Exception as exc:
+            QtWidgets.QMessageBox.critical(self, "Merge failed", f"Could not merge DB.\n\nDetails: {exc}")
             return
 
         self.refresh_items()
@@ -352,14 +354,14 @@ class App(tk.Tk):
             f"Recipes added: {stats.get('recipes_added', 0)}\n"
             f"Recipe lines added: {stats.get('lines_added', 0)}"
         )
-        self.status.set("Merge complete")
-        messagebox.showinfo("Merge complete", msg)
+        self.status_bar.showMessage("Merge complete")
+        QtWidgets.QMessageBox.information(self, "Merge complete", msg)
 
     # ---------- Tiers ----------
     def get_enabled_tiers(self):
         return self.db.get_enabled_tiers()
 
-    def set_enabled_tiers(self, tiers: list[str]):
+    def set_enabled_tiers(self, tiers: list[str]) -> None:
         self.db.set_enabled_tiers(tiers)
 
     # ---------- Crafting grid unlocks ----------
@@ -372,19 +374,19 @@ class App(tk.Tk):
     # ---------- Tab delegates ----------
     def refresh_items(self) -> None:
         self.items = fetch_items(self.conn)
-        if getattr(self, "items_tab", None) is not None:
-            self.items_tab.render_items(self.items)
-        if getattr(self, "inventory_tab", None) is not None:
-            self.inventory_tab.render_items(self.items)
 
     def refresh_recipes(self) -> None:
-        if getattr(self, "recipes_tab", None) is not None:
-            self.recipes_tab.refresh_recipes()
+        return None
 
     def _tiers_load_from_db(self) -> None:
-        if getattr(self, "tiers_tab", None) is not None:
-            self.tiers_tab.load_from_db()
+        return None
 
     def notify_inventory_change(self) -> None:
-        if getattr(self, "planner_tab", None) is not None:
-            self.planner_tab.on_inventory_changed()
+        return None
+
+
+if __name__ == "__main__":
+    app = QtWidgets.QApplication(sys.argv)
+    window = App()
+    window.show()
+    sys.exit(app.exec())
