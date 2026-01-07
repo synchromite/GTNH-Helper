@@ -20,7 +20,7 @@ class InventoryTab(ttk.Frame):
         right = ttk.Frame(body)
         right.pack(side="right", fill="both", expand=True, padx=(12, 0))
 
-        self.inventory_list = tk.Listbox(left, width=40)
+        self.inventory_list = tk.Listbox(left, width=40, exportselection=False)
         self.inventory_list.pack(fill="y", expand=True)
         self.inventory_list.bind("<<ListboxSelect>>", self.on_inventory_select)
 
