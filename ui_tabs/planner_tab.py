@@ -113,6 +113,8 @@ class PlannerTab(ttk.Frame):
 
         if result.errors:
             self._handle_plan_errors(result.errors)
+            self._set_text(self.shopping_text, "")
+            self._set_text(self.steps_text, "")
             return
 
         if not result.shopping_list:
