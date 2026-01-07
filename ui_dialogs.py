@@ -445,10 +445,6 @@ class AddItemDialog(tk.Toplevel):
         self.out_slot_kind_vars = []
         self.in_slot_label_vars = []
         self.out_slot_label_vars = []
-        self.in_slot_label_vars = []
-        self.out_slot_label_vars = []
-        self.in_slot_label_vars = []
-        self.out_slot_label_vars = []
 
         # Keep slot UI in sync with slot counts
         self.machine_input_slots_var.trace_add("write", lambda *_: self._on_slots_changed())
