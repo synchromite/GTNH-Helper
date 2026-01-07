@@ -1059,6 +1059,8 @@ class EditItemDialog(tk.Toplevel):
 
         self.in_slot_kind_vars = []
         self.out_slot_kind_vars = []
+        self.in_slot_label_vars = []
+        self.out_slot_label_vars = []
 
         # Load existing per-slot types
         slot_rows = self.app.conn.execute(
