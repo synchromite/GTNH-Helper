@@ -27,6 +27,7 @@ Remove the file to switch back to client mode.
 Profile data is kept separate so your progress survives content DB updates.
 
 ## In progress
+- UI Re-write - Moving from Tkinter to PyQt
 - Planner Polishing - 2026.01.07
 
 ## Planned
