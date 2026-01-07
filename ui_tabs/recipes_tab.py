@@ -1,6 +1,12 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
 
+from services.recipes import (
+    fetch_item_name,
+    fetch_machine_output_slots,
+    fetch_recipe_lines,
+    fetch_recipes,
+)
 from ui_dialogs import AddRecipeDialog, EditRecipeDialog
 
 
@@ -43,14 +49,7 @@ class RecipesTab(ttk.Frame):
 
     def refresh_recipes(self):
         enabled = self.app.get_enabled_tiers()
-        placeholders = ",".join(["?"] * len(enabled))
-        sql = (
-            "SELECT id, name, method, machine, machine_item_id, grid_size, station_item_id, tier, circuit, duration_ticks, eu_per_tick "
-            "FROM recipes "
-            f"WHERE (tier IS NULL OR TRIM(tier)='' OR tier IN ({placeholders})) "
-            "ORDER BY name"
-        )
-        self.recipes = self.app.conn.execute(sql, tuple(enabled)).fetchall()
+        self.recipes = fetch_recipes(self.app.conn, enabled)
         self.recipe_list.delete(0, tk.END)
         for r in self.recipes:
             self.recipe_list.insert(tk.END, r["name"])
@@ -61,16 +60,7 @@ class RecipesTab(ttk.Frame):
             return
         r = self.recipes[sel[0]]
 
-        lines = self.app.conn.execute(
-            """
-            SELECT rl.direction, COALESCE(i.display_name, i.key) AS name, rl.qty_count, rl.qty_liters, rl.chance_percent, rl.output_slot_index
-            FROM recipe_lines rl
-            JOIN items i ON i.id = rl.item_id
-            WHERE rl.recipe_id=?
-            ORDER BY rl.id
-            """,
-            (r["id"],),
-        ).fetchall()
+        lines = fetch_recipe_lines(self.app.conn, r["id"])
 
         ins = []
         outs = []
@@ -115,11 +105,7 @@ class RecipesTab(ttk.Frame):
 
         station_name = ""
         if method == "crafting" and r["station_item_id"] is not None:
-            row = self.app.conn.execute(
-                "SELECT COALESCE(display_name, key) AS name FROM items WHERE id=?",
-                (r["station_item_id"],),
-            ).fetchone()
-            station_name = row["name"] if row else ""
+            station_name = fetch_item_name(self.app.conn, r["station_item_id"])
 
         method_lines = [f"Method: {method_label}"]
         if method == "crafting":
@@ -129,15 +115,8 @@ class RecipesTab(ttk.Frame):
             mline = f"Machine: {r['machine'] or ''}"
             mid = r["machine_item_id"]
             if mid is not None:
-                mrow = self.app.conn.execute(
-                    "SELECT machine_output_slots FROM items WHERE id=?",
-                    (mid,),
-                ).fetchone()
-                if mrow:
-                    try:
-                        mos = int(mrow["machine_output_slots"] or 1)
-                    except Exception:
-                        mos = 1
+                mos = fetch_machine_output_slots(self.app.conn, mid)
+                if mos is not None:
                     mline = f"{mline} (output slots: {mos})"
             method_lines.append(mline)
 
