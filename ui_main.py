@@ -5,10 +5,11 @@ from pathlib import Path
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 
-from db import connect, connect_profile, get_setting, set_setting, DEFAULT_DB_PATH, export_db, merge_database
+from services.db import connect, connect_profile, get_setting, set_setting, DEFAULT_DB_PATH, export_db, merge_database
 from ui_constants import SETTINGS_CRAFT_6X6_UNLOCKED, SETTINGS_ENABLED_TIERS
 from ui_tabs.inventory_tab import InventoryTab
 from ui_tabs.items_tab import ItemsTab
+from ui_tabs.planner_tab import PlannerTab
 from ui_tabs.recipes_tab import RecipesTab
 from ui_tabs.tiers_tab import TiersTab
 
@@ -40,6 +41,7 @@ class App(tk.Tk):
             "items": {"label": "Items", "class": ItemsTab, "attr": "items_tab"},
             "recipes": {"label": "Recipes", "class": RecipesTab, "attr": "recipes_tab"},
             "inventory": {"label": "Inventory", "class": InventoryTab, "attr": "inventory_tab"},
+            "planner": {"label": "Planner", "class": PlannerTab, "attr": "planner_tab"},
             "tiers": {"label": "Tiers", "class": TiersTab, "attr": "tiers_tab"},
         }
         self.tab_order, self.enabled_tabs = self._load_ui_config()

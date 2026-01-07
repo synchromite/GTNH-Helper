@@ -1,6 +1,6 @@
 import sqlite3
 
-import db
+from services import db
 
 
 def _table_columns(conn: sqlite3.Connection, table: str) -> set[str]:

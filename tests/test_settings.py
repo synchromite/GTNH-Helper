@@ -1,6 +1,6 @@
 import sqlite3
 
-import db
+from services import db
 
 
 def test_settings_round_trip():

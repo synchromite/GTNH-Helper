@@ -2,7 +2,7 @@
 import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog
 
-from db import ALL_TIERS
+from services.db import ALL_TIERS
 
 
 def _row_get(row, key: str, default=None):

@@ -1,7 +1,7 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
 
-from db import ALL_TIERS
+from services.db import ALL_TIERS
 
 
 class TiersTab(ttk.Frame):

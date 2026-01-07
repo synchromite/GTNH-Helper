@@ -1,6 +1,6 @@
 import sqlite3
 
-import db
+from services import db
 
 
 def test_connect_profile_creates_tables(tmp_path):
