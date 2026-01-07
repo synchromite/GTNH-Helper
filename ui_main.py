@@ -28,6 +28,7 @@ class App(tk.Tk):
         self._sync_db_handles()
 
         self.status = tk.StringVar(value="Ready")
+        self.planner_state: dict[str, object] = {}
 
         self.tab_registry = {
             "items": {"label": "Items", "class": ItemsTab, "attr": "items_tab"},
@@ -246,6 +247,9 @@ class App(tk.Tk):
             self.items_tab._item_details_set("")
         if getattr(self, "recipes_tab", None) is not None:
             self.recipes_tab._recipe_details_set("")
+        self.planner_state = {}
+        if getattr(self, "planner_tab", None) is not None:
+            self.planner_tab.reset_state()
 
     def menu_open_db(self):
         path = filedialog.askopenfilename(

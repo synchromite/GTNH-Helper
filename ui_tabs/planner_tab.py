@@ -1,5 +1,6 @@
+import json
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, filedialog
 
 from services.planner import PlannerService
 from ui_dialogs import AddRecipeDialog, ItemPickerDialog
@@ -41,7 +42,9 @@ class PlannerTab(ttk.Frame):
         btns = ttk.Frame(controls)
         btns.grid(row=0, column=3, rowspan=3, sticky="e", padx=(20, 0))
         ttk.Button(btns, text="Plan", command=self.run_plan).pack(anchor="e", pady=(0, 6))
-        ttk.Button(btns, text="Clear", command=self.clear_results).pack(anchor="e")
+        ttk.Button(btns, text="Clear", command=self.clear_results).pack(anchor="e", pady=(0, 6))
+        ttk.Button(btns, text="Save Plan…", command=self.save_plan).pack(anchor="e", pady=(0, 6))
+        ttk.Button(btns, text="Load Plan…", command=self.load_plan).pack(anchor="e")
 
         controls.columnconfigure(1, weight=1)
 
@@ -50,6 +53,20 @@ class PlannerTab(ttk.Frame):
 
         shopping_frame = ttk.LabelFrame(results, text="Shopping List", padding=8)
         shopping_frame.pack(side="left", fill="both", expand=True, padx=(0, 8))
+        shopping_header = ttk.Frame(shopping_frame)
+        shopping_header.pack(fill="x", pady=(0, 6))
+        shopping_buttons = ttk.Frame(shopping_header)
+        shopping_buttons.pack(side="right")
+        ttk.Button(
+            shopping_buttons,
+            text="Save…",
+            command=lambda: self._save_text(self.shopping_text, "shopping_list.txt"),
+        ).pack(side="right")
+        ttk.Button(
+            shopping_buttons,
+            text="Copy",
+            command=lambda: self._copy_text(self.shopping_text, "Shopping list is empty."),
+        ).pack(side="right", padx=(0, 6))
         self.shopping_text = tk.Text(shopping_frame, wrap="word", height=18)
         self.shopping_text.pack(fill="both", expand=True)
         self._set_text(self.shopping_text, "Run a plan to see required items.")
@@ -57,15 +74,30 @@ class PlannerTab(ttk.Frame):
         steps_frame = ttk.LabelFrame(results, text="Process Steps", padding=8)
         steps_frame.pack(side="right", fill="both", expand=True)
         self.show_steps_var = tk.BooleanVar(value=True)
+        steps_header = ttk.Frame(steps_frame)
+        steps_header.pack(fill="x", pady=(0, 6))
         ttk.Checkbutton(
-            steps_frame,
+            steps_header,
             text="Show process steps",
             variable=self.show_steps_var,
             command=self._toggle_steps,
-        ).pack(anchor="w", pady=(0, 6))
+        ).pack(side="left")
+        steps_buttons = ttk.Frame(steps_header)
+        steps_buttons.pack(side="right")
+        ttk.Button(
+            steps_buttons,
+            text="Save…",
+            command=lambda: self._save_text(self.steps_text, "process_steps.txt"),
+        ).pack(side="right")
+        ttk.Button(
+            steps_buttons,
+            text="Copy",
+            command=lambda: self._copy_text(self.steps_text, "Process steps are empty."),
+        ).pack(side="right", padx=(0, 6))
         self.steps_text = tk.Text(steps_frame, wrap="word", height=18)
         self.steps_text.pack(fill="both", expand=True)
         self._set_text(self.steps_text, "Run a plan to see steps.")
+        self._restore_state()
 
     def pick_target_item(self):
         if not self.app.items:
@@ -79,6 +111,7 @@ class PlannerTab(ttk.Frame):
         self.target_item_kind = dlg.result["kind"]
         self.target_item_name.set(dlg.result["name"])
         self.target_qty_unit.set("L" if self.target_item_kind == "fluid" else "count")
+        self._persist_state()
 
     def run_plan(self):
         self.planner = PlannerService(self.app.conn, self.app.profile_conn)
@@ -115,6 +148,7 @@ class PlannerTab(ttk.Frame):
             self._handle_plan_errors(result.errors)
             self._set_text(self.shopping_text, "")
             self._set_text(self.steps_text, "")
+            self._persist_state()
             return
 
         if not result.shopping_list:
@@ -137,6 +171,7 @@ class PlannerTab(ttk.Frame):
             self._set_text(self.steps_text, "No process steps generated.")
 
         self.app.status.set("Planner run complete")
+        self._persist_state()
 
     def _handle_plan_errors(self, errors: list[str]) -> None:
         message = "\n".join(errors)
@@ -156,15 +191,21 @@ class PlannerTab(ttk.Frame):
         self.app.status.set("Planner failed: missing recipe")
 
     def _toggle_steps(self):
+        self._toggle_steps_visibility()
+
+    def _toggle_steps_visibility(self, *, persist: bool = True) -> None:
         if self.show_steps_var.get():
             self.steps_text.pack(fill="both", expand=True)
         else:
             self.steps_text.pack_forget()
+        if persist:
+            self._persist_state()
 
     def clear_results(self):
         self._set_text(self.shopping_text, "")
         self._set_text(self.steps_text, "")
         self.app.status.set("Planner cleared")
+        self._persist_state()
 
     def _set_text(self, widget: tk.Text, text: str) -> None:
         widget.configure(state="normal")
@@ -172,9 +213,145 @@ class PlannerTab(ttk.Frame):
         widget.insert("1.0", text)
         widget.configure(state="disabled")
 
+    def _copy_text(self, widget: tk.Text, empty_message: str) -> None:
+        text = widget.get("1.0", tk.END).strip()
+        if not text:
+            messagebox.showinfo("Nothing to copy", empty_message)
+            return
+        self.clipboard_clear()
+        self.clipboard_append(text)
+        self.app.status.set("Copied to clipboard")
+
+    def _save_text(self, widget: tk.Text, default_name: str) -> None:
+        text = widget.get("1.0", tk.END).strip()
+        if not text:
+            messagebox.showinfo("Nothing to save", "There is no content to save yet.")
+            return
+        path = filedialog.asksaveasfilename(
+            title="Save Planner Output",
+            defaultextension=".txt",
+            initialfile=default_name,
+            filetypes=[("Text Files", "*.txt"), ("All Files", "*")],
+        )
+        if not path:
+            return
+        try:
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write(text)
+        except Exception as exc:
+            messagebox.showerror("Save failed", f"Could not save file.\n\nDetails: {exc}")
+            return
+        self.app.status.set(f"Saved planner output to {path}")
+
+    def save_plan(self) -> None:
+        state = self._current_state()
+        if not state.get("shopping_text") and not state.get("steps_text"):
+            messagebox.showinfo("Nothing to save", "Run a plan or load content before saving.")
+            return
+        path = filedialog.asksaveasfilename(
+            title="Save Plan",
+            defaultextension=".json",
+            initialfile="planner_plan.json",
+            filetypes=[("Planner Plan", "*.json"), ("All Files", "*")],
+        )
+        if not path:
+            return
+        try:
+            with open(path, "w", encoding="utf-8") as handle:
+                json.dump(state, handle, indent=2)
+        except Exception as exc:
+            messagebox.showerror("Save failed", f"Could not save plan.\n\nDetails: {exc}")
+            return
+        self.app.status.set(f"Saved planner plan to {path}")
+
+    def load_plan(self) -> None:
+        path = filedialog.askopenfilename(
+            title="Load Plan",
+            filetypes=[("Planner Plan", "*.json"), ("All Files", "*")],
+        )
+        if not path:
+            return
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                data = json.load(handle)
+        except Exception as exc:
+            messagebox.showerror("Load failed", f"Could not read plan.\n\nDetails: {exc}")
+            return
+        if not isinstance(data, dict):
+            messagebox.showerror("Load failed", "Plan file is not valid.")
+            return
+        self._apply_loaded_state(data)
+        self._persist_state()
+        self.app.status.set(f"Loaded planner plan from {path}")
+
+    def _persist_state(self) -> None:
+        self.app.planner_state = self._current_state()
+
+    def _current_state(self) -> dict[str, object]:
+        return {
+            "version": 1,
+            "target_item_id": self.target_item_id,
+            "target_item_kind": self.target_item_kind,
+            "target_item_name": self.target_item_name.get(),
+            "target_qty": self.target_qty_var.get(),
+            "target_unit": self.target_qty_unit.get(),
+            "use_inventory": self.use_inventory_var.get(),
+            "shopping_text": self.shopping_text.get("1.0", tk.END).rstrip(),
+            "steps_text": self.steps_text.get("1.0", tk.END).rstrip(),
+            "show_steps": self.show_steps_var.get(),
+        }
+
+    def _restore_state(self) -> None:
+        state = getattr(self.app, "planner_state", {}) or {}
+        if not state:
+            return
+        self._apply_loaded_state(state)
+
+    def _apply_loaded_state(self, state: dict[str, object]) -> None:
+        item_id = state.get("target_item_id")
+        item_name = state.get("target_item_name") or "(none)"
+        item_kind = state.get("target_item_kind")
+        matched = None
+        if item_id is not None:
+            matched = next((item for item in self.app.items if item["id"] == item_id), None)
+        if matched is None and item_name:
+            matched = next((item for item in self.app.items if item["name"] == item_name), None)
+        if matched:
+            self.target_item_id = matched["id"]
+            self.target_item_kind = matched["kind"]
+            self.target_item_name.set(matched["name"])
+            self.target_qty_unit.set(self._unit_for_kind(matched["kind"]))
+        else:
+            self.target_item_id = item_id if isinstance(item_id, int) else None
+            self.target_item_kind = item_kind if isinstance(item_kind, str) else None
+            self.target_item_name.set(item_name)
+            self.target_qty_unit.set(state.get("target_unit") or "")
+
+        self.target_qty_var.set(state.get("target_qty") or "1")
+        self.use_inventory_var.set(bool(state.get("use_inventory", True)))
+        self.show_steps_var.set(bool(state.get("show_steps", True)))
+        self._toggle_steps_visibility(persist=False)
+        self._set_text(self.shopping_text, state.get("shopping_text", ""))
+        self._set_text(self.steps_text, state.get("steps_text", ""))
+
+    def reset_state(self) -> None:
+        self.target_item_id = None
+        self.target_item_kind = None
+        self.target_item_name.set("(none)")
+        self.target_qty_var.set("1")
+        self.target_qty_unit.set("")
+        self.use_inventory_var.set(True)
+        self.show_steps_var.set(True)
+        self._toggle_steps_visibility(persist=False)
+        self._set_text(self.shopping_text, "Run a plan to see required items.")
+        self._set_text(self.steps_text, "Run a plan to see steps.")
+
     def _has_recipes(self) -> bool:
         try:
             row = self.app.conn.execute("SELECT COUNT(1) AS c FROM recipes").fetchone()
         except Exception:
             return False
         return bool(row and int(row["c"] or 0) > 0)
+
+    def _unit_for_kind(self, kind: str | None) -> str:
+        return "L" if (kind or "").strip().lower() == "fluid" else "count"
