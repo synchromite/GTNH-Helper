@@ -58,11 +58,11 @@ class PlannerTab(ttk.Frame):
 
         controls.columnconfigure(1, weight=1)
 
-        self.main_pane = ttk.Panedwindow(self, orient="vertical")
+        self.main_pane = tk.PanedWindow(self, orient="vertical")
         self.main_pane.pack(fill="both", expand=True, pady=(8, 0))
 
-        self.results_pane = ttk.Panedwindow(self.main_pane, orient="horizontal")
-        self.main_pane.add(self.results_pane, weight=1, minsize=220)
+        self.results_pane = tk.PanedWindow(self.main_pane, orient="horizontal")
+        self.main_pane.add(self.results_pane, minsize=220, stretch="always")
 
         shopping_frame = ttk.LabelFrame(self.results_pane, text="Shopping List", padding=8)
         shopping_header = ttk.Frame(shopping_frame)
@@ -102,7 +102,7 @@ class PlannerTab(ttk.Frame):
         self.steps_text.pack(fill="both", expand=True)
         self._set_text(self.steps_text, "Run a plan to see steps.")
 
-        self.results_pane.add(shopping_frame, weight=1, minsize=240)
+        self.results_pane.add(shopping_frame, minsize=240, stretch="always")
 
         self.show_steps_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(
@@ -113,7 +113,7 @@ class PlannerTab(ttk.Frame):
         ).grid(row=3, column=0, columnspan=2, sticky="w", pady=(6, 0))
 
         build_frame = ttk.LabelFrame(self.main_pane, text="Build Steps", padding=8)
-        self.main_pane.add(build_frame, weight=1, minsize=200)
+        self.main_pane.add(build_frame, minsize=200, stretch="always")
         build_header = ttk.Frame(build_frame)
         build_header.pack(fill="x", pady=(0, 6))
         ttk.Label(build_header, text="Check off each step as you complete it.").pack(side="left")
@@ -459,7 +459,7 @@ class PlannerTab(ttk.Frame):
         steps_id = str(self.steps_frame)
         if self.show_steps_var.get():
             if steps_id not in panes:
-                self.results_pane.add(self.steps_frame, weight=1, minsize=200)
+                self.results_pane.add(self.steps_frame, minsize=200, stretch="always")
         else:
             if steps_id in panes:
                 self.results_pane.forget(self.steps_frame)
