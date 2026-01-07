@@ -28,6 +28,7 @@ Profile data is kept separate so your progress survives content DB updates.
 
 ## In progress
 Planner Polishing - 2026.01.07
+Build Button in Planner - 2026.01.07
 
 ## Planned
 - Machine tier dropdown/display polish.
