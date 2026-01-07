@@ -443,6 +443,12 @@ class AddItemDialog(tk.Toplevel):
 
         self.in_slot_kind_vars = []
         self.out_slot_kind_vars = []
+        self.in_slot_label_vars = []
+        self.out_slot_label_vars = []
+        self.in_slot_label_vars = []
+        self.out_slot_label_vars = []
+        self.in_slot_label_vars = []
+        self.out_slot_label_vars = []
 
         # Keep slot UI in sync with slot counts
         self.machine_input_slots_var.trace_add("write", lambda *_: self._on_slots_changed())
@@ -576,29 +582,49 @@ class AddItemDialog(tk.Toplevel):
         for w in list(self.outputs_lf.winfo_children()):
             w.destroy()
 
-        def _resize(vars_list, n):
+        def _resize(vars_list, n, *, default=""):
             while len(vars_list) < n:
-                vars_list.append(tk.StringVar(value="item"))
+                vars_list.append(tk.StringVar(value=default))
             while len(vars_list) > n:
                 vars_list.pop()
             return vars_list
 
-        self.in_slot_kind_vars = _resize(getattr(self, "in_slot_kind_vars", []), in_n)
-        self.out_slot_kind_vars = _resize(getattr(self, "out_slot_kind_vars", []), out_n)
+        self.in_slot_kind_vars = _resize(getattr(self, "in_slot_kind_vars", []), in_n, default="item")
+        self.out_slot_kind_vars = _resize(getattr(self, "out_slot_kind_vars", []), out_n, default="item")
+        self.in_slot_label_vars = _resize(getattr(self, "in_slot_label_vars", []), in_n)
+        self.out_slot_label_vars = _resize(getattr(self, "out_slot_label_vars", []), out_n)
 
         values = ["item", "fluid"]
 
         for i in range(in_n):
-            ttk.Label(self.inputs_lf, text=f"In {i}").grid(row=i, column=0, sticky="w", padx=8, pady=2)
-            ttk.Combobox(self.inputs_lf, textvariable=self.in_slot_kind_vars[i], values=values, state="readonly", width=8).grid(
-                row=i, column=1, sticky="w", padx=8, pady=2
-            )
+            ttk.Label(self.inputs_lf, text=f"In {i + 1}").grid(row=i, column=0, sticky="w", padx=8, pady=2)
+            ttk.Combobox(
+                self.inputs_lf,
+                textvariable=self.in_slot_kind_vars[i],
+                values=values,
+                state="readonly",
+                width=8,
+            ).grid(row=i, column=1, sticky="w", padx=8, pady=2)
+            ttk.Entry(
+                self.inputs_lf,
+                textvariable=self.in_slot_label_vars[i],
+                width=14,
+            ).grid(row=i, column=2, sticky="w", padx=(4, 8), pady=2)
 
         for i in range(out_n):
-            ttk.Label(self.outputs_lf, text=f"Out {i}").grid(row=i, column=0, sticky="w", padx=8, pady=2)
-            ttk.Combobox(self.outputs_lf, textvariable=self.out_slot_kind_vars[i], values=values, state="readonly", width=8).grid(
-                row=i, column=1, sticky="w", padx=8, pady=2
-            )
+            ttk.Label(self.outputs_lf, text=f"Out {i + 1}").grid(row=i, column=0, sticky="w", padx=8, pady=2)
+            ttk.Combobox(
+                self.outputs_lf,
+                textvariable=self.out_slot_kind_vars[i],
+                values=values,
+                state="readonly",
+                width=8,
+            ).grid(row=i, column=1, sticky="w", padx=8, pady=2)
+            ttk.Entry(
+                self.outputs_lf,
+                textvariable=self.out_slot_label_vars[i],
+                width=14,
+            ).grid(row=i, column=2, sticky="w", padx=(4, 8), pady=2)
 
     def _reload_item_kinds(self):
         """Reload the Item Kind dropdown from the DB."""
@@ -805,14 +831,18 @@ class AddItemDialog(tk.Toplevel):
             if is_machine:
                 self._rebuild_slot_type_ui(machine_input_slots, machine_output_slots)  # ensure var lists sized
                 for i, v in enumerate(self.in_slot_kind_vars, start=0):
+                    label_val = (self.in_slot_label_vars[i].get() or "").strip()
                     self.app.conn.execute(
-                        "INSERT INTO machine_io_slots(machine_item_id, direction, slot_index, content_kind) VALUES(?,?,?,?)",
-                        (item_id, "in", i, (v.get() or "item").strip().lower()),
+                        "INSERT INTO machine_io_slots(machine_item_id, direction, slot_index, content_kind, label) "
+                        "VALUES(?,?,?,?,?)",
+                        (item_id, "in", i, (v.get() or "item").strip().lower(), label_val),
                     )
                 for i, v in enumerate(self.out_slot_kind_vars, start=0):
+                    label_val = (self.out_slot_label_vars[i].get() or "").strip()
                     self.app.conn.execute(
-                        "INSERT INTO machine_io_slots(machine_item_id, direction, slot_index, content_kind) VALUES(?,?,?,?)",
-                        (item_id, "out", i, (v.get() or "item").strip().lower()),
+                        "INSERT INTO machine_io_slots(machine_item_id, direction, slot_index, content_kind, label) "
+                        "VALUES(?,?,?,?,?)",
+                        (item_id, "out", i, (v.get() or "item").strip().lower(), label_val),
                     )
 
             self.app.conn.commit()
@@ -1036,19 +1066,24 @@ class EditItemDialog(tk.Toplevel):
 
         # Load existing per-slot types
         slot_rows = self.app.conn.execute(
-            "SELECT direction, slot_index, content_kind FROM machine_io_slots WHERE machine_item_id=? ORDER BY direction, slot_index",
+            "SELECT direction, slot_index, content_kind, label FROM machine_io_slots WHERE machine_item_id=? ORDER BY direction, slot_index",
             (self.item_id,),
         ).fetchall()
         in_map = {}
         out_map = {}
+        in_label_map = {}
+        out_label_map = {}
         for r in slot_rows:
             d = (r["direction"] or "").strip().lower()
             idx = int(r["slot_index"])
             ck = (r["content_kind"] or "item").strip().lower()
+            label = (r["label"] or "").strip()
             if d == "in":
                 in_map[idx] = ck
+                in_label_map[idx] = label
             elif d == "out":
                 out_map[idx] = ck
+                out_label_map[idx] = label
 
         def _normalize_slot_map(slot_map: dict[int, str]) -> dict[int, str]:
             if not slot_map:
@@ -1062,12 +1097,16 @@ class EditItemDialog(tk.Toplevel):
 
         in_map = _normalize_slot_map(in_map)
         out_map = _normalize_slot_map(out_map)
+        in_label_map = _normalize_slot_map(in_label_map)
+        out_label_map = _normalize_slot_map(out_label_map)
 
         # Pre-size var lists and set values
         for i in range(mis_i):
             self.in_slot_kind_vars.append(tk.StringVar(value=in_map.get(i, "item")))
+            self.in_slot_label_vars.append(tk.StringVar(value=in_label_map.get(i, "")))
         for i in range(mos_i):
             self.out_slot_kind_vars.append(tk.StringVar(value=out_map.get(i, "item")))
+            self.out_slot_label_vars.append(tk.StringVar(value=out_label_map.get(i, "")))
 
         # Keep slot UI in sync with slot counts
         self.machine_input_slots_var.trace_add("write", lambda *_: self._on_slots_changed())
@@ -1131,29 +1170,49 @@ class EditItemDialog(tk.Toplevel):
         for w in list(self.outputs_lf.winfo_children()):
             w.destroy()
 
-        def _resize(vars_list, n):
+        def _resize(vars_list, n, *, default=""):
             while len(vars_list) < n:
-                vars_list.append(tk.StringVar(value="item"))
+                vars_list.append(tk.StringVar(value=default))
             while len(vars_list) > n:
                 vars_list.pop()
             return vars_list
 
-        self.in_slot_kind_vars = _resize(getattr(self, "in_slot_kind_vars", []), in_n)
-        self.out_slot_kind_vars = _resize(getattr(self, "out_slot_kind_vars", []), out_n)
+        self.in_slot_kind_vars = _resize(getattr(self, "in_slot_kind_vars", []), in_n, default="item")
+        self.out_slot_kind_vars = _resize(getattr(self, "out_slot_kind_vars", []), out_n, default="item")
+        self.in_slot_label_vars = _resize(getattr(self, "in_slot_label_vars", []), in_n)
+        self.out_slot_label_vars = _resize(getattr(self, "out_slot_label_vars", []), out_n)
 
         values = ["item", "fluid"]
 
         for i in range(in_n):
-            ttk.Label(self.inputs_lf, text=f"In {i}").grid(row=i, column=0, sticky="w", padx=8, pady=2)
-            ttk.Combobox(self.inputs_lf, textvariable=self.in_slot_kind_vars[i], values=values, state="readonly", width=8).grid(
-                row=i, column=1, sticky="w", padx=8, pady=2
-            )
+            ttk.Label(self.inputs_lf, text=f"In {i + 1}").grid(row=i, column=0, sticky="w", padx=8, pady=2)
+            ttk.Combobox(
+                self.inputs_lf,
+                textvariable=self.in_slot_kind_vars[i],
+                values=values,
+                state="readonly",
+                width=8,
+            ).grid(row=i, column=1, sticky="w", padx=8, pady=2)
+            ttk.Entry(
+                self.inputs_lf,
+                textvariable=self.in_slot_label_vars[i],
+                width=14,
+            ).grid(row=i, column=2, sticky="w", padx=(4, 8), pady=2)
 
         for i in range(out_n):
-            ttk.Label(self.outputs_lf, text=f"Out {i}").grid(row=i, column=0, sticky="w", padx=8, pady=2)
-            ttk.Combobox(self.outputs_lf, textvariable=self.out_slot_kind_vars[i], values=values, state="readonly", width=8).grid(
-                row=i, column=1, sticky="w", padx=8, pady=2
-            )
+            ttk.Label(self.outputs_lf, text=f"Out {i + 1}").grid(row=i, column=0, sticky="w", padx=8, pady=2)
+            ttk.Combobox(
+                self.outputs_lf,
+                textvariable=self.out_slot_kind_vars[i],
+                values=values,
+                state="readonly",
+                width=8,
+            ).grid(row=i, column=1, sticky="w", padx=8, pady=2)
+            ttk.Entry(
+                self.outputs_lf,
+                textvariable=self.out_slot_label_vars[i],
+                width=14,
+            ).grid(row=i, column=2, sticky="w", padx=(4, 8), pady=2)
 
     def _reload_item_kinds(self):
         rows = self.app.conn.execute(
@@ -1329,14 +1388,18 @@ class EditItemDialog(tk.Toplevel):
             if is_machine:
                 self._rebuild_slot_type_ui(machine_input_slots, machine_output_slots)  # ensure var lists sized
                 for i, v in enumerate(self.in_slot_kind_vars, start=0):
+                    label_val = (self.in_slot_label_vars[i].get() or "").strip()
                     self.app.conn.execute(
-                        "INSERT INTO machine_io_slots(machine_item_id, direction, slot_index, content_kind) VALUES(?,?,?,?)",
-                        (self.item_id, "in", i, (v.get() or "item").strip().lower()),
+                        "INSERT INTO machine_io_slots(machine_item_id, direction, slot_index, content_kind, label) "
+                        "VALUES(?,?,?,?,?)",
+                        (self.item_id, "in", i, (v.get() or "item").strip().lower(), label_val),
                     )
                 for i, v in enumerate(self.out_slot_kind_vars, start=0):
+                    label_val = (self.out_slot_label_vars[i].get() or "").strip()
                     self.app.conn.execute(
-                        "INSERT INTO machine_io_slots(machine_item_id, direction, slot_index, content_kind) VALUES(?,?,?,?)",
-                        (self.item_id, "out", i, (v.get() or "item").strip().lower()),
+                        "INSERT INTO machine_io_slots(machine_item_id, direction, slot_index, content_kind, label) "
+                        "VALUES(?,?,?,?,?)",
+                        (self.item_id, "out", i, (v.get() or "item").strip().lower(), label_val),
                     )
 
             self.app.conn.commit()

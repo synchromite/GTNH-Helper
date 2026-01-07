@@ -163,11 +163,14 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
         direction TEXT NOT NULL CHECK(direction IN ('in','out')),
         slot_index INTEGER NOT NULL,
         content_kind TEXT NOT NULL CHECK(content_kind IN ('item','fluid')),
+        label TEXT,
         UNIQUE(machine_item_id, direction, slot_index),
         FOREIGN KEY(machine_item_id) REFERENCES items(id) ON DELETE CASCADE
     )
     """
     )
+    if not _has_col("machine_io_slots", "label"):
+        conn.execute("ALTER TABLE machine_io_slots ADD COLUMN label TEXT")
 
     # Seed defaults for item_kinds (only if the table is empty)
     existing = conn.execute("SELECT COUNT(1) AS c FROM item_kinds").fetchone()["c"]
