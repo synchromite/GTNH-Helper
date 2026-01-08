@@ -77,6 +77,7 @@ class DetachedTabWindow(QtWidgets.QMainWindow):
 
         self.setWindowTitle(f"{label} — Detached")
         self.setCentralWidget(widget)
+        widget.show()
 
         menu = self.menuBar().addMenu("Tab")
         action = QtGui.QAction("Reattach", self)
@@ -241,9 +242,11 @@ class App(QtWidgets.QMainWindow):
         index = self.nb.indexOf(widget)
         if index >= 0:
             self.nb.removeTab(index)
+        widget.setParent(None)
         window = DetachedTabWindow(tab_id, self.tab_registry[tab_id]["label"], widget, self._reattach_tab, self)
         self.detached_tabs[tab_id] = window
         window.show()
+        self._refresh_detached_tab(tab_id)
 
     def _reattach_tab(self, tab_id: str) -> None:
         window = self.detached_tabs.pop(tab_id, None)
@@ -254,7 +257,22 @@ class App(QtWidgets.QMainWindow):
             return
         window.deleteLater()
         self._insert_tab_in_order(tab_id, widget)
+        widget.show()
         self.nb.setCurrentWidget(widget)
+        self._refresh_detached_tab(tab_id)
+
+    def _refresh_detached_tab(self, tab_id: str) -> None:
+        widget = self.tab_widgets.get(tab_id)
+        if widget is None:
+            return
+        if tab_id == "items" and hasattr(widget, "render_items"):
+            widget.render_items(self.items)
+        elif tab_id == "recipes" and hasattr(widget, "render_recipes"):
+            widget.render_recipes(self.recipes)
+        elif tab_id == "inventory" and hasattr(widget, "render_items"):
+            widget.render_items(self.items)
+        elif tab_id == "tiers" and hasattr(widget, "load_from_db"):
+            widget.load_from_db()
 
     def _toggle_tab(self, tab_id: str, checked: bool) -> None:
         enabled = set(self.enabled_tabs)
