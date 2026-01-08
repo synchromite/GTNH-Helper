@@ -346,7 +346,8 @@ class PlannerService:
 
     # ---------- Quantity helpers ----------
     def _qty_from_row(self, row, kind: str) -> int:
-        if kind == "fluid":
+        normalized_kind = (kind or "").strip().lower()
+        if normalized_kind == "fluid":
             primary_qty = row["qty_liters"]
             fallback_qty = row["qty_count"]
         else:
