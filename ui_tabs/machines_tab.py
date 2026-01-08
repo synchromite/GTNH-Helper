@@ -13,6 +13,7 @@ class MachinesTab(QtWidgets.QWidget):
         self.app = app
         self._rows: list[dict[str, object]] = []
         self._metadata_rows: list[dict[str, object]] = []
+        self._sort_mode = "Machine (A→Z)"
 
         layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
@@ -29,18 +30,10 @@ class MachinesTab(QtWidgets.QWidget):
         self.filter_tier_combo.currentTextChanged.connect(self._apply_filters)
         filters.addWidget(self.filter_tier_combo)
         filters.addSpacing(16)
-        filters.addWidget(QtWidgets.QLabel("Sort"))
-        self.sort_combo = QtWidgets.QComboBox()
-        self.sort_combo.addItems(
-            [
-                "Machine (A→Z)",
-                "Machine (Z→A)",
-                "Tier (progression)",
-                "Tier (reverse)",
-            ]
-        )
-        self.sort_combo.currentTextChanged.connect(self._render_rows)
-        filters.addWidget(self.sort_combo)
+        self.filter_unlocked_cb = QtWidgets.QCheckBox("Unlocked tiers only")
+        self.filter_unlocked_cb.setChecked(True)
+        self.filter_unlocked_cb.toggled.connect(self._apply_filters)
+        filters.addWidget(self.filter_unlocked_cb)
         filters.addStretch(1)
         layout.addLayout(filters)
 
@@ -51,6 +44,7 @@ class MachinesTab(QtWidgets.QWidget):
         self.table.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.ResizeMode.Stretch)
         self.table.setSortingEnabled(False)
+        self.table.horizontalHeader().sectionClicked.connect(self._on_header_clicked)
         layout.addWidget(self.table)
 
         self.empty_label = QtWidgets.QLabel(
@@ -95,7 +89,7 @@ class MachinesTab(QtWidgets.QWidget):
 
     def _sorted_metadata_rows(self) -> list[dict[str, object]]:
         rows = list(self._metadata_rows)
-        mode = self.sort_combo.currentText() if hasattr(self, "sort_combo") else "Machine (A→Z)"
+        mode = getattr(self, "_sort_mode", "Machine (A→Z)")
         tier_order = {tier: idx for idx, tier in enumerate(ALL_TIERS)}
 
         def tier_key(value: str) -> tuple[int, str]:
@@ -187,11 +181,26 @@ class MachinesTab(QtWidgets.QWidget):
 
     def _apply_filters(self) -> None:
         tier_filter = self.filter_tier_combo.currentText() if hasattr(self, "filter_tier_combo") else "All tiers"
+        unlocked_only = bool(self.filter_unlocked_cb.isChecked()) if hasattr(self, "filter_unlocked_cb") else False
+        enabled_tiers = set(self.app.get_enabled_tiers())
         for row_idx, row_state in enumerate(self._rows):
             matches = True
             if tier_filter and tier_filter != "All tiers":
                 matches = row_state["tier"] == tier_filter
+            if matches and unlocked_only:
+                matches = row_state["tier"] in enabled_tiers
             self.table.setRowHidden(row_idx, not matches)
+
+    def _on_header_clicked(self, section: int) -> None:
+        if section == 0:
+            current = getattr(self, "_sort_mode", "Machine (A→Z)")
+            self._sort_mode = "Machine (Z→A)" if current == "Machine (A→Z)" else "Machine (A→Z)"
+            self._render_rows()
+            return
+        if section == 1:
+            current = getattr(self, "_sort_mode", "Tier (progression)")
+            self._sort_mode = "Tier (reverse)" if current == "Tier (progression)" else "Tier (progression)"
+            self._render_rows()
 
     def _apply_row_enabled_state(self, row_state: dict[str, object]) -> None:
         owned_cb = row_state["owned_cb"]
