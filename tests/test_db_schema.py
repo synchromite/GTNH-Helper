@@ -23,6 +23,7 @@ def test_ensure_schema_creates_tables_and_defaults():
     assert "recipes" in tables
     assert "recipe_lines" in tables
     assert "app_settings" in tables
+    assert "machine_metadata" in tables
 
     item_columns = _table_columns(conn, "items")
     for column in (
@@ -44,6 +45,23 @@ def test_ensure_schema_creates_tables_and_defaults():
     recipe_columns = _table_columns(conn, "recipes")
     for column in ("method", "grid_size", "station_item_id", "machine_item_id"):
         assert column in recipe_columns
+
+    metadata_columns = _table_columns(conn, "machine_metadata")
+    for column in (
+        "machine_type",
+        "tier",
+        "input_slots",
+        "output_slots",
+        "byproduct_slots",
+        "storage_slots",
+        "power_slots",
+        "circuit_slots",
+        "input_tanks",
+        "input_tank_capacity_l",
+        "output_tanks",
+        "output_tank_capacity_l",
+    ):
+        assert column in metadata_columns
 
     machine_kind = conn.execute(
         "SELECT id FROM item_kinds WHERE LOWER(name)=LOWER('Machine')"

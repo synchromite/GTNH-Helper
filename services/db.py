@@ -55,6 +55,25 @@ def connect_profile(db_path: Path | str) -> sqlite3.Connection:
         )
         """
     )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS machine_metadata (
+            machine_type TEXT NOT NULL,
+            tier TEXT NOT NULL,
+            input_slots INTEGER,
+            output_slots INTEGER,
+            byproduct_slots INTEGER,
+            storage_slots INTEGER,
+            power_slots INTEGER,
+            circuit_slots INTEGER,
+            input_tanks INTEGER,
+            input_tank_capacity_l INTEGER,
+            output_tanks INTEGER,
+            output_tank_capacity_l INTEGER,
+            PRIMARY KEY (machine_type, tier)
+        )
+        """
+    )
     conn.commit()
     return conn
 
@@ -92,6 +111,26 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
         name TEXT NOT NULL UNIQUE,
         sort_order INTEGER NOT NULL DEFAULT 0,
         is_builtin INTEGER NOT NULL DEFAULT 0
+    )
+    """
+    )
+
+    conn.execute(
+        """
+    CREATE TABLE IF NOT EXISTS machine_metadata (
+        machine_type TEXT NOT NULL,
+        tier TEXT NOT NULL,
+        input_slots INTEGER,
+        output_slots INTEGER,
+        byproduct_slots INTEGER,
+        storage_slots INTEGER,
+        power_slots INTEGER,
+        circuit_slots INTEGER,
+        input_tanks INTEGER,
+        input_tank_capacity_l INTEGER,
+        output_tanks INTEGER,
+        output_tank_capacity_l INTEGER,
+        PRIMARY KEY (machine_type, tier)
     )
     """
     )
