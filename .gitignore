@@ -6,3 +6,4 @@ __pycache__/
 .enable_editor
 gtnh_export*
 gtnh_profile*
+/.venv
