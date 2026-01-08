@@ -263,7 +263,7 @@ class ItemMergeConflictDialog(QtWidgets.QDialog):
         self.table.verticalHeader().setVisible(False)
         self.table.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.NoSelection)
         self.table.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.ResizeMode.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.ResizeMode.Interactive)
 
         for row_idx, conflict in enumerate(conflicts):
             checkbox_item = QtWidgets.QTableWidgetItem()
@@ -2109,7 +2109,7 @@ class MachineMetadataEditorDialog(QtWidgets.QDialog):
         )
         self.table.verticalHeader().setVisible(False)
         self.table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows)
-        self.table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.ResizeMode.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.ResizeMode.Interactive)
         layout.addWidget(self.table, stretch=1)
 
         controls = QtWidgets.QHBoxLayout()
