@@ -40,6 +40,5 @@ Profile data is kept separate so your progress survives content DB updates.
 - PySide6 (Qt UI toolkit)
 
 ## Install
-```bash
 python -m pip install -r requirements.txt
-```
+
