@@ -8,7 +8,8 @@ def fetch_recipes(conn: sqlite3.Connection, enabled_tiers: list[str]) -> list[sq
         enabled_tiers = ["Stone Age"]
     placeholders = ",".join(["?"] * len(enabled_tiers))
     sql = (
-        "SELECT id, name, method, machine, machine_item_id, grid_size, station_item_id, tier, circuit, duration_ticks, eu_per_tick "
+        "SELECT id, name, method, machine, machine_item_id, grid_size, station_item_id, tier, circuit, duration_ticks, "
+        "       eu_per_tick, duplicate_of_recipe_id "
         "FROM recipes "
         f"WHERE (tier IS NULL OR TRIM(tier)='' OR tier IN ({placeholders})) "
         "ORDER BY name"

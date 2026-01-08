@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from PySide6 import QtWidgets
+from PySide6 import QtCore, QtWidgets
 
 from services.recipes import fetch_item_name, fetch_machine_output_slots, fetch_recipe_lines
 from ui_dialogs import AddRecipeDialog, EditRecipeDialog
@@ -11,6 +11,7 @@ class RecipesTab(QtWidgets.QWidget):
         super().__init__(parent)
         self.app = app
         self.recipes: list = []
+        self.recipe_entries: list[dict | None] = []
         root_layout = QtWidgets.QHBoxLayout(self)
         root_layout.setContentsMargins(8, 8, 8, 8)
 
@@ -52,34 +53,60 @@ class RecipesTab(QtWidgets.QWidget):
     def render_recipes(self, recipes: list) -> None:
         selected_id = None
         current_row = self.recipe_list.currentRow()
-        if 0 <= current_row < len(self.recipes):
-            try:
-                selected_id = self.recipes[current_row]["id"]
-            except Exception:
-                selected_id = None
+        if 0 <= current_row < len(self.recipe_entries):
+            entry = self.recipe_entries[current_row]
+            if entry is not None:
+                selected_id = entry.get("id")
 
         self.recipes = list(recipes)
         self.recipe_list.clear()
-        for recipe in self.recipes:
+
+        recipe_by_id = {r["id"]: r for r in self.recipes}
+        normal = [r for r in self.recipes if r.get("duplicate_of_recipe_id") is None]
+        duplicates = [r for r in self.recipes if r.get("duplicate_of_recipe_id") is not None]
+
+        self.recipe_entries = []
+        for recipe in normal:
             self.recipe_list.addItem(recipe["name"])
+            self.recipe_entries.append(recipe)
+
+        if duplicates:
+            header = QtWidgets.QListWidgetItem("Duplicates")
+            header.setFlags(QtCore.Qt.ItemFlag.ItemIsEnabled)
+            header.setForeground(QtCore.Qt.GlobalColor.darkGray)
+            self.recipe_list.addItem(header)
+            self.recipe_entries.append(None)
+
+            for recipe in duplicates:
+                base_name = recipe["name"]
+                canonical = recipe_by_id.get(recipe["duplicate_of_recipe_id"])
+                if canonical is not None:
+                    label = f"{base_name} (dup of {canonical['name']})"
+                else:
+                    label = f"{base_name} (dup)"
+                self.recipe_list.addItem(label)
+                self.recipe_entries.append(recipe)
 
         if selected_id is not None:
-            for idx, recipe in enumerate(self.recipes):
-                try:
-                    recipe_id = recipe["id"]
-                except Exception:
-                    recipe_id = None
-                if recipe_id == selected_id:
+            for idx, entry in enumerate(self.recipe_entries):
+                if entry is not None and entry.get("id") == selected_id:
                     self.recipe_list.setCurrentRow(idx)
                     break
-        elif self.recipes:
-            self.recipe_list.setCurrentRow(0)
+        elif self.recipe_entries:
+            for idx, entry in enumerate(self.recipe_entries):
+                if entry is not None:
+                    self.recipe_list.setCurrentRow(idx)
+                    break
 
     def on_recipe_select(self, row: int) -> None:
-        if row < 0 or row >= len(self.recipes):
+        if row < 0 or row >= len(self.recipe_entries):
             self._recipe_details_set("")
             return
-        recipe = self.recipes[row]
+        entry = self.recipe_entries[row]
+        if entry is None:
+            self._recipe_details_set("")
+            return
+        recipe = entry
         lines = fetch_recipe_lines(self.app.conn, recipe["id"])
 
         ins: list[str] = []
@@ -177,10 +204,14 @@ class RecipesTab(QtWidgets.QWidget):
             )
             return
         row = self.recipe_list.currentRow()
-        if row < 0:
+        if row < 0 or row >= len(self.recipe_entries):
             QtWidgets.QMessageBox.information(self, "Select a recipe", "Click a recipe first.")
             return
-        recipe_id = self.recipes[row]["id"]
+        entry = self.recipe_entries[row]
+        if entry is None:
+            QtWidgets.QMessageBox.information(self, "Select a recipe", "Click a recipe first.")
+            return
+        recipe_id = entry["id"]
         dialog = EditRecipeDialog(self.app, recipe_id, parent=self)
         if dialog.exec() == QtWidgets.QDialog.DialogCode.Accepted:
             self.app.refresh_recipes()
@@ -194,10 +225,13 @@ class RecipesTab(QtWidgets.QWidget):
             )
             return
         row = self.recipe_list.currentRow()
-        if row < 0:
+        if row < 0 or row >= len(self.recipe_entries):
             QtWidgets.QMessageBox.information(self, "Select a recipe", "Click a recipe first.")
             return
-        recipe = self.recipes[row]
+        recipe = self.recipe_entries[row]
+        if recipe is None:
+            QtWidgets.QMessageBox.information(self, "Select a recipe", "Click a recipe first.")
+            return
         ok = QtWidgets.QMessageBox.question(
             self,
             "Delete recipe?",
@@ -205,7 +239,27 @@ class RecipesTab(QtWidgets.QWidget):
         )
         if ok != QtWidgets.QMessageBox.StandardButton.Yes:
             return
+
+        duplicate_of = recipe.get("duplicate_of_recipe_id")
         self.app.conn.execute("DELETE FROM recipes WHERE id=?", (recipe["id"],))
+        if duplicate_of is None:
+            dup_rows = self.app.conn.execute(
+                "SELECT id FROM recipes WHERE duplicate_of_recipe_id=? ORDER BY id",
+                (recipe["id"],),
+            ).fetchall()
+            if dup_rows:
+                new_canonical_id = dup_rows[0]["id"]
+                self.app.conn.execute(
+                    "UPDATE recipes SET duplicate_of_recipe_id=NULL WHERE id=?",
+                    (new_canonical_id,),
+                )
+                remaining_ids = [row["id"] for row in dup_rows[1:]]
+                if remaining_ids:
+                    placeholders = ",".join(["?"] * len(remaining_ids))
+                    self.app.conn.execute(
+                        f"UPDATE recipes SET duplicate_of_recipe_id=? WHERE id IN ({placeholders})",
+                        (new_canonical_id, *remaining_ids),
+                    )
         self.app.conn.commit()
         self.app.refresh_recipes()
         self._recipe_details_set("")

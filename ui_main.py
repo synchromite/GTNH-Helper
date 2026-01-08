@@ -6,11 +6,12 @@ from pathlib import Path
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
-from services.db import DEFAULT_DB_PATH
+from services.db import DEFAULT_DB_PATH, find_item_merge_conflicts
 from services.db_lifecycle import DbLifecycle
 from services.items import fetch_items
 from services.recipes import fetch_recipes
 from services.tab_config import apply_tab_reorder, config_path, load_tab_config, save_tab_config
+from ui_dialogs import ItemMergeConflictDialog
 from ui_tabs.inventory_tab import InventoryTab
 from ui_tabs.items_tab_qt import ItemsTab
 from ui_tabs.recipes_tab_qt import RecipesTab
@@ -499,8 +500,16 @@ class App(QtWidgets.QMainWindow):
         if ok != QtWidgets.QMessageBox.StandardButton.Yes:
             return
 
+        item_conflicts = {}
+        conflicts = find_item_merge_conflicts(self.conn, Path(path))
+        if conflicts:
+            dlg = ItemMergeConflictDialog(conflicts, parent=self)
+            if dlg.exec() != QtWidgets.QDialog.DialogCode.Accepted:
+                return
+            item_conflicts = dlg.result or {}
+
         try:
-            stats = self.db.merge_db(Path(path))
+            stats = self.db.merge_db(Path(path), item_conflicts=item_conflicts)
         except Exception as exc:
             QtWidgets.QMessageBox.critical(self, "Merge failed", f"Could not merge DB.\n\nDetails: {exc}")
             return

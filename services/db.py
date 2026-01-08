@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import shutil
 import sqlite3
+from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
 
@@ -258,7 +259,8 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
         tier TEXT,
         duration_ticks INTEGER,
         eu_per_tick INTEGER,
-        notes TEXT
+        notes TEXT,
+        duplicate_of_recipe_id INTEGER
     )
     """
     )
@@ -272,6 +274,8 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE recipes ADD COLUMN station_item_id INTEGER")
     if not _has_col("recipes", "machine_item_id"):
         conn.execute("ALTER TABLE recipes ADD COLUMN machine_item_id INTEGER")
+    if not _has_col("recipes", "duplicate_of_recipe_id"):
+        conn.execute("ALTER TABLE recipes ADD COLUMN duplicate_of_recipe_id INTEGER")
 
     conn.execute(
         """
@@ -387,7 +391,95 @@ def _canonical_kind_name(name: str) -> str:
     return " ".join((name or "").split()).strip().casefold()
 
 
-def merge_db(dest_conn: sqlite3.Connection, src_path: Path | str) -> dict[str, int]:
+def _canonical_item_label(name: str) -> str:
+    return " ".join((name or "").split()).strip().casefold()
+
+
+def _canonical_recipe_name(name: str) -> str:
+    return " ".join((name or "").split()).strip().casefold()
+
+
+def _recipe_line_signature(line: dict[str, Any] | sqlite3.Row) -> tuple:
+    return (
+        line["direction"],
+        line["item_key"],
+        line["qty_count"],
+        line["qty_liters"],
+        line["chance_percent"],
+        line["output_slot_index"],
+    )
+
+
+def _recipe_signature(recipe: sqlite3.Row, line_sigs: list[tuple]) -> tuple:
+    return (
+        (recipe["method"] or "").strip(),
+        (recipe["machine"] or "").strip(),
+        recipe["machine_item_id"],
+        (recipe["grid_size"] or "").strip(),
+        recipe["station_item_id"],
+        recipe["circuit"],
+        (recipe["tier"] or "").strip(),
+        recipe["duration_ticks"],
+        recipe["eu_per_tick"],
+        (recipe["notes"] or "").strip(),
+        tuple(sorted(line_sigs)),
+    )
+
+
+def find_item_merge_conflicts(dest_conn: sqlite3.Connection, src_path: Path | str) -> list[dict[str, Any]]:
+    src_path = Path(src_path)
+    src = sqlite3.connect(str(src_path))
+    src.row_factory = sqlite3.Row
+    src.execute("PRAGMA foreign_keys=ON")
+    ensure_schema(src)
+    try:
+        dest_rows = dest_conn.execute(
+            "SELECT id, key, COALESCE(NULLIF(TRIM(display_name), ''), key) AS label FROM items"
+        ).fetchall()
+        dest_by_label: dict[str, list[sqlite3.Row]] = {}
+        for row in dest_rows:
+            canon = _canonical_item_label(row["label"])
+            if not canon:
+                continue
+            dest_by_label.setdefault(canon, []).append(row)
+
+        dest_keys = {row["key"] for row in dest_rows}
+
+        conflicts: list[dict[str, Any]] = []
+        src_rows = src.execute(
+            "SELECT id, key, COALESCE(NULLIF(TRIM(display_name), ''), key) AS label FROM items"
+        ).fetchall()
+        for row in src_rows:
+            if row["key"] in dest_keys:
+                continue
+            canon = _canonical_item_label(row["label"])
+            if not canon:
+                continue
+            matches = dest_by_label.get(canon, [])
+            if len(matches) != 1:
+                continue
+            dest_match = matches[0]
+            conflicts.append(
+                {
+                    "src_id": row["id"],
+                    "src_key": row["key"],
+                    "src_label": row["label"],
+                    "dest_id": dest_match["id"],
+                    "dest_key": dest_match["key"],
+                    "dest_label": dest_match["label"],
+                }
+            )
+        return conflicts
+    finally:
+        src.close()
+
+
+def merge_db(
+    dest_conn: sqlite3.Connection,
+    src_path: Path | str,
+    *,
+    item_conflicts: dict[int, int] | None = None,
+) -> dict[str, int]:
     """Merge an external DB file into the currently-open DB.
 
     KISS behavior:
@@ -469,6 +561,10 @@ def merge_db(dest_conn: sqlite3.Connection, src_path: Path | str) -> dict[str, i
         for it in src_items:
             key = (it["key"] or "").strip()
             if not key:
+                continue
+            if item_conflicts and it["id"] in item_conflicts:
+                dest_id = item_conflicts[it["id"]]
+                item_key_to_dest_id[key] = dest_id
                 continue
 
             dest_row = dest_conn.execute(
@@ -614,6 +710,26 @@ def merge_db(dest_conn: sqlite3.Connection, src_path: Path | str) -> dict[str, i
         recipe_id_map: dict[int, int] = {}
         # prefetch existing names for quick uniqueness checks
         existing_names = set(r["name"] for r in dest_conn.execute("SELECT name FROM recipes").fetchall())
+        dest_recipes = dest_conn.execute(
+            "SELECT id, name, method, machine, machine_item_id, grid_size, station_item_id, circuit, tier, duration_ticks, eu_per_tick, notes "
+            "FROM recipes"
+        ).fetchall()
+        dest_name_keys = {r["id"]: _canonical_recipe_name(r["name"]) for r in dest_recipes}
+        dest_lines_rows = dest_conn.execute(
+            """
+            SELECT rl.recipe_id, rl.direction, i.key AS item_key, rl.qty_count, rl.qty_liters,
+                   rl.chance_percent, rl.output_slot_index
+            FROM recipe_lines rl
+            JOIN items i ON i.id = rl.item_id
+            """
+        ).fetchall()
+        dest_line_map: dict[int, list[tuple]] = {}
+        for row in dest_lines_rows:
+            dest_line_map.setdefault(row["recipe_id"], []).append(_recipe_line_signature(row))
+        dest_signatures = {
+            r["id"]: _recipe_signature(r, dest_line_map.get(r["id"], []))
+            for r in dest_recipes
+        }
 
         def _unique_recipe_name(base: str) -> str:
             base = (base or "").strip() or "Recipe"
@@ -628,10 +744,47 @@ def merge_db(dest_conn: sqlite3.Connection, src_path: Path | str) -> dict[str, i
                     return cand
                 n += 1
 
+        def _closest_recipe_id(name: str) -> int | None:
+            canon = _canonical_recipe_name(name)
+            best_id = None
+            best_ratio = 0.0
+            for r in dest_recipes:
+                ratio = SequenceMatcher(None, canon, dest_name_keys[r["id"]]).ratio()
+                if ratio > best_ratio:
+                    best_ratio = ratio
+                    best_id = r["id"]
+            return best_id if best_ratio >= 0.88 else None
+
         # helper: map src station_item_id / machine_item_id -> dest id
-        src_item_id_to_key = {r["id"]: r["key"] for r in src.execute("SELECT id, key FROM items").fetchall()}
+        src_item_rows = src.execute("SELECT id, key FROM items").fetchall()
+        src_item_id_to_key = {r["id"]: r["key"] for r in src_item_rows}
+        dest_item_id_to_key = {
+            r["id"]: r["key"] for r in dest_conn.execute("SELECT id, key FROM items").fetchall()
+        }
+        src_lines_rows = src.execute(
+            """
+            SELECT rl.recipe_id, rl.item_id, rl.direction, i.key AS item_key, rl.qty_count, rl.qty_liters,
+                   rl.chance_percent, rl.output_slot_index
+            FROM recipe_lines rl
+            JOIN items i ON i.id = rl.item_id
+            """
+        ).fetchall()
+        src_line_map: dict[int, list[tuple]] = {}
+        for row in src_lines_rows:
+            if item_conflicts and row["item_id"] in item_conflicts:
+                dest_key = dest_item_id_to_key.get(item_conflicts[row["item_id"]])
+                if dest_key:
+                    row = dict(row)
+                    row["item_key"] = dest_key
+            src_line_map.setdefault(row["recipe_id"], []).append(_recipe_line_signature(row))
 
         for r in src_recipes:
+            close_match_id = _closest_recipe_id(r["name"])
+            src_signature = _recipe_signature(r, src_line_map.get(r["id"], []))
+            if close_match_id is not None and dest_signatures.get(close_match_id) == src_signature:
+                recipe_id_map[int(r["id"])] = int(close_match_id)
+                continue
+
             new_name = _unique_recipe_name(r["name"])
             station_dest_id = None
             if r["station_item_id"] is not None:
@@ -646,8 +799,8 @@ def merge_db(dest_conn: sqlite3.Connection, src_path: Path | str) -> dict[str, i
                     machine_dest_id = item_key_to_dest_id.get(k)
 
             dest_conn.execute(
-                "INSERT INTO recipes(name, method, machine, machine_item_id, grid_size, station_item_id, circuit, tier, duration_ticks, eu_per_tick, notes) "
-                "VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO recipes(name, method, machine, machine_item_id, grid_size, station_item_id, circuit, tier, duration_ticks, eu_per_tick, notes, duplicate_of_recipe_id) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     new_name,
                     r["method"],
@@ -660,6 +813,7 @@ def merge_db(dest_conn: sqlite3.Connection, src_path: Path | str) -> dict[str, i
                     r["duration_ticks"],
                     r["eu_per_tick"],
                     r["notes"],
+                    close_match_id,
                 ),
             )
             new_id = dest_conn.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
@@ -706,9 +860,14 @@ def merge_db(dest_conn: sqlite3.Connection, src_path: Path | str) -> dict[str, i
 
 
 
-def merge_database(dest_conn: sqlite3.Connection, src_path: Path | str) -> dict[str, int]:
+def merge_database(
+    dest_conn: sqlite3.Connection,
+    src_path: Path | str,
+    *,
+    item_conflicts: dict[int, int] | None = None,
+) -> dict[str, int]:
     """Alias for merge_db (kept for readability in UI layer)."""
-    return merge_db(dest_conn, src_path)
+    return merge_db(dest_conn, src_path, item_conflicts=item_conflicts)
 
 
 def copy_file(src_path: Path | str, dst_path: Path | str) -> None:

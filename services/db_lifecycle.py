@@ -66,8 +66,8 @@ class DbLifecycle:
     def export_profile_db(self, target: Path) -> None:
         export_db(self.profile_conn, target)
 
-    def merge_db(self, source: Path) -> dict[str, int]:
-        return merge_database(self.conn, source)
+    def merge_db(self, source: Path, *, item_conflicts: dict[int, int] | None = None) -> dict[str, int]:
+        return merge_database(self.conn, source, item_conflicts=item_conflicts)
 
     def get_enabled_tiers(self) -> list[str]:
         raw = get_setting(self.profile_conn, SETTINGS_ENABLED_TIERS, "")

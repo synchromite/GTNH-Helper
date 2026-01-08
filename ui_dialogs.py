@@ -200,6 +200,7 @@ class ItemPickerDialog(QtWidgets.QDialog):
         if p_fluids is not None and not added_any["fluid"]:
             QtWidgets.QTreeWidgetItem(p_fluids, ["(no matches)"])
 
+
         if p_items is not None:
             for k_parent in self._children(p_items):
                 if self._select_first_child(k_parent):
@@ -236,6 +237,78 @@ class ItemPickerDialog(QtWidgets.QDialog):
             return
         self.result = {"id": row["id"], "name": row["name"], "kind": row["kind"]}
         self.accept()
+
+
+class ItemMergeConflictDialog(QtWidgets.QDialog):
+    """Resolve ambiguous item matches during DB merge."""
+
+    def __init__(self, conflicts: list[dict], parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Resolve Item Conflicts")
+        self.resize(720, 420)
+        self._conflicts = conflicts
+        self.result: dict[int, int] | None = None
+
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.addWidget(
+            QtWidgets.QLabel(
+                "We found items with matching names but different keys.\n"
+                "Check the ones that should map to existing items."
+            )
+        )
+
+        self.table = QtWidgets.QTableWidget(len(conflicts), 3)
+        self.table.setHorizontalHeaderLabels(["Use existing", "Incoming item", "Existing item"])
+        self.table.verticalHeader().setVisible(False)
+        self.table.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.NoSelection)
+        self.table.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.ResizeMode.Stretch)
+
+        for row_idx, conflict in enumerate(conflicts):
+            checkbox_item = QtWidgets.QTableWidgetItem()
+            checkbox_item.setFlags(QtCore.Qt.ItemFlag.ItemIsUserCheckable | QtCore.Qt.ItemFlag.ItemIsEnabled)
+            checkbox_item.setCheckState(QtCore.Qt.CheckState.Unchecked)
+            self.table.setItem(row_idx, 0, checkbox_item)
+
+            incoming = f"{conflict['src_label']}  [{conflict['src_key']}]"
+            existing = f"{conflict['dest_label']}  [{conflict['dest_key']}]"
+            self.table.setItem(row_idx, 1, QtWidgets.QTableWidgetItem(incoming))
+            self.table.setItem(row_idx, 2, QtWidgets.QTableWidgetItem(existing))
+
+        layout.addWidget(self.table)
+
+        btns = QtWidgets.QHBoxLayout()
+        select_all = QtWidgets.QPushButton("Select All")
+        select_none = QtWidgets.QPushButton("Select None")
+        select_all.clicked.connect(lambda: self._set_all(QtCore.Qt.CheckState.Checked))
+        select_none.clicked.connect(lambda: self._set_all(QtCore.Qt.CheckState.Unchecked))
+        btns.addWidget(select_all)
+        btns.addWidget(select_none)
+        btns.addStretch(1)
+
+        buttons = QtWidgets.QDialogButtonBox(
+            QtWidgets.QDialogButtonBox.StandardButton.Ok
+            | QtWidgets.QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        btns.addWidget(buttons)
+        layout.addLayout(btns)
+
+    def _set_all(self, state: QtCore.Qt.CheckState) -> None:
+        for row in range(self.table.rowCount()):
+            item = self.table.item(row, 0)
+            if item is not None:
+                item.setCheckState(state)
+
+    def accept(self) -> None:
+        mapping: dict[int, int] = {}
+        for row_idx, conflict in enumerate(self._conflicts):
+            item = self.table.item(row_idx, 0)
+            if item is not None and item.checkState() == QtCore.Qt.CheckState.Checked:
+                mapping[int(conflict["src_id"])] = int(conflict["dest_id"])
+        self.result = mapping
+        super().accept()
 
 
 class _ItemDialogBase(QtWidgets.QDialog):

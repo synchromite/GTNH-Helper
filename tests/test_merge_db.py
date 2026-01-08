@@ -1,7 +1,7 @@
 import sqlite3
 from pathlib import Path
 
-from services.db import ensure_schema, merge_db
+from services.db import ensure_schema, find_item_merge_conflicts, merge_db
 
 
 def _connect(path: Path | str) -> sqlite3.Connection:
@@ -43,7 +43,9 @@ def test_merge_db_imports_items_and_recipes(tmp_path: Path):
     )
     src_conn.commit()
 
-    stats = merge_db(dest_conn, src_path)
+    conflicts = find_item_merge_conflicts(dest_conn, src_path)
+    mapping = {c["src_id"]: c["dest_id"] for c in conflicts}
+    stats = merge_db(dest_conn, src_path, item_conflicts=mapping)
 
     assert stats["kinds_added"] == 1
     assert stats["items_added"] == 1
@@ -82,7 +84,9 @@ def test_merge_db_normalizes_kind_names(tmp_path: Path):
     )
     src_conn.commit()
 
-    stats = merge_db(dest_conn, src_path)
+    conflicts = find_item_merge_conflicts(dest_conn, src_path)
+    mapping = {c["src_id"]: c["dest_id"] for c in conflicts}
+    stats = merge_db(dest_conn, src_path, item_conflicts=mapping)
 
     assert stats["kinds_added"] == 0
     merged_item = dest_conn.execute(
@@ -104,9 +108,80 @@ def test_merge_db_keeps_distinct_kind_names(tmp_path: Path):
     )
     src_conn.commit()
 
-    stats = merge_db(dest_conn, src_path)
+    conflicts = find_item_merge_conflicts(dest_conn, src_path)
+    mapping = {c["src_id"]: c["dest_id"] for c in conflicts}
+    stats = merge_db(dest_conn, src_path, item_conflicts=mapping)
 
     assert stats["kinds_added"] == 1
     assert dest_conn.execute(
         "SELECT id FROM item_kinds WHERE name='Circuit (Advanced)'"
     ).fetchone() is not None
+
+
+def test_merge_db_merges_close_recipe_names_on_match(tmp_path: Path):
+    dest_conn = _connect(":memory:")
+    widget_id = _insert_item(dest_conn, key="widget", name="Widget")
+    dest_conn.execute("INSERT INTO recipes(name, method, duration_ticks) VALUES(?,?,?)", ("Make Widget", "crafting", 100))
+    dest_recipe_id = dest_conn.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
+    dest_conn.execute(
+        "INSERT INTO recipe_lines(recipe_id, direction, item_id, qty_count) VALUES(?,?,?,?)",
+        (dest_recipe_id, "out", widget_id, 1),
+    )
+    dest_conn.commit()
+
+    src_path = tmp_path / "src.db"
+    src_conn = _connect(src_path)
+    src_widget_id = _insert_item(src_conn, key="widget_alt", name="Widget")
+    src_conn.execute(
+        "INSERT INTO recipes(name, method, duration_ticks) VALUES(?,?,?)",
+        ("Make Widget!", "crafting", 100),
+    )
+    src_recipe_id = src_conn.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
+    src_conn.execute(
+        "INSERT INTO recipe_lines(recipe_id, direction, item_id, qty_count) VALUES(?,?,?,?)",
+        (src_recipe_id, "out", src_widget_id, 1),
+    )
+    src_conn.commit()
+
+    conflicts = find_item_merge_conflicts(dest_conn, src_path)
+    mapping = {c["src_id"]: c["dest_id"] for c in conflicts}
+    stats = merge_db(dest_conn, src_path, item_conflicts=mapping)
+
+    assert stats["recipes_added"] == 0
+    recipes = dest_conn.execute("SELECT id FROM recipes").fetchall()
+    assert len(recipes) == 1
+
+
+def test_merge_db_marks_recipe_duplicates_on_mismatch(tmp_path: Path):
+    dest_conn = _connect(":memory:")
+    widget_id = _insert_item(dest_conn, key="widget", name="Widget")
+    dest_conn.execute("INSERT INTO recipes(name, method, duration_ticks) VALUES(?,?,?)", ("Make Widget", "crafting", 100))
+    dest_recipe_id = dest_conn.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
+    dest_conn.execute(
+        "INSERT INTO recipe_lines(recipe_id, direction, item_id, qty_count) VALUES(?,?,?,?)",
+        (dest_recipe_id, "out", widget_id, 1),
+    )
+    dest_conn.commit()
+
+    src_path = tmp_path / "src.db"
+    src_conn = _connect(src_path)
+    src_widget_id = _insert_item(src_conn, key="widget_alt", name="Widget")
+    src_conn.execute(
+        "INSERT INTO recipes(name, method, duration_ticks) VALUES(?,?,?)",
+        ("Make Widget!", "crafting", 120),
+    )
+    src_recipe_id = src_conn.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
+    src_conn.execute(
+        "INSERT INTO recipe_lines(recipe_id, direction, item_id, qty_count) VALUES(?,?,?,?)",
+        (src_recipe_id, "out", src_widget_id, 1),
+    )
+    src_conn.commit()
+
+    stats = merge_db(dest_conn, src_path)
+
+    assert stats["recipes_added"] == 1
+    dup_row = dest_conn.execute(
+        "SELECT duplicate_of_recipe_id FROM recipes WHERE id!=?",
+        (dest_recipe_id,),
+    ).fetchone()
+    assert dup_row["duplicate_of_recipe_id"] == dest_recipe_id
