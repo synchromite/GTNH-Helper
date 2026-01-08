@@ -284,11 +284,16 @@ class PlannerService:
             tier_clause = "AND (r.tier IS NULL OR TRIM(r.tier)='') "
         sql = (
             "SELECT r.id, r.name, r.method, r.machine, r.machine_item_id, r.grid_size, "
-            "r.station_item_id, r.circuit, r.tier "
+            "r.station_item_id, r.circuit, r.tier, "
+            "COALESCE(SUM(CASE WHEN rl_in.direction='in' THEN 1 ELSE 0 END), 0) AS input_count, "
+            "COALESCE(SUM(CASE WHEN rl_in.direction='in' "
+            "THEN COALESCE(rl_in.qty_count, rl_in.qty_liters, 1) ELSE 0 END), 0) AS input_qty "
             "FROM recipes r "
-            "JOIN recipe_lines rl ON rl.recipe_id = r.id "
-            "WHERE rl.direction='out' AND rl.item_id=? "
+            "JOIN recipe_lines rl_out ON rl_out.recipe_id = r.id "
+            "LEFT JOIN recipe_lines rl_in ON rl_in.recipe_id = r.id AND rl_in.direction='in' "
+            "WHERE rl_out.direction='out' AND rl_out.item_id=? "
             f"{tier_clause}"
+            "GROUP BY r.id "
             "ORDER BY r.name"
         )
         params = [item_id]
@@ -297,7 +302,25 @@ class PlannerService:
         rows = self.conn.execute(sql, params).fetchall()
         if not crafting_6x6_unlocked:
             rows = [r for r in rows if not (r["method"] == "crafting" and (r["grid_size"] or "").strip() == "6x6")]
-        return rows[0] if rows else None
+        if not rows:
+            return None
+
+        tier_order = {tier: index for index, tier in enumerate(tiers)}
+
+        def recipe_rank(row) -> tuple[int, int, float, str]:
+            tier = (row["tier"] or "").strip()
+            if not tier:
+                tier_rank = -1
+            else:
+                tier_rank = tier_order.get(tier, len(tier_order) + 1)
+            return (
+                tier_rank,
+                int(row["input_count"] or 0),
+                float(row["input_qty"] or 0),
+                (row["name"] or "").lower(),
+            )
+
+        return min(rows, key=recipe_rank)
 
     def _recipe_output_qty(self, recipe_id: int, item_id: int, kind: str) -> int:
         row = self.conn.execute(
