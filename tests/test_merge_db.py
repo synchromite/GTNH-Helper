@@ -92,3 +92,21 @@ def test_merge_db_normalizes_kind_names(tmp_path: Path):
     assert dest_conn.execute(
         "SELECT id FROM item_kinds WHERE LOWER(name)=LOWER('Circuits')"
     ).fetchone() is None
+
+
+def test_merge_db_keeps_distinct_kind_names(tmp_path: Path):
+    dest_conn = _connect(":memory:")
+
+    src_path = tmp_path / "src.db"
+    src_conn = _connect(src_path)
+    src_conn.execute(
+        "INSERT INTO item_kinds(name, sort_order, is_builtin) VALUES('Circuit (Advanced)', 75, 0)"
+    )
+    src_conn.commit()
+
+    stats = merge_db(dest_conn, src_path)
+
+    assert stats["kinds_added"] == 1
+    assert dest_conn.execute(
+        "SELECT id FROM item_kinds WHERE name='Circuit (Advanced)'"
+    ).fetchone() is not None

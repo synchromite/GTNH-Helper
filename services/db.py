@@ -383,11 +383,8 @@ def export_db(conn: sqlite3.Connection, dest_path: Path | str) -> None:
         dst.close()
 
 
-def _normalize_kind_name(name: str) -> str:
-    normalized = " ".join((name or "").split()).strip().casefold()
-    if normalized.endswith("s") and not normalized.endswith("ss"):
-        normalized = normalized[:-1]
-    return normalized
+def _canonical_kind_name(name: str) -> str:
+    return " ".join((name or "").split()).strip().casefold()
 
 
 def merge_db(dest_conn: sqlite3.Connection, src_path: Path | str) -> dict[str, int]:
@@ -418,12 +415,12 @@ def merge_db(dest_conn: sqlite3.Connection, src_path: Path | str) -> dict[str, i
     try:
         # ---- Kind mapping ----
         dest_kind_map: dict[int, int] = {}
-        dest_kind_by_norm: dict[str, list[int]] = {}
+        dest_kind_by_canon: dict[str, list[int]] = {}
         for row in dest_conn.execute("SELECT id, name FROM item_kinds").fetchall():
-            norm = _normalize_kind_name(row["name"] or "")
-            if not norm:
+            canon = _canonical_kind_name(row["name"] or "")
+            if not canon:
                 continue
-            dest_kind_by_norm.setdefault(norm, []).append(row["id"])
+            dest_kind_by_canon.setdefault(canon, []).append(row["id"])
         src_kinds = src.execute("SELECT id, name, sort_order FROM item_kinds ORDER BY id").fetchall()
         for k in src_kinds:
             name = (k["name"] or "").strip()
@@ -436,10 +433,15 @@ def merge_db(dest_conn: sqlite3.Connection, src_path: Path | str) -> dict[str, i
             if row:
                 dest_kind_map[k["id"]] = row["id"]
                 continue
-            normalized_name = _normalize_kind_name(name)
-            normalized_matches = dest_kind_by_norm.get(normalized_name, [])
-            if len(normalized_matches) == 1:
-                dest_kind_map[k["id"]] = normalized_matches[0]
+            canonical_name = _canonical_kind_name(name)
+            singular_match_id = None
+            if canonical_name.endswith("s") and len(canonical_name) > 3:
+                singular_canon = canonical_name[:-1]
+                singular_matches = dest_kind_by_canon.get(singular_canon, [])
+                if len(singular_matches) == 1:
+                    singular_match_id = singular_matches[0]
+            if singular_match_id is not None:
+                dest_kind_map[k["id"]] = singular_match_id
                 continue
             dest_conn.execute(
                 "INSERT INTO item_kinds(name, sort_order, is_builtin) VALUES(?, ?, 0)",
@@ -447,8 +449,8 @@ def merge_db(dest_conn: sqlite3.Connection, src_path: Path | str) -> dict[str, i
             )
             new_id = dest_conn.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
             dest_kind_map[k["id"]] = new_id
-            if normalized_name:
-                dest_kind_by_norm.setdefault(normalized_name, []).append(new_id)
+            if canonical_name:
+                dest_kind_by_canon.setdefault(canonical_name, []).append(new_id)
             stats["kinds_added"] += 1
 
         # Grab Machine kind id for backfills
