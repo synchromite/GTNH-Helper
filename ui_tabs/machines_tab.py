@@ -3,6 +3,7 @@ from __future__ import annotations
 from PySide6 import QtCore, QtWidgets
 
 from services.machines import fetch_machine_metadata
+from ui_dialogs import MachineMetadataEditorDialog
 
 
 class MachinesTab(QtWidgets.QWidget):
@@ -38,10 +39,16 @@ class MachinesTab(QtWidgets.QWidget):
         btns = QtWidgets.QHBoxLayout()
         self.save_btn = QtWidgets.QPushButton("Save")
         self.save_btn.clicked.connect(self._save_to_db)
+        self.edit_metadata_btn = QtWidgets.QPushButton("Edit Metadata…")
+        self.edit_metadata_btn.clicked.connect(self._open_metadata_editor)
         btns.addWidget(self.save_btn)
+        btns.addWidget(self.edit_metadata_btn)
         btns.addStretch(1)
         layout.addLayout(btns)
         layout.addStretch(1)
+
+        if not self.app.editor_enabled:
+            self.edit_metadata_btn.setEnabled(False)
 
     def load_from_db(self) -> None:
         enabled_tiers = set(self.app.get_enabled_tiers())
@@ -140,3 +147,17 @@ class MachinesTab(QtWidgets.QWidget):
         self.app.set_machine_availability(updates)
         if hasattr(self.app, "status_bar"):
             self.app.status_bar.showMessage("Saved machine availability.")
+
+    def _open_metadata_editor(self) -> None:
+        if not self.app.editor_enabled:
+            QtWidgets.QMessageBox.information(
+                self,
+                "Editor locked",
+                "Editing machine metadata is only available in editor mode.",
+            )
+            return
+        dialog = MachineMetadataEditorDialog(self.app, parent=self)
+        if dialog.exec() == QtWidgets.QDialog.DialogCode.Accepted:
+            self.load_from_db()
+            if hasattr(self.app, "status_bar"):
+                self.app.status_bar.showMessage("Updated machine metadata.")

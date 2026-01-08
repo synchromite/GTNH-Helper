@@ -8,7 +8,18 @@ from services.db import ALL_TIERS
 def fetch_machine_metadata(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     rows = conn.execute(
         """
-        SELECT machine_type, tier
+        SELECT machine_type,
+               tier,
+               input_slots,
+               output_slots,
+               byproduct_slots,
+               storage_slots,
+               power_slots,
+               circuit_slots,
+               input_tanks,
+               input_tank_capacity_l,
+               output_tanks,
+               output_tank_capacity_l
         FROM machine_metadata
         """
     ).fetchall()
@@ -20,3 +31,28 @@ def fetch_machine_metadata(conn: sqlite3.Connection) -> list[sqlite3.Row]:
         return (machine_type, tier_order.get(tier, len(ALL_TIERS)))
 
     return sorted(rows, key=sort_key)
+
+
+def replace_machine_metadata(conn: sqlite3.Connection, rows: list[tuple]) -> None:
+    conn.execute("DELETE FROM machine_metadata")
+    conn.executemany(
+        """
+        INSERT INTO machine_metadata(
+            machine_type,
+            tier,
+            input_slots,
+            output_slots,
+            byproduct_slots,
+            storage_slots,
+            power_slots,
+            circuit_slots,
+            input_tanks,
+            input_tank_capacity_l,
+            output_tanks,
+            output_tank_capacity_l
+        )
+        VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        rows,
+    )
+    conn.commit()
