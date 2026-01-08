@@ -64,7 +64,10 @@ class ItemsTab(QtWidgets.QWidget):
         selected_id = None
         current_row = self.item_list.currentRow()
         if 0 <= current_row < len(self.items):
-            selected_id = self.items[current_row].get("id")
+            try:
+                selected_id = self.items[current_row]["id"]
+            except Exception:
+                selected_id = None
 
         self.items = list(items)
         self.item_list.clear()
@@ -73,7 +76,11 @@ class ItemsTab(QtWidgets.QWidget):
 
         if selected_id is not None:
             for idx, it in enumerate(self.items):
-                if it.get("id") == selected_id:
+                try:
+                    it_id = it["id"]
+                except Exception:
+                    it_id = None
+                if it_id == selected_id:
                     self.item_list.setCurrentRow(idx)
                     break
 
