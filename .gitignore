@@ -9,3 +9,4 @@ gtnh_export*
 gtnh_profile*
 gtnh.db-journal
 ui_tabs/items_tab_qt.log
+*.log
