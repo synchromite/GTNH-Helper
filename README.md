@@ -38,3 +38,8 @@ Profile data is kept separate so your progress survives content DB updates.
 ## Requirements
 - Python 3.11+
 - PySide6 (Qt UI toolkit)
+
+## Install
+```bash
+python -m pip install -r requirements.txt
+```
