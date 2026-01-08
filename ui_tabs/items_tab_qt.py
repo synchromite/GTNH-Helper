@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 import tkinter as tk
 
 from PySide6 import QtCore, QtWidgets
@@ -127,7 +128,21 @@ class ItemsTab(QtWidgets.QWidget):
         if hasattr(self.app, "get_enabled_tiers"):
             root.get_enabled_tiers = self.app.get_enabled_tiers
         dialog = dialog_cls(root, *args)
-        root.wait_window(dialog)
+        try:
+            while True:
+                try:
+                    if not dialog.winfo_exists():
+                        break
+                except tk.TclError:
+                    break
+                root.update()
+                QtCore.QCoreApplication.processEvents()
+                time.sleep(0.01)
+        finally:
+            try:
+                dialog.destroy()
+            except tk.TclError:
+                pass
         root.destroy()
 
     def open_add_item_dialog(self) -> None:
