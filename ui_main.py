@@ -11,6 +11,7 @@ from services.db_lifecycle import DbLifecycle
 from services.items import fetch_items
 from services.recipes import fetch_recipes
 from services.tab_config import apply_tab_reorder, config_path, load_tab_config, save_tab_config
+from ui_tabs.inventory_tab import InventoryTab
 from ui_tabs.items_tab_qt import ItemsTab
 from ui_tabs.recipes_tab_qt import RecipesTab
 
@@ -143,6 +144,8 @@ class App(QtWidgets.QMainWindow):
             return ItemsTab(self, self)
         if tab_id == "recipes":
             return RecipesTab(self, self)
+        if tab_id == "inventory":
+            return InventoryTab(self, self)
         return PlaceholderTab(label)
 
     def _rebuild_tabs(self) -> None:
@@ -392,6 +395,9 @@ class App(QtWidgets.QMainWindow):
         widget = self.tab_widgets.get("items")
         if widget and hasattr(widget, "render_items"):
             widget.render_items(self.items)
+        inventory_widget = self.tab_widgets.get("inventory")
+        if inventory_widget and hasattr(inventory_widget, "render_items"):
+            inventory_widget.render_items(self.items)
 
     def refresh_recipes(self) -> None:
         try:

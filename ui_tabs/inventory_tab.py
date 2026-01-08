@@ -1,89 +1,117 @@
-import tkinter as tk
-from tkinter import ttk, messagebox
+from __future__ import annotations
+
+from PySide6 import QtWidgets
 
 
-class InventoryTab(ttk.Frame):
-    def __init__(self, notebook: ttk.Notebook, app):
-        super().__init__(notebook, padding=10)
+class InventoryTab(QtWidgets.QWidget):
+    def __init__(self, app, parent=None):
+        super().__init__(parent)
         self.app = app
+        self.items: list = []
 
-        notebook.add(self, text="Inventory")
+        root_layout = QtWidgets.QHBoxLayout(self)
+        root_layout.setContentsMargins(8, 8, 8, 8)
 
-        ttk.Label(self, text="Track what you currently have in storage.").pack(anchor="w")
+        left = QtWidgets.QVBoxLayout()
+        root_layout.addLayout(left, stretch=0)
 
-        body = ttk.Frame(self)
-        body.pack(fill="both", expand=True, pady=10)
+        right = QtWidgets.QVBoxLayout()
+        root_layout.addLayout(right, stretch=1)
 
-        left = ttk.Frame(body)
-        left.pack(side="left", fill="y")
+        self.inventory_list = QtWidgets.QListWidget()
+        self.inventory_list.setMinimumWidth(240)
+        self.inventory_list.currentRowChanged.connect(self.on_inventory_select)
+        left.addWidget(self.inventory_list, stretch=1)
 
-        right = ttk.Frame(body)
-        right.pack(side="right", fill="both", expand=True, padx=(12, 0))
+        header = QtWidgets.QLabel("Track what you currently have in storage.")
+        right.addWidget(header)
 
-        self.inventory_list = tk.Listbox(left, width=40, exportselection=False)
-        self.inventory_list.pack(fill="y", expand=True)
-        self.inventory_list.bind("<<ListboxSelect>>", self.on_inventory_select)
+        self.inventory_item_name = QtWidgets.QLabel("")
+        font = self.inventory_item_name.font()
+        font.setBold(True)
+        font.setPointSize(max(11, font.pointSize()))
+        self.inventory_item_name.setFont(font)
+        right.addWidget(self.inventory_item_name)
 
-        self.inventory_item_name = tk.StringVar(value="")
-        ttk.Label(right, textvariable=self.inventory_item_name, font=("TkDefaultFont", 11, "bold")).pack(
-            anchor="w",
-            pady=(0, 10),
-        )
+        qty_row = QtWidgets.QHBoxLayout()
+        right.addLayout(qty_row)
+        qty_row.addWidget(QtWidgets.QLabel("Quantity:"))
+        self.inventory_qty_entry = QtWidgets.QLineEdit()
+        self.inventory_qty_entry.setFixedWidth(100)
+        qty_row.addWidget(self.inventory_qty_entry)
+        self.inventory_unit_label = QtWidgets.QLabel("")
+        qty_row.addWidget(self.inventory_unit_label)
+        qty_row.addStretch(1)
 
-        qty_row = ttk.Frame(right)
-        qty_row.pack(anchor="w")
-        ttk.Label(qty_row, text="Quantity:").pack(side="left")
-        self.inventory_qty_var = tk.StringVar(value="")
-        self.inventory_qty_entry = ttk.Entry(qty_row, textvariable=self.inventory_qty_var, width=14)
-        self.inventory_qty_entry.pack(side="left", padx=(6, 6))
-        self.inventory_unit_var = tk.StringVar(value="")
-        ttk.Label(qty_row, textvariable=self.inventory_unit_var).pack(side="left")
+        btns = QtWidgets.QHBoxLayout()
+        right.addLayout(btns)
+        self.btn_save = QtWidgets.QPushButton("Save")
+        self.btn_clear = QtWidgets.QPushButton("Clear")
+        self.btn_save.clicked.connect(self.save_inventory_item)
+        self.btn_clear.clicked.connect(self.clear_inventory_item)
+        btns.addWidget(self.btn_save)
+        btns.addWidget(self.btn_clear)
+        btns.addStretch(1)
 
-        btns = ttk.Frame(right)
-        btns.pack(anchor="w", pady=(10, 0))
-        ttk.Button(btns, text="Save", command=self.save_inventory_item).pack(side="left")
-        ttk.Button(btns, text="Clear", command=self.clear_inventory_item).pack(side="left", padx=(6, 0))
-
-        ttk.Label(
-            right,
-            text="Tip: items use counts; fluids use liters (L).",
-            foreground="#666",
-        ).pack(anchor="w", pady=(12, 0))
+        tip = QtWidgets.QLabel("Tip: items use counts; fluids use liters (L).")
+        tip.setStyleSheet("color: #666;")
+        right.addWidget(tip)
+        right.addStretch(1)
 
     def render_items(self, items: list) -> None:
-        self.inventory_list.delete(0, tk.END)
-        for it in items:
-            self.inventory_list.insert(tk.END, it["name"])
+        selected_id = None
+        current_row = self.inventory_list.currentRow()
+        if 0 <= current_row < len(self.items):
+            try:
+                selected_id = self.items[current_row]["id"]
+            except Exception:
+                selected_id = None
+
+        self.items = list(items)
+        self.inventory_list.clear()
+        for it in self.items:
+            self.inventory_list.addItem(it["name"])
+
+        if selected_id is not None:
+            for idx, it in enumerate(self.items):
+                if it.get("id") == selected_id:
+                    self.inventory_list.setCurrentRow(idx)
+                    break
+        else:
+            self.inventory_item_name.setText("")
+            self.inventory_unit_label.setText("")
+            self.inventory_qty_entry.setText("")
 
     def _inventory_selected_item(self):
-        sel = self.inventory_list.curselection()
-        if not sel:
+        row = self.inventory_list.currentRow()
+        if row < 0 or row >= len(self.items):
             return None
-        if not self.app.items:
-            return None
-        return self.app.items[sel[0]]
+        return self.items[row]
 
     def _inventory_unit_for_item(self, item) -> str:
         kind = (item["kind"] or "").strip().lower()
         return "L" if kind == "fluid" else "count"
 
-    def on_inventory_select(self, _evt=None):
-        item = self._inventory_selected_item()
-        if not item:
+    def on_inventory_select(self, row: int) -> None:
+        if row < 0 or row >= len(self.items):
+            self.inventory_item_name.setText("")
+            self.inventory_unit_label.setText("")
+            self.inventory_qty_entry.setText("")
             return
-        self.inventory_item_name.set(item["name"])
+        item = self.items[row]
+        self.inventory_item_name.setText(item["name"])
         unit = self._inventory_unit_for_item(item)
-        self.inventory_unit_var.set(unit)
+        self.inventory_unit_label.setText(unit)
 
-        row = self.app.profile_conn.execute(
+        db_row = self.app.profile_conn.execute(
             "SELECT qty_count, qty_liters FROM inventory WHERE item_id=?",
             (item["id"],),
         ).fetchone()
         if unit == "L":
-            qty = row["qty_liters"] if row else None
+            qty = db_row["qty_liters"] if db_row else None
         else:
-            qty = row["qty_count"] if row else None
-        self.inventory_qty_var.set("" if qty is None else self._format_inventory_qty(qty))
+            qty = db_row["qty_count"] if db_row else None
+        self.inventory_qty_entry.setText("" if qty is None else self._format_inventory_qty(qty))
 
     def _format_inventory_qty(self, qty: float | int) -> str:
         try:
@@ -94,28 +122,28 @@ class InventoryTab(ttk.Frame):
             return str(int(qty_f))
         return ""
 
-    def save_inventory_item(self):
+    def save_inventory_item(self) -> None:
         item = self._inventory_selected_item()
         if not item:
-            messagebox.showinfo("Select an item", "Click an item first.")
+            QtWidgets.QMessageBox.information(self, "Select an item", "Click an item first.")
             return
 
-        raw = self.inventory_qty_var.get().strip()
+        raw = self.inventory_qty_entry.text().strip()
         if raw == "":
             self.app.profile_conn.execute("DELETE FROM inventory WHERE item_id=?", (item["id"],))
             self.app.profile_conn.commit()
-            self.app.status.set(f"Cleared inventory for: {item['name']}")
+            self.app.status_bar.showMessage(f"Cleared inventory for: {item['name']}")
             self.app.notify_inventory_change()
             return
 
         try:
             qty_float = float(raw)
         except ValueError:
-            messagebox.showerror("Invalid quantity", "Enter a whole number.")
+            QtWidgets.QMessageBox.critical(self, "Invalid quantity", "Enter a whole number.")
             return
 
         if not qty_float.is_integer():
-            messagebox.showerror("Invalid quantity", "Enter a whole number.")
+            QtWidgets.QMessageBox.critical(self, "Invalid quantity", "Enter a whole number.")
             return
 
         qty = int(qty_float)
@@ -129,10 +157,10 @@ class InventoryTab(ttk.Frame):
             (item["id"], qty_count, qty_liters),
         )
         self.app.profile_conn.commit()
-        self.inventory_qty_var.set(str(qty))
-        self.app.status.set(f"Saved inventory for: {item['name']}")
+        self.inventory_qty_entry.setText(str(qty))
+        self.app.status_bar.showMessage(f"Saved inventory for: {item['name']}")
         self.app.notify_inventory_change()
 
-    def clear_inventory_item(self):
-        self.inventory_qty_var.set("")
+    def clear_inventory_item(self) -> None:
+        self.inventory_qty_entry.setText("")
         self.save_inventory_item()
