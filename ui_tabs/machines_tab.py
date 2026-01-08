@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from PySide6 import QtCore, QtWidgets
 
+from services.db import ALL_TIERS
 from services.machines import fetch_machine_metadata
 from ui_dialogs import MachineMetadataEditorDialog
 
@@ -11,6 +12,7 @@ class MachinesTab(QtWidgets.QWidget):
         super().__init__(parent)
         self.app = app
         self._rows: list[dict[str, object]] = []
+        self._metadata_rows: list[dict[str, object]] = []
 
         layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
@@ -20,6 +22,27 @@ class MachinesTab(QtWidgets.QWidget):
                 "Track which machine tiers you own and have online. Online machines cannot exceed owned."
             )
         )
+
+        filters = QtWidgets.QHBoxLayout()
+        filters.addWidget(QtWidgets.QLabel("Tier"))
+        self.filter_tier_combo = QtWidgets.QComboBox()
+        self.filter_tier_combo.currentTextChanged.connect(self._apply_filters)
+        filters.addWidget(self.filter_tier_combo)
+        filters.addSpacing(16)
+        filters.addWidget(QtWidgets.QLabel("Sort"))
+        self.sort_combo = QtWidgets.QComboBox()
+        self.sort_combo.addItems(
+            [
+                "Machine (A→Z)",
+                "Machine (Z→A)",
+                "Tier (progression)",
+                "Tier (reverse)",
+            ]
+        )
+        self.sort_combo.currentTextChanged.connect(self._render_rows)
+        filters.addWidget(self.sort_combo)
+        filters.addStretch(1)
+        layout.addLayout(filters)
 
         self.table = QtWidgets.QTableWidget(0, 4, self)
         self.table.setHorizontalHeaderLabels(["Machine", "Tier", "Owned", "Online"])
@@ -51,8 +74,58 @@ class MachinesTab(QtWidgets.QWidget):
             self.edit_metadata_btn.setEnabled(False)
 
     def load_from_db(self) -> None:
-        enabled_tiers = set(self.app.get_enabled_tiers())
         rows = fetch_machine_metadata(self.app.conn)
+        self._metadata_rows = [dict(row) for row in rows]
+        self._rebuild_tier_filter()
+        self._render_rows()
+
+    def _rebuild_tier_filter(self) -> None:
+        current = self.filter_tier_combo.currentText() if hasattr(self, "filter_tier_combo") else ""
+        tiers = {(row.get("tier") or "").strip() for row in self._metadata_rows}
+        tiers = {tier for tier in tiers if tier}
+        ordered = [tier for tier in ALL_TIERS if tier in tiers]
+        extras = sorted(tiers - set(ALL_TIERS))
+        choices = ["All tiers"] + ordered + extras
+        self.filter_tier_combo.blockSignals(True)
+        self.filter_tier_combo.clear()
+        self.filter_tier_combo.addItems(choices)
+        if current in choices:
+            self.filter_tier_combo.setCurrentText(current)
+        self.filter_tier_combo.blockSignals(False)
+
+    def _sorted_metadata_rows(self) -> list[dict[str, object]]:
+        rows = list(self._metadata_rows)
+        mode = self.sort_combo.currentText() if hasattr(self, "sort_combo") else "Machine (A→Z)"
+        tier_order = {tier: idx for idx, tier in enumerate(ALL_TIERS)}
+
+        def tier_key(value: str) -> tuple[int, str]:
+            val = (value or "").strip()
+            return (tier_order.get(val, len(ALL_TIERS)), val.lower())
+
+        if mode == "Machine (Z→A)":
+            return sorted(rows, key=lambda r: (r.get("machine_type") or "").lower(), reverse=True)
+        if mode == "Tier (progression)":
+            return sorted(
+                rows,
+                key=lambda r: (
+                    tier_key(r.get("tier") or ""),
+                    (r.get("machine_type") or "").lower(),
+                ),
+            )
+        if mode == "Tier (reverse)":
+            return sorted(
+                rows,
+                key=lambda r: (
+                    tier_key(r.get("tier") or ""),
+                    (r.get("machine_type") or "").lower(),
+                ),
+                reverse=True,
+            )
+        return sorted(rows, key=lambda r: (r.get("machine_type") or "").lower())
+
+    def _render_rows(self) -> None:
+        enabled_tiers = set(self.app.get_enabled_tiers())
+        rows = self._sorted_metadata_rows()
         self.table.setRowCount(0)
         self._rows = []
 
@@ -67,8 +140,8 @@ class MachinesTab(QtWidgets.QWidget):
         self.empty_label.hide()
 
         for row_idx, meta in enumerate(rows):
-            machine_type = (meta["machine_type"] or "").strip()
-            tier = (meta["tier"] or "").strip()
+            machine_type = (meta.get("machine_type") or "").strip()
+            tier = (meta.get("tier") or "").strip()
             availability = self.app.get_machine_availability(machine_type, tier)
             owned_checked = availability["owned"] > 0
             online_checked = availability["online"] > 0 and owned_checked
@@ -110,6 +183,15 @@ class MachinesTab(QtWidgets.QWidget):
             self._apply_row_enabled_state(row_state)
 
         self.table.resizeRowsToContents()
+        self._apply_filters()
+
+    def _apply_filters(self) -> None:
+        tier_filter = self.filter_tier_combo.currentText() if hasattr(self, "filter_tier_combo") else "All tiers"
+        for row_idx, row_state in enumerate(self._rows):
+            matches = True
+            if tier_filter and tier_filter != "All tiers":
+                matches = row_state["tier"] == tier_filter
+            self.table.setRowHidden(row_idx, not matches)
 
     def _apply_row_enabled_state(self, row_state: dict[str, object]) -> None:
         owned_cb = row_state["owned_cb"]
