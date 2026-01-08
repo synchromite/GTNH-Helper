@@ -34,25 +34,31 @@ def fetch_machine_metadata(conn: sqlite3.Connection) -> list[sqlite3.Row]:
 
 
 def replace_machine_metadata(conn: sqlite3.Connection, rows: list[tuple]) -> None:
-    conn.execute("DELETE FROM machine_metadata")
-    conn.executemany(
-        """
-        INSERT INTO machine_metadata(
-            machine_type,
-            tier,
-            input_slots,
-            output_slots,
-            byproduct_slots,
-            storage_slots,
-            power_slots,
-            circuit_slots,
-            input_tanks,
-            input_tank_capacity_l,
-            output_tanks,
-            output_tank_capacity_l
+    try:
+        conn.execute("BEGIN")
+        conn.execute("DELETE FROM machine_metadata")
+        conn.executemany(
+            """
+            INSERT INTO machine_metadata(
+                machine_type,
+                tier,
+                input_slots,
+                output_slots,
+                byproduct_slots,
+                storage_slots,
+                power_slots,
+                circuit_slots,
+                input_tanks,
+                input_tank_capacity_l,
+                output_tanks,
+                output_tank_capacity_l
+            )
+            VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            rows,
         )
-        VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        rows,
-    )
-    conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    else:
+        conn.commit()

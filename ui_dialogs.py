@@ -2161,12 +2161,13 @@ class MachineMetadataEditorDialog(QtWidgets.QDialog):
         self.table.setCellWidget(row_idx, 0, machine_edit)
 
         tier_combo = QtWidgets.QComboBox()
+        tier_combo.setEditable(True)
         tier_combo.addItems(ALL_TIERS)
         if row is not None:
             tier_val = (row["tier"] or "").strip()
-            if tier_val and tier_val not in ALL_TIERS:
-                tier_combo.addItem(tier_val)
             if tier_val:
+                if tier_val not in ALL_TIERS:
+                    tier_combo.addItem(tier_val)
                 tier_combo.setCurrentText(tier_val)
         self.table.setCellWidget(row_idx, 1, tier_combo)
 
