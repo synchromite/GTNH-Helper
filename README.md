@@ -27,13 +27,13 @@ Remove the file to switch back to client mode.
 Profile data is kept separate so your progress survives content DB updates.
 
 ## In progress
-- Qt UI polish
-- Planner Polishing - 2026.01.07
-
+- Qt UI polish - Ongoing
+- Planner Polishing - Ongoing
+- Machine Tab
+  
 ## Planned
 - Machine tier dropdown/display polish.
 - Optional hiding of Item/Recipe tabs when editor mode is disabled.
-- Machine Tab
 
 ## Requirements
 - Python 3.11+
