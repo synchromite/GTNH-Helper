@@ -62,9 +62,48 @@ class PlannerService:
         shopping_needed: dict[int, int] = {}
         visiting: set[int] = set()
 
-        def plan_item(item_id: int, qty_needed: int) -> None:
+        stack = [
+            {
+                "state": "enter",
+                "item_id": target_item_id,
+                "qty_needed": target_qty,
+            }
+        ]
+
+        while stack:
+            frame = stack.pop()
+            state = frame["state"]
+            if state == "exit":
+                item_id = frame["item_id"]
+                plan_data = frame["plan_data"]
+                steps.append(
+                    PlanStep(
+                        recipe_id=plan_data["recipe_id"],
+                        recipe_name=plan_data["recipe_name"],
+                        method=plan_data["method"],
+                        machine=plan_data["machine"],
+                        machine_item_id=plan_data["machine_item_id"],
+                        machine_item_name=plan_data["machine_item_name"],
+                        grid_size=plan_data["grid_size"],
+                        station_item_id=plan_data["station_item_id"],
+                        station_item_name=plan_data["station_item_name"],
+                        circuit=plan_data["circuit"],
+                        output_item_id=item_id,
+                        output_item_name=plan_data["output_item_name"],
+                        output_qty=plan_data["output_qty"],
+                        output_unit=plan_data["output_unit"],
+                        multiplier=plan_data["multiplier"],
+                        inputs=plan_data["inputs"],
+                        byproducts=plan_data["byproducts"],
+                    )
+                )
+                visiting.remove(item_id)
+                continue
+
+            item_id = frame["item_id"]
+            qty_needed = frame["qty_needed"]
             if qty_needed <= 0:
-                return
+                continue
 
             if use_inventory:
                 available = inventory.get(item_id, 0)
@@ -73,37 +112,35 @@ class PlannerService:
                     inventory[item_id] = available - used
                     qty_needed -= used
                     if qty_needed <= 0:
-                        return
+                        continue
 
             item = items.get(item_id)
             if not item:
                 errors.append("Unknown item selected.")
-                return
+                continue
 
             if item["is_base"]:
                 shopping_needed[item_id] = shopping_needed.get(item_id, 0) + qty_needed
-                return
+                continue
 
             if item_id in visiting:
                 errors.append(f"Detected cyclic dependency for {item['name']}.")
-                return
+                continue
 
-            visiting.add(item_id)
             recipe = self._pick_recipe_for_item(item_id, enabled_tiers, crafting_6x6_unlocked)
             if not recipe:
                 errors.append(f"No recipe found for {item['name']}.")
                 missing_recipes.append((item_id, item["name"], qty_needed))
-                visiting.remove(item_id)
-                return
+                continue
 
             output_qty = self._recipe_output_qty(recipe["id"], item_id, item["kind"])
             if output_qty <= 0:
                 errors.append(f"Recipe '{recipe['name']}' has no usable output for {item['name']}.")
-                visiting.remove(item_id)
-                return
+                continue
 
             multiplier = max(1, math.ceil(qty_needed / output_qty))
             inputs = []
+            input_frames = []
             input_lines = self._recipe_inputs(recipe["id"])
             for line in input_lines:
                 input_item = items.get(line["item_id"])
@@ -112,15 +149,22 @@ class PlannerService:
                 input_qty = self._line_qty(line, input_item["kind"])
                 if input_qty <= 0:
                     continue
+                total_qty = input_qty * multiplier
                 inputs.append(
                     (
                         input_item["id"],
                         input_item["name"],
-                        input_qty * multiplier,
+                        total_qty,
                         self._unit_for_kind(input_item["kind"]),
                     )
                 )
-                plan_item(line["item_id"], input_qty * multiplier)
+                input_frames.append(
+                    {
+                        "state": "enter",
+                        "item_id": line["item_id"],
+                        "qty_needed": total_qty,
+                    }
+                )
 
             byproducts = []
             output_lines = self._recipe_outputs(recipe["id"])
@@ -157,30 +201,33 @@ class PlannerService:
                 if station_item:
                     station_item_name = station_item["name"]
 
-            steps.append(
-                PlanStep(
-                    recipe_id=recipe["id"],
-                    recipe_name=recipe["name"],
-                    method=(recipe["method"] or "machine").strip().lower(),
-                    machine=recipe["machine"],
-                    machine_item_id=recipe["machine_item_id"],
-                    machine_item_name=machine_item_name,
-                    grid_size=recipe["grid_size"],
-                    station_item_id=recipe["station_item_id"],
-                    station_item_name=station_item_name,
-                    circuit=None if recipe["circuit"] is None else str(recipe["circuit"]),
-                    output_item_id=item_id,
-                    output_item_name=item["name"],
-                    output_qty=output_qty,
-                    output_unit=self._unit_for_kind(item["kind"]),
-                    multiplier=multiplier,
-                    inputs=inputs,
-                    byproducts=byproducts,
-                )
+            visiting.add(item_id)
+            stack.append(
+                {
+                    "state": "exit",
+                    "item_id": item_id,
+                    "plan_data": {
+                        "recipe_id": recipe["id"],
+                        "recipe_name": recipe["name"],
+                        "method": (recipe["method"] or "machine").strip().lower(),
+                        "machine": recipe["machine"],
+                        "machine_item_id": recipe["machine_item_id"],
+                        "machine_item_name": machine_item_name,
+                        "grid_size": recipe["grid_size"],
+                        "station_item_id": recipe["station_item_id"],
+                        "station_item_name": station_item_name,
+                        "circuit": None if recipe["circuit"] is None else str(recipe["circuit"]),
+                        "output_item_name": item["name"],
+                        "output_qty": output_qty,
+                        "output_unit": self._unit_for_kind(item["kind"]),
+                        "multiplier": multiplier,
+                        "inputs": inputs,
+                        "byproducts": byproducts,
+                    },
+                }
             )
-            visiting.remove(item_id)
-
-        plan_item(target_item_id, target_qty)
+            for input_frame in reversed(input_frames):
+                stack.append(input_frame)
 
         shopping_list = []
         for item_id, qty in shopping_needed.items():
