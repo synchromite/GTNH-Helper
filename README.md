@@ -27,10 +27,14 @@ Remove the file to switch back to client mode.
 Profile data is kept separate so your progress survives content DB updates.
 
 ## In progress
-- UI Re-write - Moving from Tkinter to PyQt
+- Qt UI polish
 - Planner Polishing - 2026.01.07
 
 ## Planned
 - Machine tier dropdown/display polish.
 - Optional hiding of Item/Recipe tabs when editor mode is disabled.
 - Machine Tab
+
+## Requirements
+- Python 3.11+
+- PySide6 (Qt UI toolkit)
