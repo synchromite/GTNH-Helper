@@ -118,9 +118,7 @@ class InventoryTab(QtWidgets.QWidget):
             qty_f = float(qty)
         except (TypeError, ValueError):
             return ""
-        if qty_f.is_integer():
-            return str(int(qty_f))
-        return ""
+        return str(int(round(qty_f)))
 
     def save_inventory_item(self) -> None:
         item = self._inventory_selected_item()

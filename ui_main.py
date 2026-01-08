@@ -110,6 +110,13 @@ class App(QtWidgets.QMainWindow):
         self.db = DbLifecycle(editor_enabled=self.editor_enabled, db_path=DEFAULT_DB_PATH)
         self._sync_db_handles()
         self._apply_theme(self.db.get_theme())
+        if self.db.last_open_error:
+            QtWidgets.QMessageBox.warning(
+                self,
+                "Database open failed",
+                "Failed to open the content database. The app is using a temporary in-memory database.\n\n"
+                f"Details: {self.db.last_open_error}",
+            )
 
         self.status_bar = self.statusBar()
         self.status_bar.showMessage("Ready")
@@ -397,6 +404,13 @@ class App(QtWidgets.QMainWindow):
         self._sync_db_handles()
         self._update_title()
         self._apply_theme(self.db.get_theme())
+        if self.db.last_open_error:
+            QtWidgets.QMessageBox.warning(
+                self,
+                "Database open failed",
+                "Failed to open the content database. The app is using a temporary in-memory database.\n\n"
+                f"Details: {self.db.last_open_error}",
+            )
 
         # Reload UI from the new DB
         self.refresh_items()

@@ -23,6 +23,8 @@ def load_tab_config(path: Path, tab_ids: Iterable[str]) -> TabConfig:
         raw = json.loads(path.read_text())
     except Exception:
         return TabConfig(order=default_order, enabled=default_enabled)
+    if not isinstance(raw, dict):
+        return TabConfig(order=default_order, enabled=default_enabled)
 
     order = raw.get("tab_order", default_order)
     enabled = raw.get("enabled_tabs", default_enabled)

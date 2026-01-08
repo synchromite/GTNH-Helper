@@ -25,6 +25,7 @@ class DbLifecycle:
     conn: sqlite3.Connection | None = field(init=False, default=None)
     profile_db_path: Path | None = field(init=False, default=None)
     profile_conn: sqlite3.Connection | None = field(init=False, default=None)
+    last_open_error: Exception | None = field(init=False, default=None)
 
     def __post_init__(self) -> None:
         self.db_path = Path(self.db_path)
@@ -119,6 +120,9 @@ class DbLifecycle:
 
     def _open_content_db(self, path: Path) -> sqlite3.Connection:
         try:
-            return connect(path, read_only=(not self.editor_enabled))
-        except Exception:
+            conn = connect(path, read_only=(not self.editor_enabled))
+        except Exception as exc:
+            self.last_open_error = exc
             return connect(":memory:")
+        self.last_open_error = None
+        return conn
