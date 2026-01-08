@@ -2146,6 +2146,8 @@ class MachineMetadataEditorDialog(QtWidgets.QDialog):
         return spin
 
     def _add_row(self, row=None) -> None:
+        if isinstance(row, bool):
+            row = None
         def _as_int(value, default=0):
             try:
                 return int(value)
