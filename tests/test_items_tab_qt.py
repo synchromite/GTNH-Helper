@@ -31,7 +31,7 @@ def _make_item_row() -> sqlite3.Row:
 
 
 def test_render_items_handles_sqlite_rows_and_preserves_selection() -> None:
-    _get_app()
+    app = _get_app()
 
     class DummyApp:
         editor_enabled = False
@@ -40,7 +40,9 @@ def test_render_items_handles_sqlite_rows_and_preserves_selection() -> None:
     row = _make_item_row()
     tab.render_items([row])
     tab.item_list.setCurrentRow(0)
+    app.processEvents()
     tab.render_items([row])
+    app.processEvents()
 
     assert tab.item_list.currentRow() == 0
     assert "Test Item" in tab.item_details.toPlainText()
