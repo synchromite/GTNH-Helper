@@ -9,8 +9,10 @@ from PySide6 import QtCore, QtGui, QtWidgets
 from services.db import DEFAULT_DB_PATH
 from services.db_lifecycle import DbLifecycle
 from services.items import fetch_items
+from services.recipes import fetch_recipes
 from services.tab_config import apply_tab_reorder, config_path, load_tab_config, save_tab_config
 from ui_tabs.items_tab_qt import ItemsTab
+from ui_tabs.recipes_tab_qt import RecipesTab
 
 
 class ReorderTabsDialog(QtWidgets.QDialog):
@@ -139,6 +141,8 @@ class App(QtWidgets.QMainWindow):
         label = self.tab_registry[tab_id]["label"]
         if tab_id == "items":
             return ItemsTab(self, self)
+        if tab_id == "recipes":
+            return RecipesTab(self, self)
         return PlaceholderTab(label)
 
     def _rebuild_tabs(self) -> None:
@@ -390,7 +394,17 @@ class App(QtWidgets.QMainWindow):
             widget.render_items(self.items)
 
     def refresh_recipes(self) -> None:
-        return None
+        try:
+            self.recipes = fetch_recipes(self.conn, self.get_enabled_tiers())
+        except sqlite3.ProgrammingError as exc:
+            if "closed" not in str(exc).lower():
+                raise
+            self.db.switch_db(self.db_path)
+            self._sync_db_handles()
+            self.recipes = fetch_recipes(self.conn, self.get_enabled_tiers())
+        widget = self.tab_widgets.get("recipes")
+        if widget and hasattr(widget, "render_recipes"):
+            widget.render_recipes(self.recipes)
 
     def _tiers_load_from_db(self) -> None:
         return None
