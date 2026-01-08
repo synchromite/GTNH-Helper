@@ -56,14 +56,14 @@ class RecipesTab(QtWidgets.QWidget):
         if 0 <= current_row < len(self.recipe_entries):
             entry = self.recipe_entries[current_row]
             if entry is not None:
-                selected_id = entry.get("id")
+                selected_id = entry["id"]
 
         self.recipes = list(recipes)
         self.recipe_list.clear()
 
         recipe_by_id = {r["id"]: r for r in self.recipes}
-        normal = [r for r in self.recipes if r.get("duplicate_of_recipe_id") is None]
-        duplicates = [r for r in self.recipes if r.get("duplicate_of_recipe_id") is not None]
+        normal = [r for r in self.recipes if r["duplicate_of_recipe_id"] is None]
+        duplicates = [r for r in self.recipes if r["duplicate_of_recipe_id"] is not None]
 
         self.recipe_entries = []
         for recipe in normal:
@@ -89,7 +89,7 @@ class RecipesTab(QtWidgets.QWidget):
 
         if selected_id is not None:
             for idx, entry in enumerate(self.recipe_entries):
-                if entry is not None and entry.get("id") == selected_id:
+                if entry is not None and entry["id"] == selected_id:
                     self.recipe_list.setCurrentRow(idx)
                     break
         elif self.recipe_entries:
@@ -240,7 +240,7 @@ class RecipesTab(QtWidgets.QWidget):
         if ok != QtWidgets.QMessageBox.StandardButton.Yes:
             return
 
-        duplicate_of = recipe.get("duplicate_of_recipe_id")
+        duplicate_of = recipe["duplicate_of_recipe_id"]
         self.app.conn.execute("DELETE FROM recipes WHERE id=?", (recipe["id"],))
         if duplicate_of is None:
             dup_rows = self.app.conn.execute(
