@@ -1,24 +1,9 @@
 from __future__ import annotations
 
-import logging
-import sys
-from pathlib import Path
+from PySide6 import QtWidgets
 
-from PySide6 import QtCore, QtWidgets
-
-from services.recipes import (
-    fetch_item_name,
-    fetch_machine_output_slots,
-    fetch_recipe_lines,
-)
-
-_LOGGER = logging.getLogger(__name__)
-if not _LOGGER.handlers:
-    _log_path = Path(__file__).resolve().parent / "recipes_tab_qt.log"
-    _handler = logging.FileHandler(_log_path, encoding="utf-8")
-    _handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
-    _LOGGER.addHandler(_handler)
-    _LOGGER.setLevel(logging.INFO)
+from services.recipes import fetch_item_name, fetch_machine_output_slots, fetch_recipe_lines
+from ui_dialogs import AddRecipeDialog, EditRecipeDialog
 
 
 class RecipesTab(QtWidgets.QWidget):
@@ -26,8 +11,6 @@ class RecipesTab(QtWidgets.QWidget):
         super().__init__(parent)
         self.app = app
         self.recipes: list = []
-        self._dialog_process: QtCore.QProcess | None = None
-
         root_layout = QtWidgets.QHBoxLayout(self)
         root_layout.setContentsMargins(8, 8, 8, 8)
 
@@ -177,63 +160,13 @@ class RecipesTab(QtWidgets.QWidget):
     def _recipe_details_set(self, txt: str) -> None:
         self.recipe_details.setPlainText(txt)
 
-    def _run_tk_dialog_process(self, dialog_kind: str, recipe_id: int | None = None) -> None:
-        if self._dialog_process and self._dialog_process.state() != QtCore.QProcess.ProcessState.NotRunning:
-            QtWidgets.QMessageBox.information(
-                self,
-                "Dialog already open",
-                "Please close the existing editor dialog before opening another.",
-            )
-            return
-        _LOGGER.info("Launching Tk dialog process: %s", dialog_kind)
-        args = [
-            "-m",
-            "ui_tabs.tk_recipe_dialog_runner",
-            dialog_kind,
-            str(self.app.db_path),
-        ]
-        if recipe_id is not None:
-            args.append(str(recipe_id))
-        process = QtCore.QProcess(self)
-        process.setProcessEnvironment(QtCore.QProcessEnvironment.systemEnvironment())
-        process.setProcessChannelMode(QtCore.QProcess.ProcessChannelMode.MergedChannels)
-        self._dialog_process = process
-        process.start(sys.executable, args)
-        if not process.waitForStarted(5000):
-            err = bytes(process.readAllStandardOutput()).decode("utf-8", errors="ignore")
-            _LOGGER.error("Dialog process failed to start: %s", err.strip())
-            QtWidgets.QMessageBox.critical(
-                self,
-                "Dialog failed",
-                "Could not start the editor dialog.\n\n"
-                f"Details: {err.strip() or 'Unknown error.'}",
-            )
-            process.kill()
-            process.waitForFinished(1000)
-            self._dialog_process = None
-            return
-        loop = QtCore.QEventLoop(self)
-        process.finished.connect(loop.quit)
-        loop.exec()
-        output = bytes(process.readAllStandardOutput()).decode("utf-8", errors="ignore")
-        if process.exitStatus() != QtCore.QProcess.ExitStatus.NormalExit or process.exitCode() != 0:
-            _LOGGER.error("Dialog process failed: %s", output.strip())
-            QtWidgets.QMessageBox.warning(
-                self,
-                "Dialog error",
-                "The editor dialog closed unexpectedly.\n\n"
-                f"Details: {output.strip() or 'Unknown error.'}",
-            )
-        elif output.strip():
-            _LOGGER.info("Dialog process output: %s", output.strip())
-        self._dialog_process = None
-
     def open_add_recipe_dialog(self) -> None:
         if not self.app.editor_enabled:
             QtWidgets.QMessageBox.information(self, "Editor locked", "Adding Recipes is only available in editor mode.")
             return
-        self._run_tk_dialog_process("add")
-        self.app.refresh_recipes()
+        dialog = AddRecipeDialog(self.app, parent=self)
+        if dialog.exec() == QtWidgets.QDialog.DialogCode.Accepted:
+            self.app.refresh_recipes()
 
     def open_edit_recipe_dialog(self) -> None:
         if not self.app.editor_enabled:
@@ -248,8 +181,9 @@ class RecipesTab(QtWidgets.QWidget):
             QtWidgets.QMessageBox.information(self, "Select a recipe", "Click a recipe first.")
             return
         recipe_id = self.recipes[row]["id"]
-        self._run_tk_dialog_process("edit", recipe_id)
-        self.app.refresh_recipes()
+        dialog = EditRecipeDialog(self.app, recipe_id, parent=self)
+        if dialog.exec() == QtWidgets.QDialog.DialogCode.Accepted:
+            self.app.refresh_recipes()
 
     def delete_selected_recipe(self) -> None:
         if not self.app.editor_enabled:

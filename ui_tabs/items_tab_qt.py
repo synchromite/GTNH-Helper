@@ -1,18 +1,8 @@
 from __future__ import annotations
 
-import logging
-import sys
-from pathlib import Path
+from PySide6 import QtWidgets
 
-from PySide6 import QtCore, QtWidgets
-
-_LOGGER = logging.getLogger(__name__)
-if not _LOGGER.handlers:
-    _log_path = Path(__file__).resolve().parent / "items_tab_qt.log"
-    _handler = logging.FileHandler(_log_path, encoding="utf-8")
-    _handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
-    _LOGGER.addHandler(_handler)
-    _LOGGER.setLevel(logging.INFO)
+from ui_dialogs import AddItemDialog, EditItemDialog
 
 
 class ItemsTab(QtWidgets.QWidget):
@@ -20,8 +10,6 @@ class ItemsTab(QtWidgets.QWidget):
         super().__init__(parent)
         self.app = app
         self.items: list = []
-        self._dialog_process: QtCore.QProcess | None = None
-
         root_layout = QtWidgets.QHBoxLayout(self)
         root_layout.setContentsMargins(8, 8, 8, 8)
 
@@ -127,57 +115,6 @@ class ItemsTab(QtWidgets.QWidget):
     def _item_details_set(self, txt: str) -> None:
         self.item_details.setPlainText(txt)
 
-    def _run_tk_dialog_process(self, dialog_kind: str, item_id: int | None = None) -> None:
-        if self._dialog_process and self._dialog_process.state() != QtCore.QProcess.ProcessState.NotRunning:
-            QtWidgets.QMessageBox.information(
-                self,
-                "Dialog already open",
-                "Please close the existing editor dialog before opening another.",
-            )
-            return
-        _LOGGER.info("Launching Tk dialog process: %s", dialog_kind)
-        args = [
-            "-m",
-            "ui_tabs.tk_item_dialog_runner",
-            dialog_kind,
-            str(self.app.db_path),
-        ]
-        if item_id is not None:
-            args.append(str(item_id))
-        process = QtCore.QProcess(self)
-        process.setProcessEnvironment(QtCore.QProcessEnvironment.systemEnvironment())
-        process.setProcessChannelMode(QtCore.QProcess.ProcessChannelMode.MergedChannels)
-        self._dialog_process = process
-        process.start(sys.executable, args)
-        if not process.waitForStarted(5000):
-            err = bytes(process.readAllStandardOutput()).decode("utf-8", errors="ignore")
-            _LOGGER.error("Dialog process failed to start: %s", err.strip())
-            QtWidgets.QMessageBox.critical(
-                self,
-                "Dialog failed",
-                "Could not start the editor dialog.\n\n"
-                f"Details: {err.strip() or 'Unknown error.'}",
-            )
-            process.kill()
-            process.waitForFinished(1000)
-            self._dialog_process = None
-            return
-        loop = QtCore.QEventLoop(self)
-        process.finished.connect(loop.quit)
-        loop.exec()
-        output = bytes(process.readAllStandardOutput()).decode("utf-8", errors="ignore")
-        if process.exitStatus() != QtCore.QProcess.ExitStatus.NormalExit or process.exitCode() != 0:
-            _LOGGER.error("Dialog process failed: %s", output.strip())
-            QtWidgets.QMessageBox.warning(
-                self,
-                "Dialog error",
-                "The editor dialog closed unexpectedly.\n\n"
-                f"Details: {output.strip() or 'Unknown error.'}",
-            )
-        elif output.strip():
-            _LOGGER.info("Dialog process output: %s", output.strip())
-        self._dialog_process = None
-
     def open_add_item_dialog(self) -> None:
         if not self.app.editor_enabled:
             QtWidgets.QMessageBox.information(
@@ -187,8 +124,9 @@ class ItemsTab(QtWidgets.QWidget):
                 "To enable editing, create a file named '.enable_editor' next to the app.",
             )
             return
-        self._run_tk_dialog_process("add")
-        self.app.refresh_items()
+        dialog = AddItemDialog(self.app, parent=self)
+        if dialog.exec() == QtWidgets.QDialog.DialogCode.Accepted:
+            self.app.refresh_items()
 
     def open_edit_item_dialog(self) -> None:
         if not self.app.editor_enabled:
@@ -199,8 +137,9 @@ class ItemsTab(QtWidgets.QWidget):
             QtWidgets.QMessageBox.information(self, "Select an item", "Click an item first.")
             return
         item_id = self.items[row]["id"]
-        self._run_tk_dialog_process("edit", item_id)
-        self.app.refresh_items()
+        dialog = EditItemDialog(self.app, item_id, parent=self)
+        if dialog.exec() == QtWidgets.QDialog.DialogCode.Accepted:
+            self.app.refresh_items()
 
     def delete_selected_item(self) -> None:
         if not self.app.editor_enabled:

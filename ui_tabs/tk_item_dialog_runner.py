@@ -2,30 +2,22 @@ from __future__ import annotations
 
 import sqlite3
 import sys
-import tkinter as tk
 from pathlib import Path
+
+from PySide6 import QtWidgets
 
 from ui_dialogs import AddItemDialog, EditItemDialog
 
 
-class _StatusStub:
-    def set(self, _message: str) -> None:
+class _StatusBarStub:
+    def showMessage(self, _message: str) -> None:
         return None
 
 
-def _build_root(db_path: Path) -> tk.Tk:
-    root = tk.Tk()
-    root.geometry("1x1+0+0")
-    root.overrideredirect(True)
-    try:
-        root.attributes("-alpha", 0.0)
-    except Exception:
-        pass
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    root.conn = conn
-    root.status = _StatusStub()
-    return root
+class _AppStub:
+    def __init__(self, conn: sqlite3.Connection):
+        self.conn = conn
+        self.status_bar = _StatusBarStub()
 
 
 def main(argv: list[str]) -> int:
@@ -37,31 +29,27 @@ def main(argv: list[str]) -> int:
     if not db_path.exists():
         print(f"Database not found: {db_path}", file=sys.stderr)
         return 2
-    root = _build_root(db_path)
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    app = QtWidgets.QApplication([])
+    stub = _AppStub(conn)
     try:
         if dialog_kind == "add":
-            dialog = AddItemDialog(root)
+            dialog = AddItemDialog(stub)
         elif dialog_kind == "edit":
             if len(argv) < 4:
                 print("Missing item_id for edit dialog.", file=sys.stderr)
                 return 2
-            dialog = EditItemDialog(root, int(argv[3]))
+            dialog = EditItemDialog(stub, int(argv[3]))
         else:
             print(f"Unknown dialog type: {dialog_kind}", file=sys.stderr)
             return 2
-        try:
-            dialog.deiconify()
-            dialog.lift()
-            dialog.focus_force()
-        except Exception:
-            pass
-        root.wait_window(dialog)
+        dialog.exec()
     finally:
         try:
-            root.conn.close()
+            conn.close()
         except Exception:
             pass
-        root.destroy()
     return 0
 
 
