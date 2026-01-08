@@ -3,10 +3,7 @@ from PyQt5 import QtWidgets
 
 class ItemsTab(QtWidgets.QWidget):
     def __init__(self, parent, app):
-        if QtWidgets.QApplication.instance() is None:
-            self._qt_app = QtWidgets.QApplication([])
-        qt_parent = parent if isinstance(parent, QtWidgets.QWidget) else None
-        super().__init__(qt_parent)
+        super().__init__(parent)
         self.app = app
         self.items: list = []
 
