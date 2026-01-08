@@ -77,7 +77,7 @@ class MachinesTab(QtWidgets.QWidget):
         current = self.filter_tier_combo.currentText() if hasattr(self, "filter_tier_combo") else ""
         tiers = {(row.get("tier") or "").strip() for row in self._metadata_rows}
         tiers = {tier for tier in tiers if tier}
-        ordered = [tier for tier in ALL_TIERS if tier in tiers]
+        ordered = list(ALL_TIERS)
         extras = sorted(tiers - set(ALL_TIERS))
         choices = ["All tiers"] + ordered + extras
         self.filter_tier_combo.blockSignals(True)
