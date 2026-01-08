@@ -1,11 +1,21 @@
 from __future__ import annotations
 
+import logging
 import time
 import tkinter as tk
+from pathlib import Path
 
 from PySide6 import QtCore, QtWidgets
 
 from ui_dialogs import AddItemDialog, EditItemDialog
+
+_LOGGER = logging.getLogger(__name__)
+if not _LOGGER.handlers:
+    _log_path = Path(__file__).resolve().parent / "items_tab_qt.log"
+    _handler = logging.FileHandler(_log_path, encoding="utf-8")
+    _handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+    _LOGGER.addHandler(_handler)
+    _LOGGER.setLevel(logging.INFO)
 
 
 class _QtStatusProxy:
@@ -128,21 +138,36 @@ class ItemsTab(QtWidgets.QWidget):
         if hasattr(self.app, "get_enabled_tiers"):
             root.get_enabled_tiers = self.app.get_enabled_tiers
         dialog = dialog_cls(root, *args)
+        _LOGGER.info("Opened Tk dialog %s", dialog_cls.__name__)
         try:
+            loops = 0
             while True:
                 try:
                     if not dialog.winfo_exists():
                         break
                 except tk.TclError:
+                    _LOGGER.info("Tk dialog %s destroyed (TclError).", dialog_cls.__name__)
                     break
-                root.update()
-                QtCore.QCoreApplication.processEvents()
+                try:
+                    root.update()
+                except tk.TclError as exc:
+                    _LOGGER.exception("Tk update failed for %s: %s", dialog_cls.__name__, exc)
+                    break
+                try:
+                    QtCore.QCoreApplication.processEvents()
+                except Exception as exc:
+                    _LOGGER.exception("Qt processEvents failed for %s: %s", dialog_cls.__name__, exc)
+                    break
+                loops += 1
+                if loops % 200 == 0:
+                    _LOGGER.info("Tk dialog %s still open after %s loops.", dialog_cls.__name__, loops)
                 time.sleep(0.01)
         finally:
             try:
                 dialog.destroy()
             except tk.TclError:
                 pass
+            _LOGGER.info("Closed Tk dialog %s", dialog_cls.__name__)
         root.destroy()
 
     def open_add_item_dialog(self) -> None:
