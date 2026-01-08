@@ -95,6 +95,21 @@ class DbLifecycle:
         value = theme.strip().lower()
         set_setting(self.profile_conn, SETTINGS_THEME, value)
 
+    def get_machine_availability(self, machine_type: str, tier: str) -> dict[str, int]:
+        if self.profile_conn is None:
+            return {"owned": 0, "online": 0}
+        row = self.profile_conn.execute(
+            """
+            SELECT owned, online
+            FROM machine_availability
+            WHERE machine_type = ? AND tier = ?
+            """,
+            (machine_type, tier),
+        ).fetchone()
+        if row is None:
+            return {"owned": 0, "online": 0}
+        return {"owned": int(row["owned"] or 0), "online": int(row["online"] or 0)}
+
     def _profile_path_for_content(self, content_path: Path) -> Path:
         content_path = Path(content_path)
         base_dir = content_path.parent

@@ -74,6 +74,17 @@ def connect_profile(db_path: Path | str) -> sqlite3.Connection:
         )
         """
     )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS machine_availability (
+            machine_type TEXT NOT NULL,
+            tier TEXT NOT NULL,
+            owned INTEGER NOT NULL DEFAULT 0 CHECK(owned >= 0),
+            online INTEGER NOT NULL DEFAULT 0 CHECK(online >= 0 AND online <= owned),
+            PRIMARY KEY (machine_type, tier)
+        )
+        """
+    )
     conn.commit()
     return conn
 
