@@ -54,7 +54,11 @@ class ItemPickerDialog(QtWidgets.QDialog):
         top.addWidget(QtWidgets.QLabel("Search"))
         self.search_edit = QtWidgets.QLineEdit()
         self.search_edit.returnPressed.connect(self.on_ok)
-        self.search_edit.textChanged.connect(self.rebuild_tree)
+        self._search_timer = QtCore.QTimer(self)
+        self._search_timer.setSingleShot(True)
+        self._search_timer.setInterval(250)
+        self._search_timer.timeout.connect(self.rebuild_tree)
+        self.search_edit.textChanged.connect(self._schedule_rebuild)
         top.addWidget(self.search_edit)
         layout.addLayout(top)
 
@@ -79,6 +83,9 @@ class ItemPickerDialog(QtWidgets.QDialog):
         self.reload_items()
         self.rebuild_tree()
         self.search_edit.setFocus()
+
+    def _schedule_rebuild(self) -> None:
+        self._search_timer.start()
 
     def reload_items(self) -> None:
         if self.machines_only:
