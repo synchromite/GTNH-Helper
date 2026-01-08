@@ -77,6 +77,10 @@ class InventoryTab(QtWidgets.QWidget):
                 if it.get("id") == selected_id:
                     self.inventory_list.setCurrentRow(idx)
                     break
+        else:
+            self.inventory_item_name.setText("")
+            self.inventory_unit_label.setText("")
+            self.inventory_qty_entry.setText("")
 
     def _inventory_selected_item(self):
         row = self.inventory_list.currentRow()
@@ -99,14 +103,14 @@ class InventoryTab(QtWidgets.QWidget):
         unit = self._inventory_unit_for_item(item)
         self.inventory_unit_label.setText(unit)
 
-        row = self.app.profile_conn.execute(
+        db_row = self.app.profile_conn.execute(
             "SELECT qty_count, qty_liters FROM inventory WHERE item_id=?",
             (item["id"],),
         ).fetchone()
         if unit == "L":
-            qty = row["qty_liters"] if row else None
+            qty = db_row["qty_liters"] if db_row else None
         else:
-            qty = row["qty_count"] if row else None
+            qty = db_row["qty_count"] if db_row else None
         self.inventory_qty_entry.setText("" if qty is None else self._format_inventory_qty(qty))
 
     def _format_inventory_qty(self, qty: float | int) -> str:
