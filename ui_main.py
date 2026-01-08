@@ -9,6 +9,7 @@ from services.db import DEFAULT_DB_PATH
 from services.db_lifecycle import DbLifecycle
 from services.items import fetch_items
 from services.tab_config import apply_tab_reorder, config_path, load_tab_config, save_tab_config
+from ui_tabs.items_tab_qt import ItemsTab
 
 
 class ReorderTabsDialog(QtWidgets.QDialog):
@@ -135,6 +136,8 @@ class App(QtWidgets.QMainWindow):
 
     def _create_tab_widget(self, tab_id: str) -> QtWidgets.QWidget:
         label = self.tab_registry[tab_id]["label"]
+        if tab_id == "items":
+            return ItemsTab(self, self)
         return PlaceholderTab(label)
 
     def _rebuild_tabs(self) -> None:
@@ -374,6 +377,9 @@ class App(QtWidgets.QMainWindow):
     # ---------- Tab delegates ----------
     def refresh_items(self) -> None:
         self.items = fetch_items(self.conn)
+        widget = self.tab_widgets.get("items")
+        if widget and hasattr(widget, "render_items"):
+            widget.render_items(self.items)
 
     def refresh_recipes(self) -> None:
         return None
