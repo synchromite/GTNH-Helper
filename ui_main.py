@@ -14,6 +14,7 @@ from services.tab_config import apply_tab_reorder, config_path, load_tab_config,
 from ui_tabs.inventory_tab import InventoryTab
 from ui_tabs.items_tab_qt import ItemsTab
 from ui_tabs.recipes_tab_qt import RecipesTab
+from ui_tabs.tiers_tab import TiersTab
 
 
 class ReorderTabsDialog(QtWidgets.QDialog):
@@ -146,6 +147,8 @@ class App(QtWidgets.QMainWindow):
             return RecipesTab(self, self)
         if tab_id == "inventory":
             return InventoryTab(self, self)
+        if tab_id == "tiers":
+            return TiersTab(self, self)
         return PlaceholderTab(label)
 
     def _rebuild_tabs(self) -> None:
@@ -413,7 +416,9 @@ class App(QtWidgets.QMainWindow):
             widget.render_recipes(self.recipes)
 
     def _tiers_load_from_db(self) -> None:
-        return None
+        widget = self.tab_widgets.get("tiers")
+        if widget and hasattr(widget, "load_from_db"):
+            widget.load_from_db()
 
     def notify_inventory_change(self) -> None:
         return None

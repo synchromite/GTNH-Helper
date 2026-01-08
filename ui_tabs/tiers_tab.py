@@ -1,101 +1,106 @@
-import tkinter as tk
-from tkinter import ttk, messagebox
+from __future__ import annotations
+
+from PySide6 import QtWidgets
 
 from services.db import ALL_TIERS
 
 
-class TiersTab(ttk.Frame):
-    def __init__(self, notebook: ttk.Notebook, app):
-        super().__init__(notebook, padding=10)
+class TiersTab(QtWidgets.QWidget):
+    def __init__(self, app, parent=None):
+        super().__init__(parent)
         self.app = app
-        self.tier_vars: dict[str, tk.BooleanVar] = {}
+        self.tier_checks: dict[str, QtWidgets.QCheckBox] = {}
 
-        notebook.add(self, text="Tiers")
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setContentsMargins(8, 8, 8, 8)
 
-        ttk.Label(self, text="Select tiers you currently have access to.").pack(anchor="w")
+        layout.addWidget(QtWidgets.QLabel("Select tiers you currently have access to."))
 
-        grid = ttk.Frame(self)
-        grid.pack(fill="x", pady=10)
+        grid = QtWidgets.QGridLayout()
+        layout.addLayout(grid)
 
         cols = 3
-        for i, t in enumerate(ALL_TIERS):
-            var = tk.BooleanVar(value=False)
-            self.tier_vars[t] = var
-            r = i // cols
-            c = i % cols
-            ttk.Checkbutton(
-                grid,
-                text=t,
-                variable=var,
-                command=lambda tier=t: self._on_tier_toggle(tier),
-            ).grid(row=r, column=c, sticky="w", padx=8, pady=4)
+        for i, tier in enumerate(ALL_TIERS):
+            checkbox = QtWidgets.QCheckBox(tier)
+            checkbox.toggled.connect(lambda checked, t=tier: self._on_tier_toggle(t, checked))
+            self.tier_checks[tier] = checkbox
+            row, col = divmod(i, cols)
+            grid.addWidget(checkbox, row, col)
 
-        btns = ttk.Frame(self)
-        btns.pack(fill="x", pady=(10, 0))
-        ttk.Button(btns, text="Save", command=self._tiers_save_to_db).pack(side="left")
+        btns = QtWidgets.QHBoxLayout()
+        layout.addLayout(btns)
+        save_btn = QtWidgets.QPushButton("Save")
+        save_btn.clicked.connect(self._tiers_save_to_db)
+        btns.addWidget(save_btn)
+        btns.addStretch(1)
 
-        unlocks = ttk.LabelFrame(self, text="Crafting", padding=10)
-        unlocks.pack(fill="x", pady=(12, 0))
-        self.unlocked_6x6_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(
-            unlocks,
-            text="6x6 Crafting unlocked (once you've made a crafting table with a crafting grid)",
-            variable=self.unlocked_6x6_var,
-        ).pack(anchor="w")
+        unlocks = QtWidgets.QGroupBox("Crafting")
+        unlocks_layout = QtWidgets.QVBoxLayout(unlocks)
+        self.unlocked_6x6_checkbox = QtWidgets.QCheckBox(
+            "6x6 Crafting unlocked (once you've made a crafting table with a crafting grid)"
+        )
+        unlocks_layout.addWidget(self.unlocked_6x6_checkbox)
+        layout.addWidget(unlocks)
 
-        ttk.Label(
-            self,
-            text="Note: this controls dropdown tiers and filters the Recipes list (no planner logic yet).",
-            foreground="#666",
-        ).pack(anchor="w", pady=(10, 0))
+        note = QtWidgets.QLabel(
+            "Note: this controls dropdown tiers and filters the Recipes list (no planner logic yet)."
+        )
+        note.setStyleSheet("color: #666;")
+        layout.addWidget(note)
+        layout.addStretch(1)
 
-    def load_from_db(self):
-        enabled = set(self.app.get_enabled_tiers())
-        for t, var in self.tier_vars.items():
-            var.set(t in enabled)
-
-        self.unlocked_6x6_var.set(self.app.is_crafting_6x6_unlocked())
-
-    def _on_tier_toggle(self, tier: str) -> None:
-        var = self.tier_vars.get(tier)
-        if not var:
+    def _set_tier_checked(self, tier: str, checked: bool) -> None:
+        checkbox = self.tier_checks.get(tier)
+        if not checkbox:
             return
+        prev = checkbox.blockSignals(True)
+        checkbox.setChecked(checked)
+        checkbox.blockSignals(prev)
 
+    def load_from_db(self) -> None:
+        enabled = set(self.app.get_enabled_tiers())
+        for tier, checkbox in self.tier_checks.items():
+            prev = checkbox.blockSignals(True)
+            checkbox.setChecked(tier in enabled)
+            checkbox.blockSignals(prev)
+
+        self.unlocked_6x6_checkbox.setChecked(self.app.is_crafting_6x6_unlocked())
+
+    def _on_tier_toggle(self, tier: str, checked: bool) -> None:
         try:
             tier_index = ALL_TIERS.index(tier)
         except ValueError:
             return
 
-        if var.get():
+        if checked:
             for lower_tier in ALL_TIERS[: tier_index + 1]:
-                lower_var = self.tier_vars.get(lower_tier)
-                if lower_var and not lower_var.get():
-                    lower_var.set(True)
+                self._set_tier_checked(lower_tier, True)
 
             if "Steam Age" in ALL_TIERS[: tier_index + 1]:
-                if not self.unlocked_6x6_var.get():
-                    self.unlocked_6x6_var.set(True)
+                if not self.unlocked_6x6_checkbox.isChecked():
+                    self.unlocked_6x6_checkbox.setChecked(True)
         else:
             for higher_tier in ALL_TIERS[tier_index + 1 :]:
-                higher_var = self.tier_vars.get(higher_tier)
-                if higher_var and higher_var.get():
-                    higher_var.set(False)
+                self._set_tier_checked(higher_tier, False)
 
-            steam_var = self.tier_vars.get("Steam Age")
-            if steam_var is not None and not steam_var.get():
-                if self.unlocked_6x6_var.get():
-                    self.unlocked_6x6_var.set(False)
+            steam_checkbox = self.tier_checks.get("Steam Age")
+            if steam_checkbox is not None and not steam_checkbox.isChecked():
+                if self.unlocked_6x6_checkbox.isChecked():
+                    self.unlocked_6x6_checkbox.setChecked(False)
 
-    def _tiers_save_to_db(self):
-        enabled = [t for t, var in self.tier_vars.items() if var.get()]
+    def _tiers_save_to_db(self) -> None:
+        enabled = [t for t, checkbox in self.tier_checks.items() if checkbox.isChecked()]
         if not enabled:
-            messagebox.showerror("Pick at least one", "Enable at least one tier.")
+            QtWidgets.QMessageBox.critical(self, "Pick at least one", "Enable at least one tier.")
             return
         self.app.set_enabled_tiers(enabled)
+        self.app.set_crafting_6x6_unlocked(bool(self.unlocked_6x6_checkbox.isChecked()))
 
-        self.app.set_crafting_6x6_unlocked(bool(self.unlocked_6x6_var.get()))
+        if hasattr(self.app, "refresh_recipes"):
+            self.app.refresh_recipes()
+        widget = getattr(self.app, "tab_widgets", {}).get("recipes")
+        if widget and hasattr(widget, "_recipe_details_set"):
+            widget._recipe_details_set("")
 
-        if getattr(self.app, "recipes_tab", None) is not None:
-            self.app.recipes_tab.refresh_recipes()
-            self.app.recipes_tab._recipe_details_set("")
-        self.app.status.set(f"Saved tiers: {', '.join(enabled)}")
+        if hasattr(self.app, "status_bar"):
+            self.app.status_bar.showMessage(f"Saved tiers: {', '.join(enabled)}")
