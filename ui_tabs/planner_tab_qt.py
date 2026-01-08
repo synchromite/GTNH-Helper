@@ -388,7 +388,11 @@ class PlannerTab(QtWidgets.QWidget):
             self._mark_dependency_chain(idx)
         else:
             if self.use_inventory_checkbox.isChecked() and idx in self.build_completed_steps:
-                self._apply_step_inventory(idx, reverse=True)
+                if not self._apply_step_inventory(idx, reverse=True):
+                    checkbox.blockSignals(True)
+                    checkbox.setChecked(True)
+                    checkbox.blockSignals(False)
+                    return
             self.build_completed_steps.discard(idx)
         self._recalculate_build_steps()
 
@@ -459,7 +463,37 @@ class PlannerTab(QtWidgets.QWidget):
 
     def _apply_step_inventory(self, idx: int, *, reverse: bool = False) -> bool:
         step = self.build_steps[idx]
-        if not reverse:
+        if reverse:
+            inventory = self.planner.load_inventory()
+            output_qty = step.output_qty * step.multiplier
+            missing_outputs = []
+            available_output = inventory.get(step.output_item_id, 0)
+            if available_output < output_qty:
+                missing_outputs.append((step.output_item_name, output_qty, step.output_unit, available_output))
+            applied_byproducts = self.build_step_byproducts.get(idx, [])
+            missing_byproducts = []
+            for item_id, qty in applied_byproducts:
+                available = inventory.get(item_id, 0)
+                if available < qty:
+                    item = next((item for item in self.app.items if item["id"] == item_id), None)
+                    name = item["name"] if item else f"Item {item_id}"
+                    unit = self._unit_for_kind(item["kind"] if item else None)
+                    missing_byproducts.append((name, qty, unit, available))
+            if missing_outputs or missing_byproducts:
+                missing_lines = [
+                    f"{name}: need {qty} {unit}, have {available}"
+                    for name, qty, unit, available in missing_outputs + missing_byproducts
+                ]
+                message = "You don't have enough inventory to undo this step:\n\n" + "\n".join(
+                    missing_lines
+                )
+                QtWidgets.QMessageBox.information(
+                    self,
+                    "Build step blocked",
+                    message,
+                )
+                return False
+        else:
             inventory = self._effective_build_inventory()
             missing = []
             for item_id, name, qty, unit in step.inputs:
