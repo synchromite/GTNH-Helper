@@ -20,6 +20,7 @@ class ItemsTab(QtWidgets.QWidget):
         super().__init__(parent)
         self.app = app
         self.items: list = []
+        self._dialog_process: QtCore.QProcess | None = None
 
         root_layout = QtWidgets.QHBoxLayout(self)
         root_layout.setContentsMargins(8, 8, 8, 8)
@@ -63,7 +64,10 @@ class ItemsTab(QtWidgets.QWidget):
         selected_id = None
         current_row = self.item_list.currentRow()
         if 0 <= current_row < len(self.items):
-            selected_id = self.items[current_row].get("id")
+            try:
+                selected_id = self.items[current_row]["id"]
+            except Exception:
+                selected_id = None
 
         self.items = list(items)
         self.item_list.clear()
@@ -72,7 +76,11 @@ class ItemsTab(QtWidgets.QWidget):
 
         if selected_id is not None:
             for idx, it in enumerate(self.items):
-                if it.get("id") == selected_id:
+                try:
+                    it_id = it["id"]
+                except Exception:
+                    it_id = None
+                if it_id == selected_id:
                     self.item_list.setCurrentRow(idx)
                     break
 
@@ -120,6 +128,13 @@ class ItemsTab(QtWidgets.QWidget):
         self.item_details.setPlainText(txt)
 
     def _run_tk_dialog_process(self, dialog_kind: str, item_id: int | None = None) -> None:
+        if self._dialog_process and self._dialog_process.state() != QtCore.QProcess.ProcessState.NotRunning:
+            QtWidgets.QMessageBox.information(
+                self,
+                "Dialog already open",
+                "Please close the existing editor dialog before opening another.",
+            )
+            return
         _LOGGER.info("Launching Tk dialog process: %s", dialog_kind)
         args = [
             "-m",
@@ -130,22 +145,38 @@ class ItemsTab(QtWidgets.QWidget):
         if item_id is not None:
             args.append(str(item_id))
         process = QtCore.QProcess(self)
+        process.setProcessEnvironment(QtCore.QProcessEnvironment.systemEnvironment())
+        process.setProcessChannelMode(QtCore.QProcess.ProcessChannelMode.MergedChannels)
+        self._dialog_process = process
         process.start(sys.executable, args)
-        if not process.waitForStarted(3000):
-            QtWidgets.QMessageBox.critical(self, "Dialog failed", "Could not start the editor dialog.")
+        if not process.waitForStarted(5000):
+            err = bytes(process.readAllStandardOutput()).decode("utf-8", errors="ignore")
+            _LOGGER.error("Dialog process failed to start: %s", err.strip())
+            QtWidgets.QMessageBox.critical(
+                self,
+                "Dialog failed",
+                "Could not start the editor dialog.\n\n"
+                f"Details: {err.strip() or 'Unknown error.'}",
+            )
+            process.kill()
+            process.waitForFinished(1000)
+            self._dialog_process = None
             return
         loop = QtCore.QEventLoop(self)
         process.finished.connect(loop.quit)
         loop.exec()
+        output = bytes(process.readAllStandardOutput()).decode("utf-8", errors="ignore")
         if process.exitStatus() != QtCore.QProcess.ExitStatus.NormalExit or process.exitCode() != 0:
-            err = bytes(process.readAllStandardError()).decode("utf-8", errors="ignore")
-            _LOGGER.error("Dialog process failed: %s", err.strip())
+            _LOGGER.error("Dialog process failed: %s", output.strip())
             QtWidgets.QMessageBox.warning(
                 self,
                 "Dialog error",
                 "The editor dialog closed unexpectedly.\n\n"
-                f"Details: {err.strip() or 'Unknown error.'}",
+                f"Details: {output.strip() or 'Unknown error.'}",
             )
+        elif output.strip():
+            _LOGGER.info("Dialog process output: %s", output.strip())
+        self._dialog_process = None
 
     def open_add_item_dialog(self) -> None:
         if not self.app.editor_enabled:

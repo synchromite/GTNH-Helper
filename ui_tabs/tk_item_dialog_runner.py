@@ -15,7 +15,12 @@ class _StatusStub:
 
 def _build_root(db_path: Path) -> tk.Tk:
     root = tk.Tk()
-    root.withdraw()
+    root.geometry("1x1+0+0")
+    root.overrideredirect(True)
+    try:
+        root.attributes("-alpha", 0.0)
+    except Exception:
+        pass
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     root.conn = conn
@@ -44,6 +49,12 @@ def main(argv: list[str]) -> int:
         else:
             print(f"Unknown dialog type: {dialog_kind}", file=sys.stderr)
             return 2
+        try:
+            dialog.deiconify()
+            dialog.lift()
+            dialog.focus_force()
+        except Exception:
+            pass
         root.wait_window(dialog)
     finally:
         try:

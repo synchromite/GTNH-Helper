@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import datetime
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -376,7 +377,14 @@ class App(QtWidgets.QMainWindow):
 
     # ---------- Tab delegates ----------
     def refresh_items(self) -> None:
-        self.items = fetch_items(self.conn)
+        try:
+            self.items = fetch_items(self.conn)
+        except sqlite3.ProgrammingError as exc:
+            if "closed" not in str(exc).lower():
+                raise
+            self.db.switch_db(self.db_path)
+            self._sync_db_handles()
+            self.items = fetch_items(self.conn)
         widget = self.tab_widgets.get("items")
         if widget and hasattr(widget, "render_items"):
             widget.render_items(self.items)
