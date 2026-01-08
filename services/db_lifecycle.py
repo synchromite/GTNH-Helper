@@ -110,6 +110,20 @@ class DbLifecycle:
             return {"owned": 0, "online": 0}
         return {"owned": int(row["owned"] or 0), "online": int(row["online"] or 0)}
 
+    def set_machine_availability(self, rows: list[tuple[str, str, int, int]]) -> None:
+        if self.profile_conn is None:
+            return
+        self.profile_conn.executemany(
+            """
+            INSERT INTO machine_availability(machine_type, tier, owned, online)
+            VALUES(?, ?, ?, ?)
+            ON CONFLICT(machine_type, tier)
+            DO UPDATE SET owned=excluded.owned, online=excluded.online
+            """,
+            rows,
+        )
+        self.profile_conn.commit()
+
     def _profile_path_for_content(self, content_path: Path) -> Path:
         content_path = Path(content_path)
         base_dir = content_path.parent

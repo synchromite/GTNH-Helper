@@ -101,6 +101,8 @@ class TiersTab(QtWidgets.QWidget):
         widget = getattr(self.app, "tab_widgets", {}).get("recipes")
         if widget and hasattr(widget, "_recipe_details_set"):
             widget._recipe_details_set("")
+        if hasattr(self.app, "_machines_load_from_db"):
+            self.app._machines_load_from_db()
 
         if hasattr(self.app, "status_bar"):
             self.app.status_bar.showMessage(f"Saved tiers: {', '.join(enabled)}")

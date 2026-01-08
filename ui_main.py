@@ -17,6 +17,7 @@ from ui_tabs.items_tab_qt import ItemsTab
 from ui_tabs.recipes_tab_qt import RecipesTab
 from ui_tabs.planner_tab_qt import PlannerTab
 from ui_tabs.tiers_tab import TiersTab
+from ui_tabs.machines_tab import MachinesTab
 from ui_constants import DARK_STYLESHEET, LIGHT_STYLESHEET
 
 
@@ -128,6 +129,7 @@ class App(QtWidgets.QMainWindow):
             "inventory": {"label": "Inventory"},
             "planner": {"label": "Planner"},
             "tiers": {"label": "Tiers"},
+            "machines": {"label": "Machines"},
         }
         self.tab_order, self.enabled_tabs = self._load_ui_config()
         self.tab_actions: dict[str, QtGui.QAction] = {}
@@ -150,6 +152,7 @@ class App(QtWidgets.QMainWindow):
         self.refresh_items()
         self.refresh_recipes()
         self._tiers_load_from_db()
+        self._machines_load_from_db()
 
     # ---------- Mode detection ----------
     def _detect_editor_enabled(self) -> bool:
@@ -201,6 +204,8 @@ class App(QtWidgets.QMainWindow):
             widget = TiersTab(self, self)
         elif tab_id == "planner":
             widget = PlannerTab(self, self)
+        elif tab_id == "machines":
+            widget = MachinesTab(self, self)
         else:
             widget = PlaceholderTab(label)
         widget.setProperty("tab_id", tab_id)
@@ -283,6 +288,8 @@ class App(QtWidgets.QMainWindow):
             widget.render_items(self.items)
         elif tab_id == "tiers" and hasattr(widget, "load_from_db"):
             widget.load_from_db()
+        elif tab_id == "machines" and hasattr(widget, "load_from_db"):
+            widget.load_from_db()
 
     def _toggle_tab(self, tab_id: str, checked: bool) -> None:
         enabled = set(self.enabled_tabs)
@@ -306,6 +313,7 @@ class App(QtWidgets.QMainWindow):
         self.refresh_items()
         self.refresh_recipes()
         self._tiers_load_from_db()
+        self._machines_load_from_db()
 
     def _open_reorder_tabs_dialog(self) -> None:
         dialog = ReorderTabsDialog(self.tab_order, self.tab_registry, self)
@@ -326,6 +334,7 @@ class App(QtWidgets.QMainWindow):
         self.refresh_items()
         self.refresh_recipes()
         self._tiers_load_from_db()
+        self._machines_load_from_db()
 
     # ---------- Menu / DB handling ----------
     def _build_menu(self) -> None:
@@ -416,6 +425,7 @@ class App(QtWidgets.QMainWindow):
         self.refresh_items()
         self.refresh_recipes()
         self._tiers_load_from_db()
+        self._machines_load_from_db()
         self.planner_state = {}
 
     def menu_open_db(self) -> None:
@@ -590,6 +600,17 @@ class App(QtWidgets.QMainWindow):
         widget = self.tab_widgets.get("tiers")
         if widget and hasattr(widget, "load_from_db"):
             widget.load_from_db()
+
+    def _machines_load_from_db(self) -> None:
+        widget = self.tab_widgets.get("machines")
+        if widget and hasattr(widget, "load_from_db"):
+            widget.load_from_db()
+
+    def get_machine_availability(self, machine_type: str, tier: str) -> dict[str, int]:
+        return self.db.get_machine_availability(machine_type, tier)
+
+    def set_machine_availability(self, rows: list[tuple[str, str, int, int]]) -> None:
+        self.db.set_machine_availability(rows)
 
     def notify_inventory_change(self) -> None:
         widget = self.tab_widgets.get("planner")
