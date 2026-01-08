@@ -45,6 +45,7 @@ class ItemPickerDialog(QtWidgets.QDialog):
         self.result: dict | None = None
         self._items = []
         self._display_map: dict[QtWidgets.QTreeWidgetItem, dict] = {}
+        self._dup_name_counts: dict[tuple[str, str], int] = {}
 
         self.setWindowTitle(title)
         self.resize(520, 520)
@@ -125,13 +126,7 @@ class ItemPickerDialog(QtWidgets.QDialog):
     def _label_for(self, row) -> str:
         name = row["name"]
         kind = row["kind"]
-        dup = 0
-        for r in self._items:
-            if r["kind"] == kind and r["name"] == name:
-                dup += 1
-                if dup > 1:
-                    break
-        if dup > 1:
+        if self._dup_name_counts.get((kind, name), 0) > 1:
             return f"{name}  (#{row['id']})"
         return name
 
@@ -139,6 +134,10 @@ class ItemPickerDialog(QtWidgets.QDialog):
         self.tree.clear()
         self._display_map.clear()
         query = (self.search_edit.text() or "").strip().lower()
+        self._dup_name_counts = {}
+        for row in self._items:
+            key = (row["kind"], row["name"])
+            self._dup_name_counts[key] = self._dup_name_counts.get(key, 0) + 1
 
         def _matches(row) -> bool:
             if not query:
