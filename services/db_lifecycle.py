@@ -15,7 +15,7 @@ from services.db import (
     merge_database,
     set_setting,
 )
-from ui_constants import SETTINGS_CRAFT_6X6_UNLOCKED, SETTINGS_ENABLED_TIERS
+from ui_constants import SETTINGS_CRAFT_6X6_UNLOCKED, SETTINGS_ENABLED_TIERS, SETTINGS_THEME
 
 
 @dataclass
@@ -86,6 +86,14 @@ class DbLifecycle:
     def set_crafting_6x6_unlocked(self, unlocked: bool) -> None:
         set_setting(self.profile_conn, SETTINGS_CRAFT_6X6_UNLOCKED, "1" if unlocked else "0")
 
+    def get_theme(self) -> str:
+        raw = (get_setting(self.profile_conn, SETTINGS_THEME, "dark") or "dark").strip().lower()
+        return raw if raw in {"dark", "light"} else "dark"
+
+    def set_theme(self, theme: str) -> None:
+        value = theme.strip().lower()
+        set_setting(self.profile_conn, SETTINGS_THEME, value)
+
     def _profile_path_for_content(self, content_path: Path) -> Path:
         content_path = Path(content_path)
         base_dir = content_path.parent
@@ -100,6 +108,7 @@ class DbLifecycle:
         for key, default in (
             (SETTINGS_ENABLED_TIERS, ""),
             (SETTINGS_CRAFT_6X6_UNLOCKED, "0"),
+            (SETTINGS_THEME, "dark"),
         ):
             existing = get_setting(self.profile_conn, key, None)
             if existing is not None:

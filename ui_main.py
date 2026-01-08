@@ -16,6 +16,7 @@ from ui_tabs.items_tab_qt import ItemsTab
 from ui_tabs.recipes_tab_qt import RecipesTab
 from ui_tabs.planner_tab_qt import PlannerTab
 from ui_tabs.tiers_tab import TiersTab
+from ui_constants import DARK_STYLESHEET, LIGHT_STYLESHEET
 
 
 class ReorderTabsDialog(QtWidgets.QDialog):
@@ -107,6 +108,7 @@ class App(QtWidgets.QMainWindow):
 
         self.db = DbLifecycle(editor_enabled=self.editor_enabled, db_path=DEFAULT_DB_PATH)
         self._sync_db_handles()
+        self._apply_theme(self.db.get_theme())
 
         self.status_bar = self.statusBar()
         self.status_bar.showMessage("Ready")
@@ -347,6 +349,33 @@ class App(QtWidgets.QMainWindow):
         tabs_menu.addSeparator()
         tabs_menu.addAction("Reorder Tabs…", self._open_reorder_tabs_dialog)
 
+        view_menu = menubar.addMenu("View")
+        theme_group = QtGui.QActionGroup(self)
+        theme_group.setExclusive(True)
+        light_action = QtGui.QAction("Light Theme", self, checkable=True)
+        dark_action = QtGui.QAction("Dark Theme", self, checkable=True)
+        theme_group.addAction(light_action)
+        theme_group.addAction(dark_action)
+        view_menu.addActions([light_action, dark_action])
+        current_theme = self.db.get_theme()
+        if current_theme == "light":
+            light_action.setChecked(True)
+        else:
+            dark_action.setChecked(True)
+        light_action.triggered.connect(lambda checked=False: self._apply_theme("light"))
+        dark_action.triggered.connect(lambda checked=False: self._apply_theme("dark"))
+
+    def _apply_theme(self, theme: str) -> None:
+        app = QtWidgets.QApplication.instance()
+        if app is None:
+            return
+        if theme == "light":
+            app.setStyleSheet(LIGHT_STYLESHEET)
+        else:
+            theme = "dark"
+            app.setStyleSheet(DARK_STYLESHEET)
+        self.db.set_theme(theme)
+
     def _update_title(self) -> None:
         try:
             name = self.db_path.name
@@ -366,6 +395,7 @@ class App(QtWidgets.QMainWindow):
         self.db.switch_db(Path(new_path))
         self._sync_db_handles()
         self._update_title()
+        self._apply_theme(self.db.get_theme())
 
         # Reload UI from the new DB
         self.refresh_items()
