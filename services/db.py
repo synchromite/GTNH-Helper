@@ -383,6 +383,13 @@ def export_db(conn: sqlite3.Connection, dest_path: Path | str) -> None:
         dst.close()
 
 
+def _normalize_kind_name(name: str) -> str:
+    normalized = " ".join((name or "").split()).strip().casefold()
+    if normalized.endswith("s") and not normalized.endswith("ss"):
+        normalized = normalized[:-1]
+    return normalized
+
+
 def merge_db(dest_conn: sqlite3.Connection, src_path: Path | str) -> dict[str, int]:
     """Merge an external DB file into the currently-open DB.
 
@@ -411,6 +418,12 @@ def merge_db(dest_conn: sqlite3.Connection, src_path: Path | str) -> dict[str, i
     try:
         # ---- Kind mapping ----
         dest_kind_map: dict[int, int] = {}
+        dest_kind_by_norm: dict[str, list[int]] = {}
+        for row in dest_conn.execute("SELECT id, name FROM item_kinds").fetchall():
+            norm = _normalize_kind_name(row["name"] or "")
+            if not norm:
+                continue
+            dest_kind_by_norm.setdefault(norm, []).append(row["id"])
         src_kinds = src.execute("SELECT id, name, sort_order FROM item_kinds ORDER BY id").fetchall()
         for k in src_kinds:
             name = (k["name"] or "").strip()
@@ -423,12 +436,19 @@ def merge_db(dest_conn: sqlite3.Connection, src_path: Path | str) -> dict[str, i
             if row:
                 dest_kind_map[k["id"]] = row["id"]
                 continue
+            normalized_name = _normalize_kind_name(name)
+            normalized_matches = dest_kind_by_norm.get(normalized_name, [])
+            if len(normalized_matches) == 1:
+                dest_kind_map[k["id"]] = normalized_matches[0]
+                continue
             dest_conn.execute(
                 "INSERT INTO item_kinds(name, sort_order, is_builtin) VALUES(?, ?, 0)",
                 (name, int(k["sort_order"] or 0)),
             )
             new_id = dest_conn.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
             dest_kind_map[k["id"]] = new_id
+            if normalized_name:
+                dest_kind_by_norm.setdefault(normalized_name, []).append(new_id)
             stats["kinds_added"] += 1
 
         # Grab Machine kind id for backfills

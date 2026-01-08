@@ -64,3 +64,31 @@ def test_merge_db_imports_items_and_recipes(tmp_path: Path):
     lines = dest_conn.execute("SELECT item_id FROM recipe_lines WHERE recipe_id=?", (recipe["id"],)).fetchall()
     item_ids = {row["item_id"] for row in lines}
     assert widget["id"] in item_ids
+
+
+def test_merge_db_normalizes_kind_names(tmp_path: Path):
+    dest_conn = _connect(":memory:")
+    circuit_kind = dest_conn.execute(
+        "SELECT id FROM item_kinds WHERE LOWER(name)=LOWER('Circuit')"
+    ).fetchone()["id"]
+
+    src_path = tmp_path / "src.db"
+    src_conn = _connect(src_path)
+    src_conn.execute("INSERT INTO item_kinds(name, sort_order, is_builtin) VALUES('Circuits', 70, 0)")
+    src_kind_id = src_conn.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
+    src_conn.execute(
+        "INSERT INTO items(key, display_name, kind, item_kind_id) VALUES(?,?,?,?)",
+        ("test_circuit", "Test Circuit", "item", src_kind_id),
+    )
+    src_conn.commit()
+
+    stats = merge_db(dest_conn, src_path)
+
+    assert stats["kinds_added"] == 0
+    merged_item = dest_conn.execute(
+        "SELECT item_kind_id FROM items WHERE key='test_circuit'"
+    ).fetchone()
+    assert merged_item["item_kind_id"] == circuit_kind
+    assert dest_conn.execute(
+        "SELECT id FROM item_kinds WHERE LOWER(name)=LOWER('Circuits')"
+    ).fetchone() is None
