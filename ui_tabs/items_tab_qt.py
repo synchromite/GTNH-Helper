@@ -145,10 +145,12 @@ class ItemsTab(QtWidgets.QWidget):
         if item_id is not None:
             args.append(str(item_id))
         process = QtCore.QProcess(self)
+        process.setProcessEnvironment(QtCore.QProcessEnvironment.systemEnvironment())
+        process.setProcessChannelMode(QtCore.QProcess.ProcessChannelMode.MergedChannels)
         self._dialog_process = process
         process.start(sys.executable, args)
         if not process.waitForStarted(5000):
-            err = bytes(process.readAllStandardError()).decode("utf-8", errors="ignore")
+            err = bytes(process.readAllStandardOutput()).decode("utf-8", errors="ignore")
             _LOGGER.error("Dialog process failed to start: %s", err.strip())
             QtWidgets.QMessageBox.critical(
                 self,
@@ -163,15 +165,17 @@ class ItemsTab(QtWidgets.QWidget):
         loop = QtCore.QEventLoop(self)
         process.finished.connect(loop.quit)
         loop.exec()
-        err = bytes(process.readAllStandardError()).decode("utf-8", errors="ignore")
+        output = bytes(process.readAllStandardOutput()).decode("utf-8", errors="ignore")
         if process.exitStatus() != QtCore.QProcess.ExitStatus.NormalExit or process.exitCode() != 0:
-            _LOGGER.error("Dialog process failed: %s", err.strip())
+            _LOGGER.error("Dialog process failed: %s", output.strip())
             QtWidgets.QMessageBox.warning(
                 self,
                 "Dialog error",
                 "The editor dialog closed unexpectedly.\n\n"
-                f"Details: {err.strip() or 'Unknown error.'}",
+                f"Details: {output.strip() or 'Unknown error.'}",
             )
+        elif output.strip():
+            _LOGGER.info("Dialog process output: %s", output.strip())
         self._dialog_process = None
 
     def open_add_item_dialog(self) -> None:
