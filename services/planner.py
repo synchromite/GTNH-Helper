@@ -346,7 +346,13 @@ class PlannerService:
 
     # ---------- Quantity helpers ----------
     def _qty_from_row(self, row, kind: str) -> int:
-        qty = row["qty_liters"] if kind == "fluid" else row["qty_count"]
+        if kind == "fluid":
+            primary_qty = row["qty_liters"]
+            fallback_qty = row["qty_count"]
+        else:
+            primary_qty = row["qty_count"]
+            fallback_qty = row["qty_liters"]
+        qty = primary_qty if primary_qty is not None else fallback_qty
         if qty is None:
             return 1
         try:
