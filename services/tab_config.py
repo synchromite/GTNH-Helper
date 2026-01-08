@@ -26,7 +26,8 @@ def load_tab_config(path: Path, tab_ids: Iterable[str]) -> TabConfig:
     if not isinstance(raw, dict):
         return TabConfig(order=default_order, enabled=default_enabled)
 
-    order = raw.get("tab_order", default_order)
+    raw_order = raw.get("tab_order", default_order)
+    order = raw_order
     enabled = raw.get("enabled_tabs", default_enabled)
     order = [tid for tid in order if tid in default_order]
     for tid in default_order:
@@ -35,6 +36,10 @@ def load_tab_config(path: Path, tab_ids: Iterable[str]) -> TabConfig:
     enabled = [tid for tid in enabled if tid in order]
     if not enabled:
         enabled = list(default_enabled)
+    new_tabs = [tid for tid in default_order if tid not in raw_order]
+    for tid in new_tabs:
+        if tid not in enabled:
+            enabled.append(tid)
     enabled_ordered = [tid for tid in order if tid in enabled]
     return TabConfig(order=order, enabled=enabled_ordered)
 
