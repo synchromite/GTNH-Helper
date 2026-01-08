@@ -60,6 +60,41 @@ class PlaceholderTab(QtWidgets.QWidget):
         layout.addWidget(QtWidgets.QLabel(f"{label} (Qt UI pending)", alignment=QtCore.Qt.AlignmentFlag.AlignCenter))
 
 
+class DetachedTabWindow(QtWidgets.QMainWindow):
+    def __init__(
+        self,
+        tab_id: str,
+        label: str,
+        widget: QtWidgets.QWidget,
+        on_reattach: callable,
+        parent: QtWidgets.QWidget | None = None,
+    ):
+        super().__init__(parent)
+        self._tab_id = tab_id
+        self._label = label
+        self._on_reattach = on_reattach
+        self._is_reattaching = False
+
+        self.setWindowTitle(f"{label} — Detached")
+        self.setCentralWidget(widget)
+
+        menu = self.menuBar().addMenu("Tab")
+        action = QtGui.QAction("Reattach", self)
+        action.triggered.connect(self.request_reattach)
+        menu.addAction(action)
+
+    def request_reattach(self) -> None:
+        if self._is_reattaching:
+            return
+        self._is_reattaching = True
+        self._on_reattach(self._tab_id)
+
+    def closeEvent(self, event) -> None:
+        if not self._is_reattaching:
+            self.request_reattach()
+        event.accept()
+
+
 class App(QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
@@ -86,6 +121,7 @@ class App(QtWidgets.QMainWindow):
         self.tab_order, self.enabled_tabs = self._load_ui_config()
         self.tab_actions: dict[str, QtGui.QAction] = {}
         self.tab_widgets: dict[str, QtWidgets.QWidget] = {}
+        self.detached_tabs: dict[str, DetachedTabWindow] = {}
 
         self._build_menu()
         self._update_title()
@@ -94,6 +130,8 @@ class App(QtWidgets.QMainWindow):
         self.recipes: list = []
 
         self.nb = QtWidgets.QTabWidget()
+        self.nb.tabBar().setContextMenuPolicy(QtCore.Qt.ContextMenuPolicy.CustomContextMenu)
+        self.nb.tabBar().customContextMenuRequested.connect(self._open_tab_context_menu)
         self.setCentralWidget(self.nb)
 
         self._rebuild_tabs()
@@ -143,26 +181,80 @@ class App(QtWidgets.QMainWindow):
     def _create_tab_widget(self, tab_id: str) -> QtWidgets.QWidget:
         label = self.tab_registry[tab_id]["label"]
         if tab_id == "items":
-            return ItemsTab(self, self)
-        if tab_id == "recipes":
-            return RecipesTab(self, self)
-        if tab_id == "inventory":
-            return InventoryTab(self, self)
-        if tab_id == "tiers":
-            return TiersTab(self, self)
-        if tab_id == "planner":
-            return PlannerTab(self, self)
-        return PlaceholderTab(label)
+            widget = ItemsTab(self, self)
+        elif tab_id == "recipes":
+            widget = RecipesTab(self, self)
+        elif tab_id == "inventory":
+            widget = InventoryTab(self, self)
+        elif tab_id == "tiers":
+            widget = TiersTab(self, self)
+        elif tab_id == "planner":
+            widget = PlannerTab(self, self)
+        else:
+            widget = PlaceholderTab(label)
+        widget.setProperty("tab_id", tab_id)
+        return widget
+
+    def _clear_tabs(self) -> None:
+        while self.nb.count() > 0:
+            self.nb.removeTab(0)
+
+    def _insert_tab_in_order(self, tab_id: str, widget: QtWidgets.QWidget) -> None:
+        index = 0
+        for candidate in self.tab_order:
+            if candidate == tab_id:
+                break
+            if candidate in self.enabled_tabs and candidate not in self.detached_tabs:
+                index += 1
+        label = self.tab_registry[tab_id]["label"]
+        self.nb.insertTab(index, widget, label)
 
     def _rebuild_tabs(self) -> None:
-        self.nb.clear()
-        self.tab_widgets = {}
+        self._clear_tabs()
         for tab_id in self.tab_order:
-            if tab_id not in self.enabled_tabs:
+            if tab_id not in self.enabled_tabs or tab_id in self.detached_tabs:
                 continue
-            widget = self._create_tab_widget(tab_id)
+            widget = self.tab_widgets.get(tab_id) or self._create_tab_widget(tab_id)
             self.tab_widgets[tab_id] = widget
             self.nb.addTab(widget, self.tab_registry[tab_id]["label"])
+
+    def _open_tab_context_menu(self, pos) -> None:
+        index = self.nb.tabBar().tabAt(pos)
+        if index < 0:
+            return
+        widget = self.nb.widget(index)
+        tab_id = widget.property("tab_id")
+        if not tab_id:
+            return
+        menu = QtWidgets.QMenu(self)
+        detach_action = menu.addAction("Detach")
+        detach_action.triggered.connect(lambda checked=False, tid=tab_id: self._detach_tab(tid))
+        menu.exec(self.nb.tabBar().mapToGlobal(pos))
+
+    def _detach_tab(self, tab_id: str) -> None:
+        if tab_id in self.detached_tabs:
+            return
+        widget = self.tab_widgets.get(tab_id)
+        if widget is None:
+            widget = self._create_tab_widget(tab_id)
+            self.tab_widgets[tab_id] = widget
+        index = self.nb.indexOf(widget)
+        if index >= 0:
+            self.nb.removeTab(index)
+        window = DetachedTabWindow(tab_id, self.tab_registry[tab_id]["label"], widget, self._reattach_tab, self)
+        self.detached_tabs[tab_id] = window
+        window.show()
+
+    def _reattach_tab(self, tab_id: str) -> None:
+        window = self.detached_tabs.pop(tab_id, None)
+        if window is None:
+            return
+        widget = window.takeCentralWidget()
+        if widget is None:
+            return
+        window.deleteLater()
+        self._insert_tab_in_order(tab_id, widget)
+        self.nb.setCurrentWidget(widget)
 
     def _toggle_tab(self, tab_id: str, checked: bool) -> None:
         enabled = set(self.enabled_tabs)
@@ -176,6 +268,11 @@ class App(QtWidgets.QMainWindow):
             enabled.discard(tab_id)
 
         self.enabled_tabs = [tid for tid in self.tab_order if tid in enabled]
+        if tab_id not in self.enabled_tabs and tab_id in self.detached_tabs:
+            window = self.detached_tabs.pop(tab_id, None)
+            if window:
+                window.takeCentralWidget()
+                window.deleteLater()
         self._save_ui_config()
         self._rebuild_tabs()
         self.refresh_items()
