@@ -9,7 +9,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 from services.db import DEFAULT_DB_PATH, find_item_merge_conflicts
 from services.db_lifecycle import DbLifecycle
 from services.items import fetch_items
-from services.recipes import fetch_recipes
+from services.recipes import fetch_recipes, load_online_machine_availability
 from services.tab_config import apply_tab_reorder, config_path, load_tab_config, save_tab_config
 from ui_dialogs import ItemMergeConflictDialog
 from ui_tabs.inventory_tab import InventoryTab
@@ -609,14 +609,16 @@ class App(QtWidgets.QMainWindow):
             inventory_widget.render_items(self.items)
 
     def refresh_recipes(self) -> None:
+        available_machines = load_online_machine_availability(self.profile_conn)
         try:
-            self.recipes = fetch_recipes(self.conn, self.get_enabled_tiers())
+            self.recipes = fetch_recipes(self.conn, self.get_enabled_tiers(), available_machines)
         except sqlite3.ProgrammingError as exc:
             if "closed" not in str(exc).lower():
                 raise
             self.db.switch_db(self.db_path)
             self._sync_db_handles()
-            self.recipes = fetch_recipes(self.conn, self.get_enabled_tiers())
+            available_machines = load_online_machine_availability(self.profile_conn)
+            self.recipes = fetch_recipes(self.conn, self.get_enabled_tiers(), available_machines)
         widget = self.tab_widgets.get("recipes")
         if widget and hasattr(widget, "render_recipes"):
             widget.render_recipes(self.recipes)
