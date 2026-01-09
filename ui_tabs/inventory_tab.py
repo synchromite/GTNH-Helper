@@ -63,7 +63,7 @@ class InventoryTab(QtWidgets.QWidget):
         current_row = self.inventory_list.currentRow()
         if 0 <= current_row < len(self.items):
             try:
-                selected_id = self.items[current_row]["id"]
+                selected_id = self._item_id(self.items[current_row])
             except Exception:
                 selected_id = None
 
@@ -74,7 +74,7 @@ class InventoryTab(QtWidgets.QWidget):
 
         if selected_id is not None:
             for idx, it in enumerate(self.items):
-                if it.get("id") == selected_id:
+                if self._item_id(it) == selected_id:
                     self.inventory_list.setCurrentRow(idx)
                     break
         else:
@@ -87,6 +87,12 @@ class InventoryTab(QtWidgets.QWidget):
         if row < 0 or row >= len(self.items):
             return None
         return self.items[row]
+
+    def _item_id(self, item):
+        try:
+            return item["id"]
+        except (TypeError, KeyError, IndexError):
+            return None
 
     def _inventory_unit_for_item(self, item) -> str:
         kind = (item["kind"] or "").strip().lower()
