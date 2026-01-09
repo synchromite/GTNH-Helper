@@ -285,10 +285,13 @@ class PlannerService:
             tier_clause = "AND (r.tier IS NULL OR TRIM(r.tier)='') "
         sql = (
             "SELECT r.id, r.name, r.method, r.machine, r.machine_item_id, r.grid_size, "
-            "r.station_item_id, r.circuit, r.tier, mi.machine_tier AS machine_item_tier, "
+            "r.station_item_id, r.circuit, r.tier, r.duration_ticks, r.eu_per_tick, "
+            "mi.machine_tier AS machine_item_tier, "
             "COALESCE(SUM(CASE WHEN rl_in.direction='in' THEN 1 ELSE 0 END), 0) AS input_count, "
             "COALESCE(SUM(CASE WHEN rl_in.direction='in' "
             "THEN COALESCE(rl_in.qty_count, rl_in.qty_liters, 1) ELSE 0 END), 0) AS input_qty "
+            ", COALESCE(MAX(CASE WHEN rl_out.direction='out' "
+            "THEN COALESCE(rl_out.qty_count, rl_out.qty_liters, 1) ELSE NULL END), 0) AS output_qty "
             "FROM recipes r "
             "LEFT JOIN items mi ON mi.id = r.machine_item_id "
             "JOIN recipe_lines rl_out ON rl_out.recipe_id = r.id "
@@ -315,18 +318,33 @@ class PlannerService:
 
         tier_order = {tier: index for index, tier in enumerate(tiers)}
 
-        def recipe_rank(row) -> tuple[int, int, int, float, str]:
+        def _safe_divide(numerator: float, denominator: float) -> float:
+            if denominator <= 0:
+                return float("inf")
+            return numerator / denominator
+
+        def recipe_rank(row) -> tuple[int, int, float, float, float, str]:
             match_rank = self._recipe_machine_match_rank(row, available_machines)
             tier = (row["tier"] or "").strip()
             if not tier:
                 tier_rank = -1
             else:
                 tier_rank = tier_order.get(tier, len(tier_order) + 1)
+            output_qty = row["output_qty"] if "output_qty" in row.keys() else None
+            output_qty = float(output_qty or 0)
+            input_qty = float(row["input_qty"] or 0)
+            input_ratio = _safe_divide(input_qty, output_qty)
+            duration_ticks = float(row["duration_ticks"] or 0)
+            time_per_output = _safe_divide(duration_ticks, output_qty)
+            eu_per_tick = float(row["eu_per_tick"] or 0)
+            total_energy = duration_ticks * eu_per_tick
+            energy_per_output = _safe_divide(total_energy, output_qty)
             return (
                 match_rank,
                 tier_rank,
-                int(row["input_count"] or 0),
-                float(row["input_qty"] or 0),
+                input_ratio,
+                time_per_output,
+                energy_per_output,
                 (row["name"] or "").lower(),
             )
 
