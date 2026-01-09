@@ -12,6 +12,8 @@ A recipe database browser and inventory helper for GregTech New Horizons.
 - **Editor mode**: (optional) to add/edit/delete items and recipes.
 - **Recipe Planner**: Plan recipes based on your current inventory. Enter a complex item, and the tool will calculate the full dependency tree until it finds items you already own or base resources (like ores). It then generates a "Shopping List" of raw materials.
 - **Interactive Build Mode**: Click the Build button to see step-by-step instructions. The tool intelligently tracks your inventory and automatically checks off steps as you gather the required resources.
+- **Machine Tab**: Keeps track of what machines you own and have online. Used for planning when picking recipes. Will pick the most efficient.
+
 ## Modes
 The app runs in **client mode** by default:
 - Content database is opened **read-only**.
@@ -29,11 +31,9 @@ Profile data is kept separate so your progress survives content DB updates.
 ## In progress
 - Qt UI polish - Ongoing
 - Planner Polishing - Ongoing
-- Machine Tab
   
 ## Planned
-- Machine tier dropdown/display polish.
-- Optional hiding of Item/Recipe tabs when editor mode is disabled.
+- Feature requests are open
 
 ## Requirements
 - Python 3.11+
