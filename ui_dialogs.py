@@ -1307,12 +1307,19 @@ class _RecipeDialogBase(QtWidgets.QDialog):
         self.method_combo.addItems(["Machine", "Crafting"])
         form.addWidget(self.method_combo, 0, 3)
 
+        self.variant_label = QtWidgets.QLabel("Variant")
+        self.variant_combo = QtWidgets.QComboBox()
+        self.variant_label.setVisible(False)
+        self.variant_combo.setVisible(False)
+        form.addWidget(self.variant_label, 1, 0)
+        form.addWidget(self.variant_combo, 1, 1, 1, 3)
+
         self.machine_label = QtWidgets.QLabel("Machine")
         self.grid_label = QtWidgets.QLabel("Grid")
         self.method_label_stack = QtWidgets.QStackedWidget()
         self.method_label_stack.addWidget(self.machine_label)
         self.method_label_stack.addWidget(self.grid_label)
-        form.addWidget(self.method_label_stack, 1, 0)
+        form.addWidget(self.method_label_stack, 2, 0)
 
         self.machine_edit = QtWidgets.QLineEdit()
         self.machine_item_id = None
@@ -1342,16 +1349,16 @@ class _RecipeDialogBase(QtWidgets.QDialog):
         self.method_field_stack = QtWidgets.QStackedWidget()
         self.method_field_stack.addWidget(machine_frame)
         self.method_field_stack.addWidget(grid_frame)
-        form.addWidget(self.method_field_stack, 1, 1)
+        form.addWidget(self.method_field_stack, 2, 1)
 
-        form.addWidget(QtWidgets.QLabel("Tier"), 1, 2)
+        form.addWidget(QtWidgets.QLabel("Tier"), 2, 2)
         self.tier_combo = QtWidgets.QComboBox()
-        form.addWidget(self.tier_combo, 1, 3)
+        form.addWidget(self.tier_combo, 2, 3)
 
-        form.addWidget(QtWidgets.QLabel("Circuit"), 2, 0)
+        form.addWidget(QtWidgets.QLabel("Circuit"), 3, 0)
         self.circuit_edit = QtWidgets.QLineEdit()
         self.circuit_edit.setValidator(QtGui.QIntValidator(0, 10**9))
-        form.addWidget(self.circuit_edit, 2, 1)
+        form.addWidget(self.circuit_edit, 3, 1)
 
         self.station_label = QtWidgets.QLabel("Station")
         self.station_edit = QtWidgets.QLineEdit()
@@ -1369,22 +1376,22 @@ class _RecipeDialogBase(QtWidgets.QDialog):
         station_layout.setContentsMargins(0, 0, 0, 0)
         station_layout.addWidget(self.station_edit)
         station_layout.addLayout(station_btns)
-        form.addWidget(self.station_label, 2, 2)
-        form.addWidget(self.station_frame, 2, 3)
+        form.addWidget(self.station_label, 3, 2)
+        form.addWidget(self.station_frame, 3, 3)
 
-        form.addWidget(QtWidgets.QLabel("Duration (seconds)"), 3, 0)
+        form.addWidget(QtWidgets.QLabel("Duration (seconds)"), 4, 0)
         self.duration_edit = QtWidgets.QLineEdit()
         self.duration_edit.setValidator(QtGui.QDoubleValidator(0.0, 10**9, 3))
-        form.addWidget(self.duration_edit, 3, 1)
+        form.addWidget(self.duration_edit, 4, 1)
 
-        form.addWidget(QtWidgets.QLabel("EU/t"), 3, 2)
+        form.addWidget(QtWidgets.QLabel("EU/t"), 4, 2)
         self.eut_edit = QtWidgets.QLineEdit()
         self.eut_edit.setValidator(QtGui.QIntValidator(0, 10**9))
-        form.addWidget(self.eut_edit, 3, 3)
+        form.addWidget(self.eut_edit, 4, 3)
 
-        form.addWidget(QtWidgets.QLabel("Notes"), 4, 0, QtCore.Qt.AlignmentFlag.AlignTop)
+        form.addWidget(QtWidgets.QLabel("Notes"), 5, 0, QtCore.Qt.AlignmentFlag.AlignTop)
         self.notes_edit = QtWidgets.QTextEdit()
-        form.addWidget(self.notes_edit, 4, 1, 1, 3)
+        form.addWidget(self.notes_edit, 5, 1, 1, 3)
 
         lists_layout = QtWidgets.QHBoxLayout()
         layout.addLayout(lists_layout, stretch=1)
@@ -1427,6 +1434,10 @@ class _RecipeDialogBase(QtWidgets.QDialog):
 
         self.method_combo.currentTextChanged.connect(self._toggle_method_fields)
         self._toggle_method_fields()
+
+    def _set_variant_visible(self, visible: bool) -> None:
+        self.variant_label.setVisible(visible)
+        self.variant_combo.setVisible(visible)
 
     def _toggle_method_fields(self) -> None:
         method = (self.method_combo.currentText() or "Machine").strip().lower()
@@ -1552,13 +1563,34 @@ class _RecipeDialogBase(QtWidgets.QDialog):
 class EditRecipeDialog(_RecipeDialogBase):
     def __init__(self, app, recipe_id: int, parent=None):
         self.recipe_id = recipe_id
+        self._variant_change_block = False
         super().__init__(app, "Edit Recipe", parent=parent)
+        self._set_variant_visible(True)
+        self.variant_combo.currentIndexChanged.connect(self._on_variant_change)
+        self._load_recipe(recipe_id)
+
+        self.btn_edit_input = QtWidgets.QPushButton("Edit")
+        self.btn_edit_input.clicked.connect(lambda: self.edit_selected(self.in_list, self.inputs))
+        self.btn_remove_input = QtWidgets.QPushButton("Remove")
+        self.btn_remove_input.clicked.connect(lambda: self.remove_selected(self.in_list, self.inputs))
+        self.in_btns_layout.addWidget(self.btn_edit_input)
+        self.in_btns_layout.addWidget(self.btn_remove_input)
+
+        self.btn_edit_output = QtWidgets.QPushButton("Edit")
+        self.btn_edit_output.clicked.connect(lambda: self.edit_selected(self.out_list, self.outputs, is_output=True))
+        self.btn_remove_output = QtWidgets.QPushButton("Remove")
+        self.btn_remove_output.clicked.connect(lambda: self.remove_selected(self.out_list, self.outputs))
+        self.out_btns_layout.addWidget(self.btn_edit_output)
+        self.out_btns_layout.addWidget(self.btn_remove_output)
+
+    def _load_recipe(self, recipe_id: int) -> None:
         r = self.app.conn.execute("SELECT * FROM recipes WHERE id=?", (recipe_id,)).fetchone()
         if not r:
             QtWidgets.QMessageBox.warning(self, "Not found", "Recipe not found.")
             self.reject()
             return
 
+        self.recipe_id = recipe_id
         self.name_edit.setText(r["name"])
         initial_method = (r["method"] or "machine").strip().lower()
         self.method_combo.setCurrentText("Crafting" if initial_method == "crafting" else "Machine")
@@ -1589,6 +1621,7 @@ class EditRecipeDialog(_RecipeDialogBase):
         self.notes_edit.setPlainText(r["notes"] or "")
 
         self.station_item_id = r["station_item_id"]
+        self.station_edit.setText("")
         if self.station_item_id is not None:
             row = self.app.conn.execute(
                 "SELECT COALESCE(display_name, key) AS name FROM items WHERE id=?",
@@ -1597,23 +1630,70 @@ class EditRecipeDialog(_RecipeDialogBase):
             if row:
                 self.station_edit.setText(row["name"])
 
+        self.inputs = []
+        self.outputs = []
+        self.in_list.clear()
+        self.out_list.clear()
         self._load_lines(recipe_id)
 
         self._toggle_method_fields()
+        self._refresh_variant_choices(r)
 
-        self.btn_edit_input = QtWidgets.QPushButton("Edit")
-        self.btn_edit_input.clicked.connect(lambda: self.edit_selected(self.in_list, self.inputs))
-        self.btn_remove_input = QtWidgets.QPushButton("Remove")
-        self.btn_remove_input.clicked.connect(lambda: self.remove_selected(self.in_list, self.inputs))
-        self.in_btns_layout.addWidget(self.btn_edit_input)
-        self.in_btns_layout.addWidget(self.btn_remove_input)
+    def _refresh_variant_choices(self, recipe_row) -> None:
+        canonical_id = recipe_row["duplicate_of_recipe_id"] or recipe_row["id"]
+        rows = self.app.conn.execute(
+            """
+            SELECT r.id, r.name, r.method, r.machine, r.machine_item_id, r.grid_size, r.tier,
+                   r.station_item_id, r.duplicate_of_recipe_id,
+                   COALESCE(mi.display_name, mi.key) AS machine_item_name,
+                   COALESCE(si.display_name, si.key) AS station_item_name
+            FROM recipes r
+            LEFT JOIN items mi ON mi.id = r.machine_item_id
+            LEFT JOIN items si ON si.id = r.station_item_id
+            WHERE r.id=? OR r.duplicate_of_recipe_id=?
+            ORDER BY r.name, r.method, r.machine, r.tier, r.id
+            """,
+            (canonical_id, canonical_id),
+        ).fetchall()
+        base_name = (recipe_row["name"] or "").strip()
 
-        self.btn_edit_output = QtWidgets.QPushButton("Edit")
-        self.btn_edit_output.clicked.connect(lambda: self.edit_selected(self.out_list, self.outputs, is_output=True))
-        self.btn_remove_output = QtWidgets.QPushButton("Remove")
-        self.btn_remove_output.clicked.connect(lambda: self.remove_selected(self.out_list, self.outputs))
-        self.out_btns_layout.addWidget(self.btn_edit_output)
-        self.out_btns_layout.addWidget(self.btn_remove_output)
+        self._variant_change_block = True
+        try:
+            self.variant_combo.clear()
+            current_index = 0
+            for idx, row in enumerate(rows):
+                self.variant_combo.addItem(self._format_variant_label(row, base_name=base_name))
+                self.variant_combo.setItemData(idx, row["id"])
+                if row["id"] == self.recipe_id:
+                    current_index = idx
+            if rows:
+                self.variant_combo.setCurrentIndex(current_index)
+        finally:
+            self._variant_change_block = False
+
+    @staticmethod
+    def _format_variant_label(row, *, base_name: str = "") -> str:
+        name = (row["name"] or "").strip()
+        tier = (row["tier"] or "").strip()
+        tier_label = tier if tier else NONE_TIER_LABEL
+        method = (row["method"] or "machine").strip().lower()
+        name_prefix = ""
+        if name and base_name and name != base_name:
+            name_prefix = f"{name} • "
+        if method == "crafting":
+            grid = (row["grid_size"] or "").strip()
+            grid_label = f" {grid}" if grid else ""
+            return f"{name_prefix}Crafting{grid_label} • Tier: {tier_label}"
+        machine_label = (row["machine"] or row["machine_item_name"] or "").strip() or "Machine"
+        return f"{name_prefix}{machine_label} • Tier: {tier_label}"
+
+    def _on_variant_change(self) -> None:
+        if self._variant_change_block:
+            return
+        recipe_id = self.variant_combo.currentData()
+        if recipe_id is None or recipe_id == self.recipe_id:
+            return
+        self._load_recipe(int(recipe_id))
 
     def _load_lines(self, recipe_id: int) -> None:
         ins = self.app.conn.execute(
