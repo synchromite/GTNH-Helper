@@ -30,7 +30,7 @@ NONE_TIER_LABEL = "— none —"
 # Separate label for Item Kind "none" (stored as NULL)
 NONE_KIND_LABEL = "— none —"
 
-NONE_MATERIAL_LABEL = "— none —"
+NONE_MATERIAL_LABEL = "(None)"
 
 ADD_NEW_KIND_LABEL = "+ Add new…"
 
