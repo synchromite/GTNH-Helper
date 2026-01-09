@@ -37,6 +37,20 @@ def _insert_line(conn, *, recipe_id, direction, item_id, qty_count=None, qty_lit
     )
 
 
+def _set_recipe_machine(conn, *, recipe_id, machine, tier):
+    conn.execute(
+        "UPDATE recipes SET machine=?, tier=? WHERE id=?",
+        (machine, tier, recipe_id),
+    )
+
+
+def _set_machine_availability(conn, *, machine_type, tier, owned, online):
+    conn.execute(
+        "INSERT INTO machine_availability(machine_type, tier, owned, online) VALUES(?,?,?,?)",
+        (machine_type, tier, owned, online),
+    )
+
+
 def test_plan_simple_chain_with_inventory_override():
     conn = _setup_conn()
     profile_conn = connect_profile(":memory:")
@@ -88,3 +102,65 @@ def test_plan_missing_recipe_reports_error():
     assert result.missing_recipes == [(item_a, "Item A", 3)]
     assert result.steps == []
     assert result.shopping_list == []
+
+
+def test_plan_selects_online_machine_tier_recipe():
+    conn = _setup_conn()
+    profile_conn = connect_profile(":memory:")
+
+    item_input = _insert_item(conn, key="input_item", name="Input Item", is_base=1)
+    item_output = _insert_item(conn, key="output_item", name="Output Item")
+
+    recipe_lv = _insert_recipe(conn, name="Make Output LV", method="machine")
+    _set_recipe_machine(conn, recipe_id=recipe_lv, machine="lathe", tier="LV")
+    _insert_line(conn, recipe_id=recipe_lv, direction="out", item_id=item_output, qty_count=1)
+    _insert_line(conn, recipe_id=recipe_lv, direction="in", item_id=item_input, qty_count=1)
+
+    recipe_mv = _insert_recipe(conn, name="Make Output MV", method="machine")
+    _set_recipe_machine(conn, recipe_id=recipe_mv, machine="lathe", tier="MV")
+    _insert_line(conn, recipe_id=recipe_mv, direction="out", item_id=item_output, qty_count=1)
+    _insert_line(conn, recipe_id=recipe_mv, direction="in", item_id=item_input, qty_count=1)
+
+    _set_machine_availability(profile_conn, machine_type="lathe", tier="MV", owned=1, online=1)
+
+    planner = PlannerService(conn, profile_conn)
+    result = planner.plan(
+        item_output,
+        1,
+        use_inventory=False,
+        enabled_tiers=["LV", "MV"],
+        crafting_6x6_unlocked=True,
+    )
+
+    assert result.errors == []
+    assert [step.recipe_name for step in result.steps] == ["Make Output MV"]
+
+
+def test_plan_falls_back_when_no_machines_online():
+    conn = _setup_conn()
+    profile_conn = connect_profile(":memory:")
+
+    item_input = _insert_item(conn, key="input_item", name="Input Item", is_base=1)
+    item_output = _insert_item(conn, key="output_item", name="Output Item")
+
+    recipe_lv = _insert_recipe(conn, name="Make Output LV", method="machine")
+    _set_recipe_machine(conn, recipe_id=recipe_lv, machine="lathe", tier="LV")
+    _insert_line(conn, recipe_id=recipe_lv, direction="out", item_id=item_output, qty_count=1)
+    _insert_line(conn, recipe_id=recipe_lv, direction="in", item_id=item_input, qty_count=1)
+
+    recipe_mv = _insert_recipe(conn, name="Make Output MV", method="machine")
+    _set_recipe_machine(conn, recipe_id=recipe_mv, machine="lathe", tier="MV")
+    _insert_line(conn, recipe_id=recipe_mv, direction="out", item_id=item_output, qty_count=1)
+    _insert_line(conn, recipe_id=recipe_mv, direction="in", item_id=item_input, qty_count=1)
+
+    planner = PlannerService(conn, profile_conn)
+    result = planner.plan(
+        item_output,
+        1,
+        use_inventory=False,
+        enabled_tiers=["LV", "MV"],
+        crafting_6x6_unlocked=True,
+    )
+
+    assert result.errors == []
+    assert [step.recipe_name for step in result.steps] == ["Make Output LV"]
