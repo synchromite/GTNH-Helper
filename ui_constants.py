@@ -1,6 +1,10 @@
 SETTINGS_ENABLED_TIERS = "enabled_tiers"
 SETTINGS_CRAFT_6X6_UNLOCKED = "crafting_6x6_unlocked"
 SETTINGS_THEME = "theme"
+SETTINGS_MACHINE_TIER_FILTER = "machine_tier_filter"
+SETTINGS_MACHINE_UNLOCKED_ONLY = "machine_unlocked_only"
+SETTINGS_MACHINE_SORT_MODE = "machine_sort_mode"
+SETTINGS_MACHINE_SEARCH = "machine_search"
 
 DARK_STYLESHEET = """
 QWidget {

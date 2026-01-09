@@ -15,7 +15,15 @@ from services.db import (
     merge_database,
     set_setting,
 )
-from ui_constants import SETTINGS_CRAFT_6X6_UNLOCKED, SETTINGS_ENABLED_TIERS, SETTINGS_THEME
+from ui_constants import (
+    SETTINGS_CRAFT_6X6_UNLOCKED,
+    SETTINGS_ENABLED_TIERS,
+    SETTINGS_MACHINE_SEARCH,
+    SETTINGS_MACHINE_SORT_MODE,
+    SETTINGS_MACHINE_TIER_FILTER,
+    SETTINGS_MACHINE_UNLOCKED_ONLY,
+    SETTINGS_THEME,
+)
 
 
 @dataclass
@@ -94,6 +102,34 @@ class DbLifecycle:
     def set_theme(self, theme: str) -> None:
         value = theme.strip().lower()
         set_setting(self.profile_conn, SETTINGS_THEME, value)
+
+    def get_machine_sort_mode(self) -> str:
+        raw = (get_setting(self.profile_conn, SETTINGS_MACHINE_SORT_MODE, "Machine (A→Z)") or "Machine (A→Z)").strip()
+        return raw or "Machine (A→Z)"
+
+    def set_machine_sort_mode(self, mode: str) -> None:
+        set_setting(self.profile_conn, SETTINGS_MACHINE_SORT_MODE, mode.strip())
+
+    def get_machine_tier_filter(self) -> str:
+        raw = (get_setting(self.profile_conn, SETTINGS_MACHINE_TIER_FILTER, "All tiers") or "All tiers").strip()
+        return raw or "All tiers"
+
+    def set_machine_tier_filter(self, tier: str) -> None:
+        set_setting(self.profile_conn, SETTINGS_MACHINE_TIER_FILTER, tier.strip())
+
+    def get_machine_unlocked_only(self) -> bool:
+        raw = (get_setting(self.profile_conn, SETTINGS_MACHINE_UNLOCKED_ONLY, "1") or "1").strip()
+        return raw == "1"
+
+    def set_machine_unlocked_only(self, unlocked_only: bool) -> None:
+        set_setting(self.profile_conn, SETTINGS_MACHINE_UNLOCKED_ONLY, "1" if unlocked_only else "0")
+
+    def get_machine_search(self) -> str:
+        raw = (get_setting(self.profile_conn, SETTINGS_MACHINE_SEARCH, "") or "").strip()
+        return raw
+
+    def set_machine_search(self, value: str) -> None:
+        set_setting(self.profile_conn, SETTINGS_MACHINE_SEARCH, value)
 
     def get_machine_availability(self, machine_type: str, tier: str) -> dict[str, int]:
         if self.profile_conn is None:

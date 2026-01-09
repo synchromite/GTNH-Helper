@@ -1,11 +1,23 @@
 from services.db_lifecycle import DbLifecycle
-from ui_constants import SETTINGS_CRAFT_6X6_UNLOCKED, SETTINGS_ENABLED_TIERS, SETTINGS_THEME
+from ui_constants import (
+    SETTINGS_CRAFT_6X6_UNLOCKED,
+    SETTINGS_ENABLED_TIERS,
+    SETTINGS_MACHINE_SEARCH,
+    SETTINGS_MACHINE_SORT_MODE,
+    SETTINGS_MACHINE_TIER_FILTER,
+    SETTINGS_MACHINE_UNLOCKED_ONLY,
+    SETTINGS_THEME,
+)
 
 
 def test_ui_settings_keys_are_preserved():
     assert SETTINGS_ENABLED_TIERS == "enabled_tiers"
     assert SETTINGS_CRAFT_6X6_UNLOCKED == "crafting_6x6_unlocked"
     assert SETTINGS_THEME == "theme"
+    assert SETTINGS_MACHINE_TIER_FILTER == "machine_tier_filter"
+    assert SETTINGS_MACHINE_UNLOCKED_ONLY == "machine_unlocked_only"
+    assert SETTINGS_MACHINE_SORT_MODE == "machine_sort_mode"
+    assert SETTINGS_MACHINE_SEARCH == "machine_search"
 
 
 def test_qt_ui_uses_settings_keys(tmp_path):
@@ -27,15 +39,39 @@ def test_qt_ui_uses_settings_keys(tmp_path):
             "INSERT INTO app_settings(key, value) VALUES (?, ?)",
             (SETTINGS_THEME, "light"),
         )
+        profile_conn.execute(
+            "INSERT INTO app_settings(key, value) VALUES (?, ?)",
+            (SETTINGS_MACHINE_TIER_FILTER, "LV"),
+        )
+        profile_conn.execute(
+            "INSERT INTO app_settings(key, value) VALUES (?, ?)",
+            (SETTINGS_MACHINE_UNLOCKED_ONLY, "0"),
+        )
+        profile_conn.execute(
+            "INSERT INTO app_settings(key, value) VALUES (?, ?)",
+            (SETTINGS_MACHINE_SORT_MODE, "Tier (progression)"),
+        )
+        profile_conn.execute(
+            "INSERT INTO app_settings(key, value) VALUES (?, ?)",
+            (SETTINGS_MACHINE_SEARCH, "assembler"),
+        )
         profile_conn.commit()
 
         assert lifecycle.get_enabled_tiers() == ["Stone Age", "LV"]
         assert lifecycle.is_crafting_6x6_unlocked() is True
         assert lifecycle.get_theme() == "light"
+        assert lifecycle.get_machine_tier_filter() == "LV"
+        assert lifecycle.get_machine_unlocked_only() is False
+        assert lifecycle.get_machine_sort_mode() == "Tier (progression)"
+        assert lifecycle.get_machine_search() == "assembler"
 
         lifecycle.set_enabled_tiers(["MV"])
         lifecycle.set_crafting_6x6_unlocked(False)
         lifecycle.set_theme("dark")
+        lifecycle.set_machine_tier_filter("All tiers")
+        lifecycle.set_machine_unlocked_only(True)
+        lifecycle.set_machine_sort_mode("Machine (Z→A)")
+        lifecycle.set_machine_search("")
 
         row = profile_conn.execute(
             "SELECT value FROM app_settings WHERE key=?",
@@ -54,5 +90,29 @@ def test_qt_ui_uses_settings_keys(tmp_path):
             (SETTINGS_THEME,),
         ).fetchone()
         assert row["value"] == "dark"
+
+        row = profile_conn.execute(
+            "SELECT value FROM app_settings WHERE key=?",
+            (SETTINGS_MACHINE_TIER_FILTER,),
+        ).fetchone()
+        assert row["value"] == "All tiers"
+
+        row = profile_conn.execute(
+            "SELECT value FROM app_settings WHERE key=?",
+            (SETTINGS_MACHINE_UNLOCKED_ONLY,),
+        ).fetchone()
+        assert row["value"] == "1"
+
+        row = profile_conn.execute(
+            "SELECT value FROM app_settings WHERE key=?",
+            (SETTINGS_MACHINE_SORT_MODE,),
+        ).fetchone()
+        assert row["value"] == "Machine (Z→A)"
+
+        row = profile_conn.execute(
+            "SELECT value FROM app_settings WHERE key=?",
+            (SETTINGS_MACHINE_SEARCH,),
+        ).fetchone()
+        assert row["value"] == ""
     finally:
         lifecycle.close()

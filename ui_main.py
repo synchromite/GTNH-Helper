@@ -566,6 +566,31 @@ class App(QtWidgets.QMainWindow):
     def set_crafting_6x6_unlocked(self, unlocked: bool) -> None:
         self.db.set_crafting_6x6_unlocked(unlocked)
 
+    # ---------- Machines tab UI preferences ----------
+    def get_machine_sort_mode(self) -> str:
+        return self.db.get_machine_sort_mode()
+
+    def set_machine_sort_mode(self, mode: str) -> None:
+        self.db.set_machine_sort_mode(mode)
+
+    def get_machine_tier_filter(self) -> str:
+        return self.db.get_machine_tier_filter()
+
+    def set_machine_tier_filter(self, tier: str) -> None:
+        self.db.set_machine_tier_filter(tier)
+
+    def get_machine_unlocked_only(self) -> bool:
+        return self.db.get_machine_unlocked_only()
+
+    def set_machine_unlocked_only(self, unlocked_only: bool) -> None:
+        self.db.set_machine_unlocked_only(unlocked_only)
+
+    def get_machine_search(self) -> str:
+        return self.db.get_machine_search()
+
+    def set_machine_search(self, value: str) -> None:
+        self.db.set_machine_search(value)
+
     # ---------- Tab delegates ----------
     def refresh_items(self) -> None:
         try:

@@ -13,7 +13,8 @@ class MachinesTab(QtWidgets.QWidget):
         self.app = app
         self._rows: list[dict[str, object]] = []
         self._metadata_rows: list[dict[str, object]] = []
-        self._sort_mode = "Machine (A→Z)"
+        self._sort_mode = self.app.get_machine_sort_mode() if hasattr(self.app, "get_machine_sort_mode") else "Machine (A→Z)"
+        self._preferences_loaded = False
 
         layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
@@ -27,13 +28,23 @@ class MachinesTab(QtWidgets.QWidget):
         filters = QtWidgets.QHBoxLayout()
         filters.addWidget(QtWidgets.QLabel("Tier"))
         self.filter_tier_combo = QtWidgets.QComboBox()
-        self.filter_tier_combo.currentTextChanged.connect(self._apply_filters)
+        self.filter_tier_combo.currentTextChanged.connect(self._on_tier_filter_changed)
         filters.addWidget(self.filter_tier_combo)
         filters.addSpacing(16)
         self.filter_unlocked_cb = QtWidgets.QCheckBox("Unlocked tiers only")
-        self.filter_unlocked_cb.setChecked(True)
-        self.filter_unlocked_cb.toggled.connect(self._apply_filters)
+        self.filter_unlocked_cb.setChecked(
+            self.app.get_machine_unlocked_only() if hasattr(self.app, "get_machine_unlocked_only") else True
+        )
+        self.filter_unlocked_cb.toggled.connect(self._on_unlocked_filter_toggled)
         filters.addWidget(self.filter_unlocked_cb)
+        filters.addSpacing(16)
+        filters.addWidget(QtWidgets.QLabel("Search"))
+        self.search_edit = QtWidgets.QLineEdit()
+        self.search_edit.setPlaceholderText("Filter by machine name")
+        if hasattr(self.app, "get_machine_search"):
+            self.search_edit.setText(self.app.get_machine_search())
+        self.search_edit.textChanged.connect(self._on_search_changed)
+        filters.addWidget(self.search_edit)
         filters.addStretch(1)
         layout.addLayout(filters)
 
@@ -45,6 +56,8 @@ class MachinesTab(QtWidgets.QWidget):
         self.table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.ResizeMode.Stretch)
         self.table.setSortingEnabled(False)
         self.table.horizontalHeader().sectionClicked.connect(self._on_header_clicked)
+        self.table.horizontalHeader().setSortIndicatorShown(True)
+        self._apply_sort_indicator()
         layout.addWidget(self.table)
 
         self.empty_label = QtWidgets.QLabel(
@@ -71,6 +84,8 @@ class MachinesTab(QtWidgets.QWidget):
         rows = fetch_machine_metadata(self.app.conn)
         self._metadata_rows = [dict(row) for row in rows]
         self._rebuild_tier_filter()
+        if not self._preferences_loaded:
+            self._load_preferences()
         self._render_rows()
 
     def _rebuild_tier_filter(self) -> None:
@@ -86,6 +101,27 @@ class MachinesTab(QtWidgets.QWidget):
         if current in choices:
             self.filter_tier_combo.setCurrentText(current)
         self.filter_tier_combo.blockSignals(False)
+
+    def _load_preferences(self) -> None:
+        self._preferences_loaded = True
+        if hasattr(self.app, "get_machine_sort_mode"):
+            self._sort_mode = self.app.get_machine_sort_mode()
+            self._apply_sort_indicator()
+        if hasattr(self.app, "get_machine_tier_filter"):
+            tier = self.app.get_machine_tier_filter()
+            if tier:
+                prev = self.filter_tier_combo.blockSignals(True)
+                if tier in [self.filter_tier_combo.itemText(i) for i in range(self.filter_tier_combo.count())]:
+                    self.filter_tier_combo.setCurrentText(tier)
+                self.filter_tier_combo.blockSignals(prev)
+        if hasattr(self.app, "get_machine_unlocked_only"):
+            prev = self.filter_unlocked_cb.blockSignals(True)
+            self.filter_unlocked_cb.setChecked(self.app.get_machine_unlocked_only())
+            self.filter_unlocked_cb.blockSignals(prev)
+        if hasattr(self.app, "get_machine_search"):
+            prev = self.search_edit.blockSignals(True)
+            self.search_edit.setText(self.app.get_machine_search())
+            self.search_edit.blockSignals(prev)
 
     def _sorted_metadata_rows(self) -> list[dict[str, object]]:
         rows = list(self._metadata_rows)
@@ -183,24 +219,58 @@ class MachinesTab(QtWidgets.QWidget):
         tier_filter = self.filter_tier_combo.currentText() if hasattr(self, "filter_tier_combo") else "All tiers"
         unlocked_only = bool(self.filter_unlocked_cb.isChecked()) if hasattr(self, "filter_unlocked_cb") else False
         enabled_tiers = set(self.app.get_enabled_tiers())
+        search_text = (self.search_edit.text() or "").strip().lower() if hasattr(self, "search_edit") else ""
         for row_idx, row_state in enumerate(self._rows):
             matches = True
             if tier_filter and tier_filter != "All tiers":
                 matches = row_state["tier"] == tier_filter
             if matches and unlocked_only:
                 matches = row_state["tier"] in enabled_tiers
+            if matches and search_text:
+                matches = search_text in row_state["machine_type"].lower()
             self.table.setRowHidden(row_idx, not matches)
+
+    def _on_tier_filter_changed(self, value: str) -> None:
+        if hasattr(self.app, "set_machine_tier_filter"):
+            self.app.set_machine_tier_filter(value)
+        self._apply_filters()
+
+    def _on_unlocked_filter_toggled(self, checked: bool) -> None:
+        if hasattr(self.app, "set_machine_unlocked_only"):
+            self.app.set_machine_unlocked_only(checked)
+        self._apply_filters()
+
+    def _on_search_changed(self, value: str) -> None:
+        if hasattr(self.app, "set_machine_search"):
+            self.app.set_machine_search(value)
+        self._apply_filters()
 
     def _on_header_clicked(self, section: int) -> None:
         if section == 0:
             current = getattr(self, "_sort_mode", "Machine (A→Z)")
             self._sort_mode = "Machine (Z→A)" if current == "Machine (A→Z)" else "Machine (A→Z)"
+            self._apply_sort_indicator()
+            if hasattr(self.app, "set_machine_sort_mode"):
+                self.app.set_machine_sort_mode(self._sort_mode)
             self._render_rows()
             return
         if section == 1:
             current = getattr(self, "_sort_mode", "Tier (progression)")
             self._sort_mode = "Tier (reverse)" if current == "Tier (progression)" else "Tier (progression)"
+            self._apply_sort_indicator()
+            if hasattr(self.app, "set_machine_sort_mode"):
+                self.app.set_machine_sort_mode(self._sort_mode)
             self._render_rows()
+
+    def _apply_sort_indicator(self) -> None:
+        header = self.table.horizontalHeader()
+        if self._sort_mode in {"Machine (A→Z)", "Machine (Z→A)"}:
+            order = QtCore.Qt.SortOrder.AscendingOrder if self._sort_mode == "Machine (A→Z)" else QtCore.Qt.SortOrder.DescendingOrder
+            header.setSortIndicator(0, order)
+            return
+        if self._sort_mode in {"Tier (progression)", "Tier (reverse)"}:
+            order = QtCore.Qt.SortOrder.AscendingOrder if self._sort_mode == "Tier (progression)" else QtCore.Qt.SortOrder.DescendingOrder
+            header.setSortIndicator(1, order)
 
     def _apply_row_enabled_state(self, row_state: dict[str, object]) -> None:
         owned_cb = row_state["owned_cb"]
