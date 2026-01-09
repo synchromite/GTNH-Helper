@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from PySide6 import QtWidgets
+from PySide6 import QtCore, QtWidgets
 
 from ui_dialogs import AddItemDialog, EditItemDialog
 
@@ -10,6 +10,7 @@ class ItemsTab(QtWidgets.QWidget):
         super().__init__(parent)
         self.app = app
         self.items: list = []
+        self.items_by_id: dict[int, dict] = {}
         root_layout = QtWidgets.QHBoxLayout(self)
         root_layout.setContentsMargins(8, 8, 8, 8)
 
@@ -19,12 +20,13 @@ class ItemsTab(QtWidgets.QWidget):
         right = QtWidgets.QVBoxLayout()
         root_layout.addLayout(right, stretch=1)
 
-        self.item_list = QtWidgets.QListWidget()
-        self.item_list.setMinimumWidth(240)
-        self.item_list.currentRowChanged.connect(self.on_item_select)
+        self.item_tree = QtWidgets.QTreeWidget()
+        self.item_tree.setHeaderHidden(True)
+        self.item_tree.setMinimumWidth(240)
+        self.item_tree.currentItemChanged.connect(self.on_item_select)
         if self.app.editor_enabled:
-            self.item_list.itemDoubleClicked.connect(lambda _item: self.open_edit_item_dialog())
-        left.addWidget(self.item_list, stretch=1)
+            self.item_tree.itemDoubleClicked.connect(lambda _item: self.open_edit_item_dialog())
+        left.addWidget(self.item_tree, stretch=1)
 
         btns = QtWidgets.QHBoxLayout()
         left.addLayout(btns)
@@ -50,33 +52,78 @@ class ItemsTab(QtWidgets.QWidget):
 
     def render_items(self, items: list) -> None:
         selected_id = None
-        current_row = self.item_list.currentRow()
-        if 0 <= current_row < len(self.items):
-            try:
-                selected_id = self.items[current_row]["id"]
-            except Exception:
-                selected_id = None
+        current_item = self.item_tree.currentItem()
+        if current_item is not None:
+            selected_id = current_item.data(0, QtCore.Qt.UserRole)
 
         self.items = list(items)
-        self.item_list.clear()
-        for it in self.items:
-            self.item_list.addItem(it["name"])
+        self.items_by_id = {it["id"]: it for it in self.items}
+        self.item_tree.clear()
 
-        if selected_id is not None:
-            for idx, it in enumerate(self.items):
-                try:
-                    it_id = it["id"]
-                except Exception:
-                    it_id = None
-                if it_id == selected_id:
-                    self.item_list.setCurrentRow(idx)
-                    break
+        kind_nodes: dict[str, QtWidgets.QTreeWidgetItem] = {}
+        item_kind_nodes: dict[tuple[str, str], QtWidgets.QTreeWidgetItem] = {}
+        material_nodes: dict[tuple[str, str, str], QtWidgets.QTreeWidgetItem] = {}
+        id_nodes: dict[int, QtWidgets.QTreeWidgetItem] = {}
 
-    def on_item_select(self, row: int) -> None:
-        if row < 0 or row >= len(self.items):
+        def _label(value: str | None, fallback: str) -> str:
+            if value is None:
+                return fallback
+            value = value.strip()
+            return value if value else fallback
+
+        def _sort_key(it: dict) -> tuple[str, str, str, str]:
+            return (
+                (it.get("kind") or "").strip().lower(),
+                (it.get("item_kind_name") or "").strip().lower(),
+                (it.get("material_name") or "").strip().lower(),
+                (it.get("name") or "").strip().lower(),
+            )
+
+        for it in sorted(self.items, key=_sort_key):
+            kind_label = _label(it.get("kind"), "(No type)").title()
+            item_kind_label = _label(it.get("item_kind_name"), "(No kind)")
+            material_label = _label(it.get("material_name"), "(No material)")
+
+            kind_item = kind_nodes.get(kind_label)
+            if kind_item is None:
+                kind_item = QtWidgets.QTreeWidgetItem([kind_label])
+                self.item_tree.addTopLevelItem(kind_item)
+                kind_nodes[kind_label] = kind_item
+
+            item_kind_key = (kind_label, item_kind_label)
+            item_kind_item = item_kind_nodes.get(item_kind_key)
+            if item_kind_item is None:
+                item_kind_item = QtWidgets.QTreeWidgetItem([item_kind_label])
+                kind_item.addChild(item_kind_item)
+                item_kind_nodes[item_kind_key] = item_kind_item
+
+            material_key = (kind_label, item_kind_label, material_label)
+            material_item = material_nodes.get(material_key)
+            if material_item is None:
+                material_item = QtWidgets.QTreeWidgetItem([material_label])
+                item_kind_item.addChild(material_item)
+                material_nodes[material_key] = material_item
+
+            item_node = QtWidgets.QTreeWidgetItem([it["name"]])
+            item_node.setData(0, QtCore.Qt.UserRole, it["id"])
+            material_item.addChild(item_node)
+            id_nodes[it["id"]] = item_node
+
+        if selected_id is not None and selected_id in id_nodes:
+            self.item_tree.setCurrentItem(id_nodes[selected_id])
+
+    def on_item_select(self, current: QtWidgets.QTreeWidgetItem | None, _previous=None) -> None:
+        if current is None:
             self._item_details_set("")
             return
-        it = self.items[row]
+        item_id = current.data(0, QtCore.Qt.UserRole)
+        if item_id is None:
+            self._item_details_set("")
+            return
+        it = self.items_by_id.get(item_id)
+        if it is None:
+            self._item_details_set("")
+            return
         txt = (
             f"Name: {it['name']}\n"
             f"Kind: {it['kind']}\n"
@@ -116,6 +163,15 @@ class ItemsTab(QtWidgets.QWidget):
     def _item_details_set(self, txt: str) -> None:
         self.item_details.setPlainText(txt)
 
+    def _selected_item_id(self) -> int | None:
+        current = self.item_tree.currentItem()
+        if current is None:
+            return None
+        item_id = current.data(0, QtCore.Qt.UserRole)
+        if item_id is None:
+            return None
+        return int(item_id)
+
     def open_add_item_dialog(self) -> None:
         if not self.app.editor_enabled:
             QtWidgets.QMessageBox.information(
@@ -133,11 +189,10 @@ class ItemsTab(QtWidgets.QWidget):
         if not self.app.editor_enabled:
             QtWidgets.QMessageBox.information(self, "Editor locked", "Editing Items is only available in editor mode.")
             return
-        row = self.item_list.currentRow()
-        if row < 0:
+        item_id = self._selected_item_id()
+        if item_id is None:
             QtWidgets.QMessageBox.information(self, "Select an item", "Click an item first.")
             return
-        item_id = self.items[row]["id"]
         dialog = EditItemDialog(self.app, item_id, parent=self)
         if dialog.exec() == QtWidgets.QDialog.DialogCode.Accepted:
             self.app.refresh_items()
@@ -146,11 +201,11 @@ class ItemsTab(QtWidgets.QWidget):
         if not self.app.editor_enabled:
             QtWidgets.QMessageBox.information(self, "Editor locked", "Deleting Items is only available in editor mode.")
             return
-        row = self.item_list.currentRow()
-        if row < 0:
+        item_id = self._selected_item_id()
+        if item_id is None:
             QtWidgets.QMessageBox.information(self, "Select an item", "Click an item first.")
             return
-        it = self.items[row]
+        it = self.items_by_id[item_id]
         ok = QtWidgets.QMessageBox.question(
             self,
             "Delete item?",
