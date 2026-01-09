@@ -321,10 +321,6 @@ class _ItemDialogBase(QtWidgets.QDialog):
         self.item_kind_id = row["item_kind_id"] if row else None
         self.machine_kind_id = None
         self._kind_name_to_id: dict[str, int] = {}
-        self.in_slot_kind_widgets: list[QtWidgets.QComboBox] = []
-        self.out_slot_kind_widgets: list[QtWidgets.QComboBox] = []
-        self.in_slot_label_widgets: list[QtWidgets.QLineEdit] = []
-        self.out_slot_label_widgets: list[QtWidgets.QLineEdit] = []
         self.setWindowTitle(title)
         self.setModal(True)
         self.setMinimumWidth(520)
@@ -349,67 +345,6 @@ class _ItemDialogBase(QtWidgets.QDialog):
         self.is_base_check = QtWidgets.QCheckBox("Base resource (planner stops here later)")
         form.addWidget(self.is_base_check, 3, 1)
 
-        form.addWidget(QtWidgets.QLabel("Machine Tier"), 4, 0)
-        self.machine_tier_combo = QtWidgets.QComboBox()
-        form.addWidget(self.machine_tier_combo, 4, 1)
-
-        form.addWidget(QtWidgets.QLabel("Input Slots"), 5, 0)
-        self.machine_input_slots_spin = QtWidgets.QSpinBox()
-        self.machine_input_slots_spin.setRange(1, 32)
-        form.addWidget(self.machine_input_slots_spin, 5, 1)
-
-        form.addWidget(QtWidgets.QLabel("Output Slots"), 6, 0)
-        self.machine_output_slots_spin = QtWidgets.QSpinBox()
-        self.machine_output_slots_spin.setRange(1, 32)
-        form.addWidget(self.machine_output_slots_spin, 6, 1)
-
-        self.extra_machine_group = QtWidgets.QGroupBox("Extra Machine Slots / Tanks")
-        extra_layout = QtWidgets.QGridLayout(self.extra_machine_group)
-        layout.addWidget(self.extra_machine_group)
-
-        extra_layout.addWidget(QtWidgets.QLabel("Storage Slots"), 0, 0)
-        self.machine_storage_slots_spin = QtWidgets.QSpinBox()
-        self.machine_storage_slots_spin.setRange(0, 32)
-        extra_layout.addWidget(self.machine_storage_slots_spin, 0, 1)
-
-        extra_layout.addWidget(QtWidgets.QLabel("Power Slots"), 0, 2)
-        self.machine_power_slots_spin = QtWidgets.QSpinBox()
-        self.machine_power_slots_spin.setRange(0, 8)
-        extra_layout.addWidget(self.machine_power_slots_spin, 0, 3)
-
-        extra_layout.addWidget(QtWidgets.QLabel("Circuit Slots"), 1, 0)
-        self.machine_circuit_slots_spin = QtWidgets.QSpinBox()
-        self.machine_circuit_slots_spin.setRange(0, 8)
-        extra_layout.addWidget(self.machine_circuit_slots_spin, 1, 1)
-
-        extra_layout.addWidget(QtWidgets.QLabel("Input Tanks"), 2, 0)
-        self.machine_input_tanks_spin = QtWidgets.QSpinBox()
-        self.machine_input_tanks_spin.setRange(0, 16)
-        extra_layout.addWidget(self.machine_input_tanks_spin, 2, 1)
-
-        extra_layout.addWidget(QtWidgets.QLabel("Input Tank Capacity (L)"), 2, 2)
-        self.machine_input_tank_capacity_edit = QtWidgets.QLineEdit()
-        self.machine_input_tank_capacity_edit.setValidator(QtGui.QIntValidator(0, 10**9))
-        extra_layout.addWidget(self.machine_input_tank_capacity_edit, 2, 3)
-
-        extra_layout.addWidget(QtWidgets.QLabel("Output Tanks"), 3, 0)
-        self.machine_output_tanks_spin = QtWidgets.QSpinBox()
-        self.machine_output_tanks_spin.setRange(0, 16)
-        extra_layout.addWidget(self.machine_output_tanks_spin, 3, 1)
-
-        extra_layout.addWidget(QtWidgets.QLabel("Output Tank Capacity (L)"), 3, 2)
-        self.machine_output_tank_capacity_edit = QtWidgets.QLineEdit()
-        self.machine_output_tank_capacity_edit.setValidator(QtGui.QIntValidator(0, 10**9))
-        extra_layout.addWidget(self.machine_output_tank_capacity_edit, 3, 3)
-
-        self.inputs_group = QtWidgets.QGroupBox("Input Slot Types")
-        self.inputs_layout = QtWidgets.QGridLayout(self.inputs_group)
-        layout.addWidget(self.inputs_group)
-
-        self.outputs_group = QtWidgets.QGroupBox("Output Slot Types")
-        self.outputs_layout = QtWidgets.QGridLayout(self.outputs_group)
-        layout.addWidget(self.outputs_group)
-
         buttons = QtWidgets.QDialogButtonBox(
             QtWidgets.QDialogButtonBox.StandardButton.Save
             | QtWidgets.QDialogButtonBox.StandardButton.Cancel
@@ -422,8 +357,6 @@ class _ItemDialogBase(QtWidgets.QDialog):
 
         self.kind_combo.currentTextChanged.connect(self._on_high_level_kind_changed)
         self.item_kind_combo.currentTextChanged.connect(self._on_item_kind_selected)
-        self.machine_input_slots_spin.valueChanged.connect(self._on_slots_changed)
-        self.machine_output_slots_spin.valueChanged.connect(self._on_slots_changed)
 
         self._load_row_defaults()
         self._on_high_level_kind_changed()
@@ -434,17 +367,6 @@ class _ItemDialogBase(QtWidgets.QDialog):
             self.kind_combo.setCurrentText("item")
             self.item_kind_combo.setCurrentText(NONE_KIND_LABEL)
             self.is_base_check.setChecked(False)
-            self._setup_machine_tier_combo(None)
-            self.machine_input_slots_spin.setValue(1)
-            self.machine_output_slots_spin.setValue(1)
-            self.machine_storage_slots_spin.setValue(0)
-            self.machine_power_slots_spin.setValue(0)
-            self.machine_circuit_slots_spin.setValue(0)
-            self.machine_input_tanks_spin.setValue(0)
-            self.machine_input_tank_capacity_edit.setText("")
-            self.machine_output_tanks_spin.setValue(0)
-            self.machine_output_tank_capacity_edit.setText("")
-            self._rebuild_slot_type_ui(0, 0)
             return
 
         self.display_name_edit.setText(self._row["display_name"] or self._row["key"])
@@ -452,88 +374,6 @@ class _ItemDialogBase(QtWidgets.QDialog):
         item_kind_name = (self._row["item_kind_name"] or "") or NONE_KIND_LABEL
         self.item_kind_combo.setCurrentText(item_kind_name)
         self.is_base_check.setChecked(bool(self._row["is_base"]))
-        current_mt = (self._row["machine_tier"] or "").strip()
-        self._setup_machine_tier_combo(current_mt)
-
-        def _as_int(value, default=0):
-            try:
-                return int(value)
-            except Exception:
-                return default
-
-        self.machine_input_slots_spin.setValue(_as_int(self._row["machine_input_slots"], default=1) or 1)
-        self.machine_output_slots_spin.setValue(_as_int(self._row["machine_output_slots"], default=1) or 1)
-        self.machine_storage_slots_spin.setValue(_as_int(self._row["machine_storage_slots"]))
-        self.machine_power_slots_spin.setValue(_as_int(self._row["machine_power_slots"]))
-        self.machine_circuit_slots_spin.setValue(_as_int(self._row["machine_circuit_slots"]))
-        self.machine_input_tanks_spin.setValue(_as_int(self._row["machine_input_tanks"]))
-        mic = self._row["machine_input_tank_capacity_l"]
-        self.machine_input_tank_capacity_edit.setText("" if mic is None else str(int(mic)))
-        self.machine_output_tanks_spin.setValue(_as_int(self._row["machine_output_tanks"]))
-        moc = self._row["machine_output_tank_capacity_l"]
-        self.machine_output_tank_capacity_edit.setText("" if moc is None else str(int(moc)))
-
-        in_map, out_map, in_label_map, out_label_map = self._load_machine_io_slots()
-        in_n = self.machine_input_slots_spin.value()
-        out_n = self.machine_output_slots_spin.value()
-        initial_in = [
-            {"kind": in_map.get(i, "item"), "label": in_label_map.get(i, "")} for i in range(in_n)
-        ]
-        initial_out = [
-            {"kind": out_map.get(i, "item"), "label": out_label_map.get(i, "")} for i in range(out_n)
-        ]
-        self._rebuild_slot_type_ui(in_n, out_n, initial_in=initial_in, initial_out=initial_out)
-
-    def _setup_machine_tier_combo(self, current_mt: str | None) -> None:
-        values = [NONE_TIER_LABEL] + list(ALL_TIERS)
-        if current_mt and current_mt not in values:
-            values.insert(1, current_mt)
-        self.machine_tier_combo.clear()
-        self.machine_tier_combo.addItems(values)
-        if current_mt and current_mt in values:
-            self.machine_tier_combo.setCurrentText(current_mt)
-        else:
-            self.machine_tier_combo.setCurrentText(NONE_TIER_LABEL)
-
-    def _load_machine_io_slots(self):
-        if self.item_id is None:
-            return {}, {}, {}, {}
-        slot_rows = self.app.conn.execute(
-            "SELECT direction, slot_index, content_kind, label FROM machine_io_slots WHERE machine_item_id=? ORDER BY direction, slot_index",
-            (self.item_id,),
-        ).fetchall()
-        in_map = {}
-        out_map = {}
-        in_label_map = {}
-        out_label_map = {}
-        for r in slot_rows:
-            d = (r["direction"] or "").strip().lower()
-            idx = int(r["slot_index"])
-            ck = (r["content_kind"] or "item").strip().lower()
-            label = (r["label"] or "").strip()
-            if d == "in":
-                in_map[idx] = ck
-                in_label_map[idx] = label
-            elif d == "out":
-                out_map[idx] = ck
-                out_label_map[idx] = label
-
-        def _normalize_slot_map(slot_map: dict[int, str]) -> dict[int, str]:
-            if not slot_map:
-                return slot_map
-            if 0 in slot_map:
-                return slot_map
-            min_idx = min(slot_map)
-            if min_idx >= 1:
-                return {idx - 1: val for idx, val in slot_map.items() if idx > 0}
-            return slot_map
-
-        return (
-            _normalize_slot_map(in_map),
-            _normalize_slot_map(out_map),
-            _normalize_slot_map(in_label_map),
-            _normalize_slot_map(out_label_map),
-        )
 
     def _reload_item_kinds(self) -> None:
         rows = self.app.conn.execute(
@@ -573,6 +413,7 @@ class _ItemDialogBase(QtWidgets.QDialog):
 
     def _on_item_kind_selected(self) -> None:
         v = (self.item_kind_combo.currentText() or "").strip()
+        canonical = None
         if v == ADD_NEW_KIND_LABEL:
             new_name, ok = QtWidgets.QInputDialog.getText(self, "Add Item Kind", "New kind name:")
             if not ok or not new_name.strip():
@@ -580,12 +421,11 @@ class _ItemDialogBase(QtWidgets.QDialog):
                 self.item_kind_id = None
                 return
             canonical = self._ensure_item_kind(new_name)
-            self._reload_item_kinds()
-            if canonical:
-                self.item_kind_combo.setCurrentText(canonical)
+        self._reload_item_kinds()
+        if canonical:
+            self.item_kind_combo.setCurrentText(canonical)
         v2 = (self.item_kind_combo.currentText() or "").strip()
         self.item_kind_id = self._kind_name_to_id.get(v2) if v2 and v2 != NONE_KIND_LABEL else None
-        self._toggle_machine_fields()
 
     def _on_high_level_kind_changed(self) -> None:
         k = (self.kind_combo.currentText() or "").strip().lower()
@@ -595,61 +435,6 @@ class _ItemDialogBase(QtWidgets.QDialog):
             self.item_kind_id = None
         else:
             self.item_kind_combo.setEnabled(True)
-        self._toggle_machine_fields()
-
-    def _toggle_machine_fields(self) -> None:
-        if (self.kind_combo.currentText() or "").strip().lower() == "fluid":
-            self._set_machine_fields_enabled(False)
-            self._reset_machine_fields()
-            self._rebuild_slot_type_ui(0, 0)
-            return
-
-        is_m = False
-        if self.machine_kind_id is not None and self.item_kind_id is not None:
-            is_m = self.item_kind_id == self.machine_kind_id
-        else:
-            is_m = (self.item_kind_combo.currentText() or "").strip().lower() == "machine"
-
-        self._set_machine_fields_enabled(is_m)
-        if not is_m:
-            self._reset_machine_fields()
-            self._rebuild_slot_type_ui(0, 0)
-            return
-        self._on_slots_changed()
-
-    def _set_machine_fields_enabled(self, enabled: bool) -> None:
-        self.machine_tier_combo.setEnabled(enabled)
-        self.machine_input_slots_spin.setEnabled(enabled)
-        self.machine_output_slots_spin.setEnabled(enabled)
-        for widget in [
-            self.machine_storage_slots_spin,
-            self.machine_power_slots_spin,
-            self.machine_circuit_slots_spin,
-            self.machine_input_tanks_spin,
-            self.machine_input_tank_capacity_edit,
-            self.machine_output_tanks_spin,
-            self.machine_output_tank_capacity_edit,
-        ]:
-            widget.setEnabled(enabled)
-
-    def _reset_machine_fields(self) -> None:
-        self.machine_tier_combo.setCurrentText(NONE_TIER_LABEL)
-        self.machine_input_slots_spin.setValue(1)
-        self.machine_output_slots_spin.setValue(1)
-        self.machine_storage_slots_spin.setValue(0)
-        self.machine_power_slots_spin.setValue(0)
-        self.machine_circuit_slots_spin.setValue(0)
-        self.machine_input_tanks_spin.setValue(0)
-        self.machine_input_tank_capacity_edit.setText("")
-        self.machine_output_tanks_spin.setValue(0)
-        self.machine_output_tank_capacity_edit.setText("")
-
-    def _collect_slot_values(self):
-        in_kinds = [combo.currentText() for combo in self.in_slot_kind_widgets]
-        out_kinds = [combo.currentText() for combo in self.out_slot_kind_widgets]
-        in_labels = [edit.text() for edit in self.in_slot_label_widgets]
-        out_labels = [edit.text() for edit in self.out_slot_label_widgets]
-        return in_kinds, out_kinds, in_labels, out_labels
 
     def _clear_layout(self, layout: QtWidgets.QGridLayout) -> None:
         while layout.count():
@@ -657,72 +442,6 @@ class _ItemDialogBase(QtWidgets.QDialog):
             widget = item.widget()
             if widget is not None:
                 widget.deleteLater()
-
-    def _rebuild_slot_type_ui(
-        self,
-        in_n: int,
-        out_n: int,
-        *,
-        initial_in: list[dict] | None = None,
-        initial_out: list[dict] | None = None,
-    ) -> None:
-        if initial_in is None or initial_out is None:
-            in_kinds, out_kinds, in_labels, out_labels = self._collect_slot_values()
-        else:
-            in_kinds = [it["kind"] for it in initial_in]
-            in_labels = [it["label"] for it in initial_in]
-            out_kinds = [it["kind"] for it in initial_out]
-            out_labels = [it["label"] for it in initial_out]
-
-        def _pad(values: list[str], n: int, default: str) -> list[str]:
-            values = list(values)
-            while len(values) < n:
-                values.append(default)
-            while len(values) > n:
-                values.pop()
-            return values
-
-        in_kinds = _pad(in_kinds, in_n, "item")
-        out_kinds = _pad(out_kinds, out_n, "item")
-        in_labels = _pad(in_labels, in_n, "")
-        out_labels = _pad(out_labels, out_n, "")
-
-        self._clear_layout(self.inputs_layout)
-        self._clear_layout(self.outputs_layout)
-        self.in_slot_kind_widgets = []
-        self.out_slot_kind_widgets = []
-        self.in_slot_label_widgets = []
-        self.out_slot_label_widgets = []
-
-        values = ["item", "fluid"]
-        for i in range(in_n):
-            self.inputs_layout.addWidget(QtWidgets.QLabel(f"In {i + 1}"), i, 0)
-            combo = QtWidgets.QComboBox()
-            combo.addItems(values)
-            combo.setCurrentText(in_kinds[i])
-            self.inputs_layout.addWidget(combo, i, 1)
-            label_edit = QtWidgets.QLineEdit(in_labels[i])
-            self.inputs_layout.addWidget(label_edit, i, 2)
-            self.in_slot_kind_widgets.append(combo)
-            self.in_slot_label_widgets.append(label_edit)
-
-        for i in range(out_n):
-            self.outputs_layout.addWidget(QtWidgets.QLabel(f"Out {i + 1}"), i, 0)
-            combo = QtWidgets.QComboBox()
-            combo.addItems(values)
-            combo.setCurrentText(out_kinds[i])
-            self.outputs_layout.addWidget(combo, i, 1)
-            label_edit = QtWidgets.QLineEdit(out_labels[i])
-            self.outputs_layout.addWidget(label_edit, i, 2)
-            self.out_slot_kind_widgets.append(combo)
-            self.out_slot_label_widgets.append(label_edit)
-
-    def _on_slots_changed(self) -> None:
-        if not self.machine_tier_combo.isEnabled():
-            return
-        in_n = self.machine_input_slots_spin.value()
-        out_n = self.machine_output_slots_spin.value()
-        self._rebuild_slot_type_ui(in_n, out_n)
 
     def _parse_int_opt(self, text: str) -> int | None:
         text = (text or "").strip()
@@ -786,61 +505,8 @@ class AddItemDialog(_ItemDialogBase):
             else:
                 is_machine = 1 if (self.item_kind_combo.currentText() or "").strip().lower() == "machine" else 0
 
-        machine_tier = None
-        machine_input_slots = None
-        machine_output_slots = None
-        machine_storage_slots = None
-        machine_power_slots = None
-        machine_circuit_slots = None
-        machine_input_tanks = None
-        machine_input_tank_capacity_l = None
-        machine_output_tanks = None
-        machine_output_tank_capacity_l = None
-
-        if is_machine:
-            mt_raw = (self.machine_tier_combo.currentText() or "").strip()
-            if mt_raw and mt_raw != NONE_TIER_LABEL:
-                machine_tier = mt_raw
-
-            in_n = self.machine_input_slots_spin.value()
-            out_n = self.machine_output_slots_spin.value()
-            if in_n < 1 or out_n < 1:
-                QtWidgets.QMessageBox.warning(
-                    self,
-                    "Invalid slots",
-                    "Input/Output slots must be at least 1 for machines.",
-                )
-                return
-            machine_input_slots = in_n
-            machine_output_slots = out_n
-            try:
-                machine_storage_slots = self.machine_storage_slots_spin.value()
-                machine_power_slots = self.machine_power_slots_spin.value()
-                machine_circuit_slots = self.machine_circuit_slots_spin.value()
-                machine_input_tanks = self.machine_input_tanks_spin.value()
-                machine_input_tank_capacity_l = self._parse_int_opt(self.machine_input_tank_capacity_edit.text())
-                machine_output_tanks = self.machine_output_tanks_spin.value()
-                machine_output_tank_capacity_l = self._parse_int_opt(self.machine_output_tank_capacity_edit.text())
-            except ValueError as exc:
-                QtWidgets.QMessageBox.warning(self, "Invalid number", str(exc))
-                return
-            if machine_input_tanks == 0:
-                machine_input_tank_capacity_l = None
-            if machine_output_tanks == 0:
-                machine_output_tank_capacity_l = None
-
         if kind == "fluid":
             is_machine = 0
-            machine_tier = None
-            machine_input_slots = None
-            machine_output_slots = None
-            machine_storage_slots = None
-            machine_power_slots = None
-            machine_circuit_slots = None
-            machine_input_tanks = None
-            machine_input_tank_capacity_l = None
-            machine_output_tanks = None
-            machine_output_tank_capacity_l = None
             item_kind_id = None
         else:
             item_kind_id = self.item_kind_id
@@ -855,47 +521,18 @@ class AddItemDialog(_ItemDialogBase):
 
         try:
             cur = self.app.conn.execute(
-                "INSERT INTO items(key, display_name, kind, is_base, is_machine, machine_tier, machine_input_slots, machine_output_slots, "
-                "machine_storage_slots, machine_power_slots, machine_circuit_slots, machine_input_tanks, "
-                "machine_input_tank_capacity_l, machine_output_tanks, machine_output_tank_capacity_l, item_kind_id) "
-                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO items(key, display_name, kind, is_base, is_machine, item_kind_id) "
+                "VALUES(?,?,?,?,?,?)",
                 (
                     key,
                     display_name,
                     kind,
                     is_base,
                     is_machine,
-                    machine_tier,
-                    machine_input_slots,
-                    machine_output_slots,
-                    machine_storage_slots,
-                    machine_power_slots,
-                    machine_circuit_slots,
-                    machine_input_tanks,
-                    machine_input_tank_capacity_l,
-                    machine_output_tanks,
-                    machine_output_tank_capacity_l,
                     item_kind_id,
                 ),
             )
             item_id = cur.lastrowid
-            self.app.conn.execute("DELETE FROM machine_io_slots WHERE machine_item_id=?", (item_id,))
-            if is_machine:
-                self._rebuild_slot_type_ui(machine_input_slots, machine_output_slots)
-                for i, combo in enumerate(self.in_slot_kind_widgets):
-                    label_val = (self.in_slot_label_widgets[i].text() or "").strip()
-                    self.app.conn.execute(
-                        "INSERT INTO machine_io_slots(machine_item_id, direction, slot_index, content_kind, label) "
-                        "VALUES(?,?,?,?,?)",
-                        (item_id, "in", i, (combo.currentText() or "item").strip().lower(), label_val),
-                    )
-                for i, combo in enumerate(self.out_slot_kind_widgets):
-                    label_val = (self.out_slot_label_widgets[i].text() or "").strip()
-                    self.app.conn.execute(
-                        "INSERT INTO machine_io_slots(machine_item_id, direction, slot_index, content_kind, label) "
-                        "VALUES(?,?,?,?,?)",
-                        (item_id, "out", i, (combo.currentText() or "item").strip().lower(), label_val),
-                    )
 
             self.app.conn.commit()
         except Exception as exc:
@@ -949,109 +586,25 @@ class EditItemDialog(_ItemDialogBase):
             else:
                 is_machine = 1 if (self.item_kind_combo.currentText() or "").strip().lower() == "machine" else 0
 
-        machine_tier = None
-        machine_input_slots = None
-        machine_output_slots = None
-        machine_storage_slots = None
-        machine_power_slots = None
-        machine_circuit_slots = None
-        machine_input_tanks = None
-        machine_input_tank_capacity_l = None
-        machine_output_tanks = None
-        machine_output_tank_capacity_l = None
-
-        if is_machine:
-            mt_raw = (self.machine_tier_combo.currentText() or "").strip()
-            if mt_raw and mt_raw != NONE_TIER_LABEL:
-                machine_tier = mt_raw
-
-            in_n = self.machine_input_slots_spin.value()
-            out_n = self.machine_output_slots_spin.value()
-            if in_n < 1 or out_n < 1:
-                QtWidgets.QMessageBox.warning(
-                    self,
-                    "Invalid slots",
-                    "Input/Output slots must be at least 1 for machines.",
-                )
-                return
-            machine_input_slots = in_n
-            machine_output_slots = out_n
-            try:
-                machine_storage_slots = self.machine_storage_slots_spin.value()
-                machine_power_slots = self.machine_power_slots_spin.value()
-                machine_circuit_slots = self.machine_circuit_slots_spin.value()
-                machine_input_tanks = self.machine_input_tanks_spin.value()
-                machine_input_tank_capacity_l = self._parse_int_opt(self.machine_input_tank_capacity_edit.text())
-                machine_output_tanks = self.machine_output_tanks_spin.value()
-                machine_output_tank_capacity_l = self._parse_int_opt(self.machine_output_tank_capacity_edit.text())
-            except ValueError as exc:
-                QtWidgets.QMessageBox.warning(self, "Invalid number", str(exc))
-                return
-            if machine_input_tanks == 0:
-                machine_input_tank_capacity_l = None
-            if machine_output_tanks == 0:
-                machine_output_tank_capacity_l = None
-
         if kind == "fluid":
             is_machine = 0
-            machine_tier = None
-            machine_input_slots = None
-            machine_output_slots = None
-            machine_storage_slots = None
-            machine_power_slots = None
-            machine_circuit_slots = None
-            machine_input_tanks = None
-            machine_input_tank_capacity_l = None
-            machine_output_tanks = None
-            machine_output_tank_capacity_l = None
             item_kind_id = None
         else:
             item_kind_id = self.item_kind_id
 
         try:
             self.app.conn.execute(
-                "UPDATE items SET display_name=?, kind=?, is_base=?, is_machine=?, machine_tier=?, machine_input_slots=?, "
-                "machine_output_slots=?, machine_storage_slots=?, machine_power_slots=?, machine_circuit_slots=?, "
-                "machine_input_tanks=?, machine_input_tank_capacity_l=?, machine_output_tanks=?, machine_output_tank_capacity_l=?, "
-                "item_kind_id=? "
+                "UPDATE items SET display_name=?, kind=?, is_base=?, is_machine=?, item_kind_id=? "
                 "WHERE id=?",
                 (
                     display_name,
                     kind,
                     is_base,
                     is_machine,
-                    machine_tier,
-                    machine_input_slots,
-                    machine_output_slots,
-                    machine_storage_slots,
-                    machine_power_slots,
-                    machine_circuit_slots,
-                    machine_input_tanks,
-                    machine_input_tank_capacity_l,
-                    machine_output_tanks,
-                    machine_output_tank_capacity_l,
                     item_kind_id,
                     self.item_id,
                 ),
             )
-
-            self.app.conn.execute("DELETE FROM machine_io_slots WHERE machine_item_id=?", (self.item_id,))
-            if is_machine:
-                self._rebuild_slot_type_ui(machine_input_slots, machine_output_slots)
-                for i, combo in enumerate(self.in_slot_kind_widgets):
-                    label_val = (self.in_slot_label_widgets[i].text() or "").strip()
-                    self.app.conn.execute(
-                        "INSERT INTO machine_io_slots(machine_item_id, direction, slot_index, content_kind, label) "
-                        "VALUES(?,?,?,?,?)",
-                        (self.item_id, "in", i, (combo.currentText() or "item").strip().lower(), label_val),
-                    )
-                for i, combo in enumerate(self.out_slot_kind_widgets):
-                    label_val = (self.out_slot_label_widgets[i].text() or "").strip()
-                    self.app.conn.execute(
-                        "INSERT INTO machine_io_slots(machine_item_id, direction, slot_index, content_kind, label) "
-                        "VALUES(?,?,?,?,?)",
-                        (self.item_id, "out", i, (combo.currentText() or "item").strip().lower(), label_val),
-                    )
 
             self.app.conn.commit()
         except Exception as exc:
@@ -1506,11 +1059,31 @@ class _RecipeDialogBase(QtWidgets.QDialog):
         if self.machine_item_id is None:
             return None
         row = self.app.conn.execute(
-            "SELECT machine_output_slots FROM items WHERE id=?",
+            "SELECT COALESCE(display_name, key) AS name, machine_tier, machine_output_slots "
+            "FROM items WHERE id=?",
             (self.machine_item_id,),
         ).fetchone()
         if not row:
             return None
+        tier_raw = (self.tier_combo.currentText() or "").strip()
+        tier = None if tier_raw in ("", NONE_TIER_LABEL) else tier_raw
+        if tier is None:
+            tier = (row["machine_tier"] or "").strip() or None
+        if tier:
+            meta = self.app.conn.execute(
+                """
+                SELECT output_slots
+                FROM machine_metadata
+                WHERE LOWER(machine_type)=LOWER(?) AND tier=?
+                """,
+                (row["name"], tier),
+            ).fetchone()
+            if meta:
+                try:
+                    slots = int(meta["output_slots"] or 1)
+                except Exception:
+                    slots = 1
+                return slots if slots > 0 else 1
         try:
             mos = int(row["machine_output_slots"] or 1)
         except Exception:
@@ -1521,11 +1094,29 @@ class _RecipeDialogBase(QtWidgets.QDialog):
         if self.machine_item_id is None:
             return None, None
         row = self.app.conn.execute(
-            "SELECT machine_input_tanks, machine_output_tanks FROM items WHERE id=?",
+            "SELECT COALESCE(display_name, key) AS name, machine_tier, "
+            "machine_input_tanks, machine_output_tanks FROM items WHERE id=?",
             (self.machine_item_id,),
         ).fetchone()
         if not row:
             return None, None
+        tier_raw = (self.tier_combo.currentText() or "").strip()
+        tier = None if tier_raw in ("", NONE_TIER_LABEL) else tier_raw
+        if tier is None:
+            tier = (row["machine_tier"] or "").strip() or None
+        if tier:
+            meta = self.app.conn.execute(
+                """
+                SELECT input_tanks, output_tanks
+                FROM machine_metadata
+                WHERE LOWER(machine_type)=LOWER(?) AND tier=?
+                """,
+                (row["name"], tier),
+            ).fetchone()
+            if meta:
+                in_tanks = int(meta["input_tanks"] or 0)
+                out_tanks = int(meta["output_tanks"] or 0)
+                return (in_tanks if in_tanks > 0 else None, out_tanks if out_tanks > 0 else None)
         try:
             in_tanks = int(row["machine_input_tanks"] or 0)
         except Exception:

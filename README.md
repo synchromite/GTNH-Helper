@@ -41,4 +41,3 @@ Profile data is kept separate so your progress survives content DB updates.
 
 ## Install
 python -m pip install -r requirements.txt
-
