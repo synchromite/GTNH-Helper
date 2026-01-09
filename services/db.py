@@ -128,6 +128,16 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
 
     conn.execute(
         """
+    CREATE TABLE IF NOT EXISTS materials (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE,
+        attributes TEXT
+    )
+    """
+    )
+
+    conn.execute(
+        """
     CREATE TABLE IF NOT EXISTS machine_metadata (
         machine_type TEXT NOT NULL,
         tier TEXT NOT NULL,
@@ -153,7 +163,9 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
         key TEXT NOT NULL UNIQUE,
         display_name TEXT,
         kind TEXT NOT NULL CHECK(kind IN ('item','fluid')),
-        is_base INTEGER NOT NULL DEFAULT 0
+        is_base INTEGER NOT NULL DEFAULT 0,
+        material_id INTEGER,
+        FOREIGN KEY(material_id) REFERENCES materials(id) ON DELETE SET NULL
     )
     """
     )
@@ -204,6 +216,9 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
     # Detailed item classification (user-editable list of kinds)
     if not _has_col("items", "item_kind_id"):
         conn.execute("ALTER TABLE items ADD COLUMN item_kind_id INTEGER")
+
+    if not _has_col("items", "material_id"):
+        conn.execute("ALTER TABLE items ADD COLUMN material_id INTEGER")
 
     # Per-machine IO slot typing (each machine slot can accept item or fluid)
     conn.execute(
@@ -555,6 +570,34 @@ def merge_db(
     }
 
     try:
+        # ---- Material mapping ----
+        dest_material_map: dict[int, int] = {}
+        dest_material_by_canon: dict[str, int] = {}
+        for row in dest_conn.execute("SELECT id, name FROM materials").fetchall():
+            canon = _canonical_kind_name(row["name"] or "")
+            if not canon:
+                continue
+            dest_material_by_canon[canon] = row["id"]
+
+        src_materials = src.execute("SELECT id, name, attributes FROM materials ORDER BY id").fetchall()
+        for mat in src_materials:
+            name = (mat["name"] or "").strip()
+            if not name:
+                continue
+            canon = _canonical_kind_name(name)
+            dest_id = dest_material_by_canon.get(canon)
+            if dest_id is not None:
+                dest_material_map[mat["id"]] = dest_id
+                continue
+            dest_conn.execute(
+                "INSERT INTO materials(name, attributes) VALUES(?, ?)",
+                (name, mat["attributes"]),
+            )
+            new_id = dest_conn.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
+            dest_material_map[mat["id"]] = new_id
+            if canon:
+                dest_material_by_canon[canon] = new_id
+
         # ---- Kind mapping ----
         dest_kind_map: dict[int, int] = {}
         dest_kind_by_canon: dict[str, list[int]] = {}
@@ -603,7 +646,7 @@ def merge_db(
         src_items = src.execute(
             "SELECT id, key, display_name, kind, is_base, is_machine, machine_tier, machine_input_slots, machine_output_slots, "
             "       machine_storage_slots, machine_power_slots, machine_circuit_slots, machine_input_tanks, "
-            "       machine_input_tank_capacity_l, machine_output_tanks, machine_output_tank_capacity_l, item_kind_id "
+            "       machine_input_tank_capacity_l, machine_output_tanks, machine_output_tank_capacity_l, item_kind_id, material_id "
             "FROM items ORDER BY id"
         ).fetchall()
 
@@ -620,7 +663,7 @@ def merge_db(
             dest_row = dest_conn.execute(
                 "SELECT id, display_name, kind, is_base, is_machine, machine_tier, machine_input_slots, machine_output_slots, "
                 "       machine_storage_slots, machine_power_slots, machine_circuit_slots, machine_input_tanks, "
-                "       machine_input_tank_capacity_l, machine_output_tanks, machine_output_tank_capacity_l, item_kind_id "
+                "       machine_input_tank_capacity_l, machine_output_tanks, machine_output_tank_capacity_l, item_kind_id, material_id "
                 "FROM items WHERE key=?",
                 (key,),
             ).fetchone()
@@ -629,13 +672,17 @@ def merge_db(
             if it["item_kind_id"] is not None:
                 mapped_kind_id = dest_kind_map.get(int(it["item_kind_id"]), None)
 
+            mapped_material_id = None
+            if it["material_id"] is not None:
+                mapped_material_id = dest_material_map.get(int(it["material_id"]), None)
+
             if not dest_row:
                 insert_sql = (
                     "INSERT INTO items(key, display_name, kind, is_base, is_machine, machine_tier, "
                     "machine_input_slots, machine_output_slots, machine_storage_slots, machine_power_slots, "
                     "machine_circuit_slots, machine_input_tanks, machine_input_tank_capacity_l, "
-                    "machine_output_tanks, machine_output_tank_capacity_l, item_kind_id) "
-                    "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+                    "machine_output_tanks, machine_output_tank_capacity_l, item_kind_id, material_id) "
+                    "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
                 )
                 insert_values = (
                     key,
@@ -654,6 +701,7 @@ def merge_db(
                     it["machine_output_tanks"],
                     it["machine_output_tank_capacity_l"],
                     mapped_kind_id,
+                    mapped_material_id,
                 )
                 dest_conn.execute(insert_sql, insert_values)
                 new_id = dest_conn.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
@@ -667,6 +715,8 @@ def merge_db(
                 updates["display_name"] = it["display_name"]
             if (dest_row["item_kind_id"] is None) and mapped_kind_id is not None:
                 updates["item_kind_id"] = mapped_kind_id
+            if (dest_row["material_id"] is None) and mapped_material_id is not None:
+                updates["material_id"] = mapped_material_id
             if int(it["is_base"] or 0) and not int(dest_row["is_base"] or 0):
                 updates["is_base"] = 1
 

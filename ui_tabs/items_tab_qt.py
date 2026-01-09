@@ -81,6 +81,7 @@ class ItemsTab(QtWidgets.QWidget):
             f"Name: {it['name']}\n"
             f"Kind: {it['kind']}\n"
             f"Item Kind: {it['item_kind_name'] or ''}\n"
+            f"Material: {it['material_name'] or ''}\n"
             f"Base: {'Yes' if it['is_base'] else 'No'}\n"
         )
         is_machine_kind = ((it["item_kind_name"] or "").strip().lower() == "machine") or bool(it["is_machine"])

@@ -5,6 +5,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 
 from services.db import ALL_TIERS
 from services.machines import fetch_machine_metadata, replace_machine_metadata
+from services.materials import add_material, delete_material, fetch_materials, update_material
 
 
 def _row_get(row, key: str, default=None):
@@ -28,6 +29,8 @@ NONE_TIER_LABEL = "— none —"
 
 # Separate label for Item Kind "none" (stored as NULL)
 NONE_KIND_LABEL = "— none —"
+
+NONE_MATERIAL_LABEL = "— none —"
 
 ADD_NEW_KIND_LABEL = "+ Add new…"
 
@@ -320,7 +323,9 @@ class _ItemDialogBase(QtWidgets.QDialog):
         self.item_id = row["id"] if row else None
         self.item_kind_id = row["item_kind_id"] if row else None
         self.machine_kind_id = None
+        self.material_id = row["material_id"] if row else None
         self._kind_name_to_id: dict[str, int] = {}
+        self._material_name_to_id: dict[str, int] = {}
         self.setWindowTitle(title)
         self.setModal(True)
         self.setMinimumWidth(520)
@@ -342,8 +347,12 @@ class _ItemDialogBase(QtWidgets.QDialog):
         self.item_kind_combo = QtWidgets.QComboBox()
         form.addWidget(self.item_kind_combo, 2, 1)
 
+        form.addWidget(QtWidgets.QLabel("Material"), 3, 0)
+        self.material_combo = QtWidgets.QComboBox()
+        form.addWidget(self.material_combo, 3, 1)
+
         self.is_base_check = QtWidgets.QCheckBox("Base resource (planner stops here later)")
-        form.addWidget(self.is_base_check, 3, 1)
+        form.addWidget(self.is_base_check, 4, 1)
 
         buttons = QtWidgets.QDialogButtonBox(
             QtWidgets.QDialogButtonBox.StandardButton.Save
@@ -354,9 +363,11 @@ class _ItemDialogBase(QtWidgets.QDialog):
         layout.addWidget(buttons)
 
         self._reload_item_kinds()
+        self._reload_materials()
 
         self.kind_combo.currentTextChanged.connect(self._on_high_level_kind_changed)
         self.item_kind_combo.currentTextChanged.connect(self._on_item_kind_selected)
+        self.material_combo.currentTextChanged.connect(self._on_material_selected)
 
         self._load_row_defaults()
         self._on_high_level_kind_changed()
@@ -366,6 +377,7 @@ class _ItemDialogBase(QtWidgets.QDialog):
             self.display_name_edit.setText("")
             self.kind_combo.setCurrentText("item")
             self.item_kind_combo.setCurrentText(NONE_KIND_LABEL)
+            self.material_combo.setCurrentText(NONE_MATERIAL_LABEL)
             self.is_base_check.setChecked(False)
             return
 
@@ -373,6 +385,8 @@ class _ItemDialogBase(QtWidgets.QDialog):
         self.kind_combo.setCurrentText(self._row["kind"])
         item_kind_name = (self._row["item_kind_name"] or "") or NONE_KIND_LABEL
         self.item_kind_combo.setCurrentText(item_kind_name)
+        material_name = (self._row["material_name"] or "") or NONE_MATERIAL_LABEL
+        self.material_combo.setCurrentText(material_name)
         self.is_base_check.setChecked(bool(self._row["is_base"]))
 
     def _reload_item_kinds(self) -> None:
@@ -393,6 +407,22 @@ class _ItemDialogBase(QtWidgets.QDialog):
 
         v = (self.item_kind_combo.currentText() or "").strip()
         self.item_kind_id = self._kind_name_to_id.get(v) if v and v != NONE_KIND_LABEL else None
+
+    def _reload_materials(self) -> None:
+        rows = fetch_materials(self.app.conn)
+        self._material_name_to_id = {r["name"]: r["id"] for r in rows}
+        values = [NONE_MATERIAL_LABEL] + [r["name"] for r in rows]
+        cur = self.material_combo.currentText()
+        self.material_combo.blockSignals(True)
+        self.material_combo.clear()
+        self.material_combo.addItems(values)
+        if cur not in values:
+            cur = NONE_MATERIAL_LABEL
+        self.material_combo.setCurrentText(cur)
+        self.material_combo.blockSignals(False)
+
+        v = (self.material_combo.currentText() or "").strip()
+        self.material_id = self._material_name_to_id.get(v) if v and v != NONE_MATERIAL_LABEL else None
 
     def _ensure_item_kind(self, name: str) -> str | None:
         name = (name or "").strip()
@@ -426,6 +456,10 @@ class _ItemDialogBase(QtWidgets.QDialog):
             self.item_kind_combo.setCurrentText(canonical)
         v2 = (self.item_kind_combo.currentText() or "").strip()
         self.item_kind_id = self._kind_name_to_id.get(v2) if v2 and v2 != NONE_KIND_LABEL else None
+
+    def _on_material_selected(self) -> None:
+        v = (self.material_combo.currentText() or "").strip()
+        self.material_id = self._material_name_to_id.get(v) if v and v != NONE_MATERIAL_LABEL else None
 
     def _on_high_level_kind_changed(self) -> None:
         k = (self.kind_combo.currentText() or "").strip().lower()
@@ -511,6 +545,8 @@ class AddItemDialog(_ItemDialogBase):
         else:
             item_kind_id = self.item_kind_id
 
+        material_id = self.material_id
+
         cur = self.app.conn.execute("SELECT 1 FROM items WHERE key=?", (key,)).fetchone()
         if cur:
             base = key
@@ -521,8 +557,8 @@ class AddItemDialog(_ItemDialogBase):
 
         try:
             cur = self.app.conn.execute(
-                "INSERT INTO items(key, display_name, kind, is_base, is_machine, item_kind_id) "
-                "VALUES(?,?,?,?,?,?)",
+                "INSERT INTO items(key, display_name, kind, is_base, is_machine, item_kind_id, material_id) "
+                "VALUES(?,?,?,?,?,?,?)",
                 (
                     key,
                     display_name,
@@ -530,6 +566,7 @@ class AddItemDialog(_ItemDialogBase):
                     is_base,
                     is_machine,
                     item_kind_id,
+                    material_id,
                 ),
             )
             item_id = cur.lastrowid
@@ -554,9 +591,10 @@ class EditItemDialog(_ItemDialogBase):
             "       i.is_base, i.is_machine, i.machine_tier, i.machine_input_slots, i.machine_output_slots, "
             "       i.machine_storage_slots, i.machine_power_slots, i.machine_circuit_slots, i.machine_input_tanks, "
             "       i.machine_input_tank_capacity_l, i.machine_output_tanks, i.machine_output_tank_capacity_l, "
-            "       i.item_kind_id, k.name AS item_kind_name "
+            "       i.item_kind_id, i.material_id, k.name AS item_kind_name, m.name AS material_name "
             "FROM items i "
             "LEFT JOIN item_kinds k ON k.id = i.item_kind_id "
+            "LEFT JOIN materials m ON m.id = i.material_id "
             "WHERE i.id=?",
             (item_id,),
         ).fetchone()
@@ -592,9 +630,11 @@ class EditItemDialog(_ItemDialogBase):
         else:
             item_kind_id = self.item_kind_id
 
+        material_id = self.material_id
+
         try:
             self.app.conn.execute(
-                "UPDATE items SET display_name=?, kind=?, is_base=?, is_machine=?, item_kind_id=? "
+                "UPDATE items SET display_name=?, kind=?, is_base=?, is_machine=?, item_kind_id=?, material_id=? "
                 "WHERE id=?",
                 (
                     display_name,
@@ -602,6 +642,7 @@ class EditItemDialog(_ItemDialogBase):
                     is_base,
                     is_machine,
                     item_kind_id,
+                    material_id,
                     self.item_id,
                 ),
             )
@@ -1952,4 +1993,117 @@ class MachineMetadataEditorDialog(QtWidgets.QDialog):
         except Exception as exc:
             QtWidgets.QMessageBox.critical(self, "Save failed", str(exc))
             return
+        self.accept()
+
+
+class MaterialManagerDialog(QtWidgets.QDialog):
+    def __init__(self, app, parent=None):
+        super().__init__(parent)
+        self.app = app
+        self.setWindowTitle("Manage Materials")
+        self.setModal(True)
+        self.resize(640, 420)
+
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.addWidget(QtWidgets.QLabel("Define materials to associate with items."))
+
+        self.table = QtWidgets.QTableWidget(0, 2)
+        self.table.setHorizontalHeaderLabels(["Name", "Attributes"])
+        self.table.verticalHeader().setVisible(False)
+        self.table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.ResizeMode.Stretch)
+        layout.addWidget(self.table, stretch=1)
+
+        controls = QtWidgets.QHBoxLayout()
+        self.add_row_btn = QtWidgets.QPushButton("Add Row")
+        self.add_row_btn.clicked.connect(self._add_row)
+        self.remove_row_btn = QtWidgets.QPushButton("Remove Selected")
+        self.remove_row_btn.clicked.connect(self._remove_selected_rows)
+        controls.addWidget(self.add_row_btn)
+        controls.addWidget(self.remove_row_btn)
+        controls.addStretch(1)
+        layout.addLayout(controls)
+
+        buttons = QtWidgets.QDialogButtonBox(
+            QtWidgets.QDialogButtonBox.StandardButton.Save
+            | QtWidgets.QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self._save)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+        self._existing_ids: set[int] = set()
+        self._load_rows()
+
+    def _load_rows(self) -> None:
+        self.table.setRowCount(0)
+        rows = fetch_materials(self.app.conn)
+        self._existing_ids = {int(row["id"]) for row in rows}
+        for row in rows:
+            self._add_row(row)
+        if self.table.rowCount() == 0:
+            self._add_row()
+
+    def _add_row(self, row=None) -> None:
+        if isinstance(row, bool):
+            row = None
+        row_idx = self.table.rowCount()
+        self.table.insertRow(row_idx)
+
+        name_item = QtWidgets.QTableWidgetItem((row["name"] or "").strip() if row else "")
+        if row:
+            name_item.setData(QtCore.Qt.ItemDataRole.UserRole, int(row["id"]))
+        self.table.setItem(row_idx, 0, name_item)
+
+        attributes_item = QtWidgets.QTableWidgetItem((row["attributes"] or "").strip() if row else "")
+        self.table.setItem(row_idx, 1, attributes_item)
+
+    def _remove_selected_rows(self) -> None:
+        rows = sorted({idx.row() for idx in self.table.selectionModel().selectedRows()}, reverse=True)
+        for row_idx in rows:
+            self.table.removeRow(row_idx)
+
+    def _validate_rows(self) -> list[dict] | None:
+        rows: list[dict] = []
+        seen: set[str] = set()
+        for row_idx in range(self.table.rowCount()):
+            name_item = self.table.item(row_idx, 0)
+            name = (name_item.text() if name_item else "").strip()
+            if not name:
+                QtWidgets.QMessageBox.warning(self, "Missing name", f"Row {row_idx + 1} needs a material name.")
+                return None
+            canon = name.casefold()
+            if canon in seen:
+                QtWidgets.QMessageBox.warning(self, "Duplicate name", f"Material '{name}' is listed twice.")
+                return None
+            seen.add(canon)
+            attributes_item = self.table.item(row_idx, 1)
+            attributes = (attributes_item.text() if attributes_item else "").strip() or None
+            material_id = None
+            if name_item is not None:
+                material_id = name_item.data(QtCore.Qt.ItemDataRole.UserRole)
+            rows.append({"id": material_id, "name": name, "attributes": attributes})
+        return rows
+
+    def _save(self) -> None:
+        rows = self._validate_rows()
+        if rows is None:
+            return
+
+        current_ids = {int(r["id"]) for r in rows if r["id"] is not None}
+        removed_ids = self._existing_ids - current_ids
+        try:
+            for material_id in removed_ids:
+                delete_material(self.app.conn, int(material_id))
+            for row in rows:
+                if row["id"] is None:
+                    add_material(self.app.conn, row["name"], row["attributes"])
+                else:
+                    update_material(self.app.conn, int(row["id"]), row["name"], row["attributes"])
+        except Exception as exc:
+            QtWidgets.QMessageBox.critical(self, "Save failed", str(exc))
+            return
+
+        if hasattr(self.app, "refresh_items"):
+            self.app.refresh_items()
         self.accept()

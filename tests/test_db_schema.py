@@ -1,6 +1,7 @@
 import sqlite3
 
 from services import db
+from services import materials
 
 
 def _table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
@@ -24,10 +25,12 @@ def test_ensure_schema_creates_tables_and_defaults():
     assert "recipe_lines" in tables
     assert "app_settings" in tables
     assert "machine_metadata" in tables
+    assert "materials" in tables
 
     item_columns = _table_columns(conn, "items")
     for column in (
         "item_kind_id",
+        "material_id",
         "is_machine",
         "machine_tier",
         "machine_input_slots",
@@ -67,3 +70,22 @@ def test_ensure_schema_creates_tables_and_defaults():
         "SELECT id FROM item_kinds WHERE LOWER(name)=LOWER('Machine')"
     ).fetchone()
     assert machine_kind is not None
+
+
+def test_materials_crud():
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    db.ensure_schema(conn)
+
+    material_id = materials.add_material(conn, "Iron", "magnetic")
+    row = conn.execute("SELECT name, attributes FROM materials WHERE id=?", (material_id,)).fetchone()
+    assert row["name"] == "Iron"
+    assert row["attributes"] == "magnetic"
+
+    materials.update_material(conn, material_id, "Iron", "ferrous")
+    updated = conn.execute("SELECT attributes FROM materials WHERE id=?", (material_id,)).fetchone()
+    assert updated["attributes"] == "ferrous"
+
+    materials.delete_material(conn, material_id)
+    missing = conn.execute("SELECT 1 FROM materials WHERE id=?", (material_id,)).fetchone()
+    assert missing is None

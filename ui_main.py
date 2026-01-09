@@ -11,7 +11,7 @@ from services.db_lifecycle import DbLifecycle
 from services.items import fetch_items
 from services.recipes import fetch_recipes, load_online_machine_availability
 from services.tab_config import apply_tab_reorder, config_path, load_tab_config, save_tab_config
-from ui_dialogs import ItemMergeConflictDialog
+from ui_dialogs import ItemMergeConflictDialog, MaterialManagerDialog
 from ui_tabs.inventory_tab import InventoryTab
 from ui_tabs.items_tab_qt import ItemsTab
 from ui_tabs.recipes_tab_qt import RecipesTab
@@ -382,6 +382,12 @@ class App(QtWidgets.QMainWindow):
         light_action.triggered.connect(lambda checked=False: self._apply_theme("light"))
         dark_action.triggered.connect(lambda checked=False: self._apply_theme("dark"))
 
+        tools_menu = menubar.addMenu("Tools")
+        materials_action = QtGui.QAction("Manage Materials…", self)
+        materials_action.setEnabled(self.editor_enabled)
+        materials_action.triggered.connect(self.menu_manage_materials)
+        tools_menu.addAction(materials_action)
+
     def _apply_theme(self, theme: str) -> None:
         app = QtWidgets.QApplication.instance()
         if app is None:
@@ -459,6 +465,18 @@ class App(QtWidgets.QMainWindow):
             return
         self._switch_db(Path(path))
         self.status_bar.showMessage(f"Using DB: {Path(path).name}")
+
+    def menu_manage_materials(self) -> None:
+        if not self.editor_enabled:
+            QtWidgets.QMessageBox.information(
+                self,
+                "Editor locked",
+                "This copy is running in client mode.\n\n"
+                "To enable editing, create a file named '.enable_editor' next to the app.",
+            )
+            return
+        dlg = MaterialManagerDialog(self, parent=self)
+        dlg.exec()
 
     def menu_export_content_db(self) -> None:
         ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
