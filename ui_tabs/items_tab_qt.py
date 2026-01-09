@@ -65,6 +65,12 @@ class ItemsTab(QtWidgets.QWidget):
         material_nodes: dict[tuple[str, str, str], QtWidgets.QTreeWidgetItem] = {}
         id_nodes: dict[int, QtWidgets.QTreeWidgetItem] = {}
 
+        def _value(item: dict | QtCore.QVariant | object, key: str):
+            try:
+                return item[key]
+            except Exception:
+                return None
+
         def _label(value: str | None, fallback: str) -> str:
             if value is None:
                 return fallback
@@ -73,16 +79,16 @@ class ItemsTab(QtWidgets.QWidget):
 
         def _sort_key(it: dict) -> tuple[str, str, str, str]:
             return (
-                (it.get("kind") or "").strip().lower(),
-                (it.get("item_kind_name") or "").strip().lower(),
-                (it.get("material_name") or "").strip().lower(),
-                (it.get("name") or "").strip().lower(),
+                (_value(it, "kind") or "").strip().lower(),
+                (_value(it, "item_kind_name") or "").strip().lower(),
+                (_value(it, "material_name") or "").strip().lower(),
+                (_value(it, "name") or "").strip().lower(),
             )
 
         for it in sorted(self.items, key=_sort_key):
-            kind_label = _label(it.get("kind"), "(No type)").title()
-            item_kind_label = _label(it.get("item_kind_name"), "(No kind)")
-            material_label = _label(it.get("material_name"), "(No material)")
+            kind_label = _label(_value(it, "kind"), "(No type)").title()
+            item_kind_label = _label(_value(it, "item_kind_name"), "(No kind)")
+            material_label = _label(_value(it, "material_name"), "(No material)")
 
             kind_item = kind_nodes.get(kind_label)
             if kind_item is None:
