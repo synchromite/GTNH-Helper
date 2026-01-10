@@ -287,6 +287,7 @@ class PlannerService:
             "SELECT r.id, r.name, r.method, r.machine, r.machine_item_id, r.grid_size, "
             "r.station_item_id, r.circuit, r.tier, r.duration_ticks, r.eu_per_tick, "
             "mi.machine_tier AS machine_item_tier, "
+            "COALESCE(mi.display_name, mi.key) AS machine_item_name, "
             "COALESCE(SUM(CASE WHEN rl_in.direction='in' THEN 1 ELSE 0 END), 0) AS input_count, "
             "COALESCE(SUM(CASE WHEN rl_in.direction='in' "
             "THEN COALESCE(rl_in.qty_count, rl_in.qty_liters, 1) ELSE 0 END), 0) AS input_qty "
@@ -377,7 +378,8 @@ class PlannerService:
         method = (row["method"] or "machine").strip().lower()
         if method != "machine":
             return True
-        machine_type = (row["machine"] or "").strip().lower()
+        machine_name = (row["machine_item_name"] or "").strip()
+        machine_type = (machine_name or row["machine"] or "").strip().lower()
         if not machine_type:
             return True
         tiers = available_machines.get(machine_type)
@@ -394,7 +396,8 @@ class PlannerService:
         method = (row["method"] or "machine").strip().lower()
         if method != "machine":
             return 1
-        machine_type = (row["machine"] or "").strip().lower()
+        machine_name = (row["machine_item_name"] or "").strip()
+        machine_type = (machine_name or row["machine"] or "").strip().lower()
         if not machine_type:
             return 1
         tiers = available_machines.get(machine_type)

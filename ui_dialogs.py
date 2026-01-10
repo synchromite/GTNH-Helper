@@ -887,6 +887,7 @@ class _RecipeDialogBase(QtWidgets.QDialog):
         self.resize(850, 520)
         self.inputs: list[dict] = []
         self.outputs: list[dict] = []
+        self.name_item_id: int | None = None
 
         layout = QtWidgets.QVBoxLayout(self)
         form = QtWidgets.QGridLayout()
@@ -895,6 +896,14 @@ class _RecipeDialogBase(QtWidgets.QDialog):
         form.addWidget(QtWidgets.QLabel("Name"), 0, 0)
         self.name_edit = QtWidgets.QLineEdit()
         form.addWidget(self.name_edit, 0, 1)
+        name_btns = QtWidgets.QHBoxLayout()
+        name_pick = QtWidgets.QPushButton("Pick…")
+        name_pick.clicked.connect(self.pick_name)
+        name_clear = QtWidgets.QPushButton("Clear")
+        name_clear.clicked.connect(self.clear_name)
+        name_btns.addWidget(name_pick)
+        name_btns.addWidget(name_clear)
+        form.addLayout(name_btns, 0, 2)
 
         form.addWidget(QtWidgets.QLabel("Method"), 0, 2)
         self.method_combo = QtWidgets.QComboBox()
@@ -1059,9 +1068,57 @@ class _RecipeDialogBase(QtWidgets.QDialog):
             self.station_item_id = d.result["id"]
             self.station_edit.setText(d.result["name"])
 
+    def pick_name(self) -> None:
+        d = ItemPickerDialog(self.app, title="Pick Recipe Item", parent=self)
+        if d.exec() == QtWidgets.QDialog.DialogCode.Accepted and d.result:
+            self.name_item_id = d.result["id"]
+            self.name_edit.setText(d.result["name"])
+
+    def clear_name(self) -> None:
+        self.name_item_id = None
+        self.name_edit.setText("")
+
     def clear_station(self) -> None:
         self.station_item_id = None
         self.station_edit.setText("")
+
+    def _resolve_name_item_id(self, *, warn: bool = True) -> int | None:
+        name = (self.name_edit.text() or "").strip()
+        if not name:
+            if warn:
+                QtWidgets.QMessageBox.warning(self, "Missing name", "Recipe name is required.")
+            return None
+        rows = self.app.conn.execute(
+            "SELECT id FROM items WHERE COALESCE(display_name, key)=?",
+            (name,),
+        ).fetchall()
+        if not rows:
+            if warn:
+                QtWidgets.QMessageBox.warning(
+                    self,
+                    "Unknown item",
+                    "Pick a recipe name from the items list so it matches an item.",
+                )
+            return None
+        if len(rows) > 1:
+            if warn:
+                QtWidgets.QMessageBox.warning(
+                    self,
+                    "Ambiguous name",
+                    "Multiple items share that name. Please pick the item from the list.",
+                )
+            return None
+        return int(rows[0]["id"])
+
+    def _validate_name_output(self, item_id: int) -> bool:
+        if not any(line.get("item_id") == item_id for line in self.outputs):
+            QtWidgets.QMessageBox.warning(
+                self,
+                "Missing output",
+                "The recipe outputs must include the selected item name.",
+            )
+            return False
+        return True
 
     def _fmt_line(self, line: dict, *, is_output: bool = False) -> str:
         chance = line.get("chance_percent")
@@ -1224,6 +1281,7 @@ class EditRecipeDialog(_RecipeDialogBase):
 
         self.recipe_id = recipe_id
         self.name_edit.setText(r["name"])
+        self.name_item_id = self._resolve_name_item_id(warn=False)
         initial_method = (r["method"] or "machine").strip().lower()
         self.method_combo.setCurrentText("Crafting" if initial_method == "crafting" else "Machine")
         self.machine_edit.setText(r["machine"] or "")
@@ -1488,8 +1546,11 @@ class EditRecipeDialog(_RecipeDialogBase):
 
     def save(self) -> None:
         name = self.name_edit.text().strip()
-        if not name:
-            QtWidgets.QMessageBox.warning(self, "Missing name", "Recipe name is required.")
+        name_item_id = self._resolve_name_item_id()
+        if name_item_id is None:
+            return
+        self.name_item_id = name_item_id
+        if not self._validate_name_output(name_item_id):
             return
 
         method = (self.method_combo.currentText() or "Machine").strip().lower()
@@ -1684,8 +1745,11 @@ class AddRecipeDialog(_RecipeDialogBase):
 
     def save(self) -> None:
         name = self.name_edit.text().strip()
-        if not name:
-            QtWidgets.QMessageBox.warning(self, "Missing name", "Recipe name is required.")
+        name_item_id = self._resolve_name_item_id()
+        if name_item_id is None:
+            return
+        self.name_item_id = name_item_id
+        if not self._validate_name_output(name_item_id):
             return
 
         method = (self.method_combo.currentText() or "Machine").strip().lower()

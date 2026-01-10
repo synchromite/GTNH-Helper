@@ -26,7 +26,8 @@ def _recipe_machine_available(row: sqlite3.Row, available_machines: dict[str, se
     method = (row["method"] or "machine").strip().lower()
     if method != "machine":
         return True
-    machine_type = (row["machine"] or "").strip().lower()
+    machine_name = (row["machine_item_name"] or "").strip()
+    machine_type = (machine_name or row["machine"] or "").strip().lower()
     if not machine_type:
         return True
     tiers = available_machines.get(machine_type)
@@ -49,7 +50,8 @@ def fetch_recipes(
     sql = (
         "SELECT r.id, r.name, r.method, r.machine, r.machine_item_id, r.grid_size, r.station_item_id, "
         "       r.tier, r.circuit, r.duration_ticks, r.eu_per_tick, r.duplicate_of_recipe_id, "
-        "       mi.machine_tier AS machine_item_tier "
+        "       mi.machine_tier AS machine_item_tier, "
+        "       COALESCE(mi.display_name, mi.key) AS machine_item_name "
         "FROM recipes r "
         "LEFT JOIN items mi ON mi.id = r.machine_item_id "
         f"WHERE (r.tier IS NULL OR TRIM(r.tier)='' OR r.tier IN ({placeholders})) "
