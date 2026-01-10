@@ -167,83 +167,71 @@ class ItemPickerDialog(QtWidgets.QDialog):
         show_items = True
         show_fluids = True
         show_gases = True
+        show_machines = True
         if self.kinds:
             show_items = "item" in self.kinds
             show_fluids = "fluid" in self.kinds
             show_gases = "gas" in self.kinds
+            show_machines = "machine" in self.kinds
+
         p_items = QtWidgets.QTreeWidgetItem(self.tree, ["Items"]) if show_items else None
         p_fluids = QtWidgets.QTreeWidgetItem(self.tree, ["Fluids"]) if show_fluids else None
         p_gases = QtWidgets.QTreeWidgetItem(self.tree, ["Gases"]) if show_gases else None
-        if p_items:
-            p_items.setExpanded(True)
-        if p_fluids:
-            p_fluids.setExpanded(True)
-        if p_gases:
-            p_gases.setExpanded(True)
+        p_machines = QtWidgets.QTreeWidgetItem(self.tree, ["Machines"]) if show_machines else None
 
-        added_any = {"item": False, "fluid": False, "gas": False}
+        if p_items: p_items.setExpanded(True)
+        if p_fluids: p_fluids.setExpanded(True)
+        if p_gases: p_gases.setExpanded(True)
+        if p_machines: p_machines.setExpanded(True)
+
+        added_any = {"item": False, "fluid": False, "gas": False, "machine": False}
         item_kind_nodes: dict[str, QtWidgets.QTreeWidgetItem] = {}
 
         for row in self._items:
             if not _matches(row):
                 continue
-            if row["kind"] == "item" and p_items is not None:
+
+            parent = None
+            # Helper to get/create generic kind group nodes
+            def _get_kind_parent(p_root, default_label):
+                if p_root is None: return None
                 try:
-                    kind_name = (row["item_kind_name"] or "").strip()
+                    k_name = (row["item_kind_name"] or "").strip()
                 except Exception:
-                    kind_name = ""
-                kind_name = kind_name if kind_name else "(no kind)"
-                if kind_name not in item_kind_nodes:
-                    item_kind_nodes[kind_name] = QtWidgets.QTreeWidgetItem(p_items, [kind_name])
-                    item_kind_nodes[kind_name].setExpanded(bool(query))
-                    parent = item_kind_nodes[kind_name]
-            elif row["kind"] == "fluid" and p_fluids is not None:
-                try:
-                    kind_name = (row["item_kind_name"] or "").strip()
-                except Exception:
-                    kind_name = ""
-                kind_name = kind_name if kind_name else "(fluid)"
-                if kind_name not in item_kind_nodes:
-                    item_kind_nodes[kind_name] = QtWidgets.QTreeWidgetItem(p_fluids, [kind_name])
-                    item_kind_nodes[kind_name].setExpanded(bool(query))
-                parent = item_kind_nodes[kind_name]
-            elif row["kind"] == "gas" and p_gases is not None:
-                try:
-                    kind_name = (row["item_kind_name"] or "").strip()
-                except Exception:
-                    kind_name = ""
-                kind_name = kind_name if kind_name else "(gas)"
-                if kind_name not in item_kind_nodes:
-                    item_kind_nodes[kind_name] = QtWidgets.QTreeWidgetItem(p_gases, [kind_name])
-                    item_kind_nodes[kind_name].setExpanded(bool(query))
-                parent = item_kind_nodes[kind_name]
-            else:
+                    k_name = ""
+                k_name = k_name if k_name else default_label
+                if k_name not in item_kind_nodes:
+                    item_kind_nodes[k_name] = QtWidgets.QTreeWidgetItem(p_root, [k_name])
+                    item_kind_nodes[k_name].setExpanded(bool(query))
+                return item_kind_nodes[k_name]
+
+            if row["kind"] == "item":
+                parent = _get_kind_parent(p_items, "(no type)")
+            elif row["kind"] == "fluid":
+                parent = _get_kind_parent(p_fluids, "(fluid)")
+            elif row["kind"] == "gas":
+                parent = _get_kind_parent(p_gases, "(gas)")
+            elif row["kind"] == "machine":
+                parent = _get_kind_parent(p_machines, "(machine)")
+            
+            if parent is None:
                 continue
+
             child = QtWidgets.QTreeWidgetItem(parent, [self._label_for(row)])
             self._display_map[child] = row
             added_any[row["kind"]] = True
 
-        if p_items is not None and not added_any["item"]:
-            QtWidgets.QTreeWidgetItem(p_items, ["(no matches)"])
-        if p_fluids is not None and not added_any["fluid"]:
-            QtWidgets.QTreeWidgetItem(p_fluids, ["(no matches)"])
-        if p_gases is not None and not added_any["gas"]:
-            QtWidgets.QTreeWidgetItem(p_gases, ["(no matches)"])
+        if p_items and not added_any["item"]: QtWidgets.QTreeWidgetItem(p_items, ["(no matches)"])
+        if p_fluids and not added_any["fluid"]: QtWidgets.QTreeWidgetItem(p_fluids, ["(no matches)"])
+        if p_gases and not added_any["gas"]: QtWidgets.QTreeWidgetItem(p_gases, ["(no matches)"])
+        if p_machines and not added_any["machine"]: QtWidgets.QTreeWidgetItem(p_machines, ["(no matches)"])
 
-        if p_items is not None:
-            for k_parent in self._children(p_items):
-                if self._select_first_child(k_parent):
-                    return
-        if p_fluids is not None:
-            for k_parent in self._children(p_fluids):
-                if self._select_first_child(k_parent):
-                    return
-            self._select_first_child(p_fluids)
-        if p_gases is not None:
-            for k_parent in self._children(p_gases):
-                if self._select_first_child(k_parent):
-                    return
-            self._select_first_child(p_gases)
+        for p in [p_items, p_fluids, p_gases, p_machines]:
+            if p is not None:
+                for k_parent in self._children(p):
+                    if self._select_first_child(k_parent):
+                        return
+                self._select_first_child(p)
 
     def _children(self, item: QtWidgets.QTreeWidgetItem) -> list[QtWidgets.QTreeWidgetItem]:
         return [item.child(i) for i in range(item.childCount())]
@@ -324,7 +312,7 @@ class _ItemDialogBase(QtWidgets.QDialog):
 
         form.addWidget(QtWidgets.QLabel("Kind"), 1, 0)
         self.kind_combo = QtWidgets.QComboBox()
-        self.kind_combo.addItems(["item", "fluid", "gas"])
+        self.kind_combo.addItems(["item", "fluid", "gas", "machine"])
         form.addWidget(self.kind_combo, 1, 1)
 
         form.addWidget(QtWidgets.QLabel("Item Type"), 2, 0)
@@ -568,24 +556,23 @@ class _ItemDialogBase(QtWidgets.QDialog):
         v = (self.item_kind_combo.currentText() or "").strip()
         kind_high = (self.kind_combo.currentText() or "").strip().lower()
 
-        is_machine = v.lower() == "machine"
+        # "Machine" is now a top-level Kind
+        is_machine_kind = kind_high == "machine"
         is_fluid_like = kind_high in ("fluid", "gas")
 
-        # Material is hidden if Machine OR Fluid/Gas.
-        # But for regular items, it depends on the checkbox.
-        
-        self.machine_type_label.setVisible(is_machine)
-        self.machine_type_combo.setVisible(is_machine)
-        self.tier_label.setVisible(is_machine)
-        self.tier_combo.setVisible(is_machine)
+        # Machine-specific fields depend on KIND, not Item Type
+        self.machine_type_label.setVisible(is_machine_kind)
+        self.machine_type_combo.setVisible(is_machine_kind)
+        self.tier_label.setVisible(is_machine_kind)
+        self.tier_combo.setVisible(is_machine_kind)
 
-        if is_machine or is_fluid_like:
+        # Material is hidden if Machine Kind OR Fluid/Gas.
+        if is_machine_kind or is_fluid_like:
             self.has_material_check.setVisible(False)
             self.material_label.setVisible(False)
             self.material_combo.setVisible(False)
             self.material_id = None
             
-            # Machines/Fluids/Gases can't be containers of other fluids (usually)
             self.is_container_check.setVisible(False)
             self.is_container_check.setChecked(False)
         else:
@@ -756,25 +743,24 @@ class AddItemDialog(_ItemDialogBase):
 
         key = self._slugify(display_name)
 
+        def save(self) -> None:
+            display_name = (self.display_name_edit.text() or "").strip()
+        if not display_name:
+            QtWidgets.QMessageBox.warning(self, "Missing name", "Display Name is required.")
+            return
+
+        key = self._slugify(display_name)
+
         kind = (self.kind_combo.currentText() or "").strip().lower()
-        if kind not in ("item", "fluid", "gas"):
-            QtWidgets.QMessageBox.warning(self, "Invalid kind", "Kind must be item, fluid, or gas.")
+        if kind not in ("item", "fluid", "gas", "machine"):
+            QtWidgets.QMessageBox.warning(self, "Invalid kind", "Kind must be item, fluid, gas, or machine.")
             return
 
         is_base = 1 if self.is_base_check.isChecked() else 0
 
-        is_machine = 0
-        if kind == "item":
-            if self.machine_kind_id is not None and self.item_kind_id is not None:
-                is_machine = 1 if self.item_kind_id == self.machine_kind_id else 0
-            else:
-                is_machine = 1 if (self.item_kind_combo.currentText() or "").strip().lower() == "machine" else 0
-
-        if kind in ("fluid", "gas"):
-            is_machine = 0
-            item_kind_id = self.item_kind_id
-        else:
-            item_kind_id = self.item_kind_id
+        # "Machine" is now a top-level Kind
+        is_machine = 1 if kind == "machine" else 0
+        item_kind_id = self.item_kind_id
 
         if self.has_material_check.isVisible() and self.has_material_check.isChecked():
             material_id = self.material_id
@@ -877,24 +863,15 @@ class EditItemDialog(_ItemDialogBase):
             return
 
         kind = (self.kind_combo.currentText() or "").strip().lower()
-        if kind not in ("item", "fluid", "gas"):
-            QtWidgets.QMessageBox.warning(self, "Invalid kind", "Kind must be item, fluid, or gas.")
+        if kind not in ("item", "fluid", "gas", "machine"):
+            QtWidgets.QMessageBox.warning(self, "Invalid kind", "Kind must be item, fluid, gas, or machine.")
             return
 
         is_base = 1 if self.is_base_check.isChecked() else 0
 
-        is_machine = 0
-        if kind == "item":
-            if self.machine_kind_id is not None and self.item_kind_id is not None:
-                is_machine = 1 if self.item_kind_id == self.machine_kind_id else 0
-            else:
-                is_machine = 1 if (self.item_kind_combo.currentText() or "").strip().lower() == "machine" else 0
-
-        if kind in ("fluid", "gas"):
-            is_machine = 0
-            item_kind_id = self.item_kind_id
-        else:
-            item_kind_id = self.item_kind_id
+        # "Machine" is now a top-level Kind
+        is_machine = 1 if kind == "machine" else 0
+        item_kind_id = self.item_kind_id
 
         if self.has_material_check.isVisible() and self.has_material_check.isChecked():
             material_id = self.material_id

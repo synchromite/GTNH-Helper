@@ -86,11 +86,11 @@ class ItemsTab(QtWidgets.QWidget):
             )
 
         for it in sorted(self.items, key=_sort_key):
-            # Level 1: Kind (Item vs Fluid)
+            # Level 1: Kind (Item, Fluid, Gas, Machine)
             kind_val = _value(it, "kind")
             kind_label = _label(kind_val, "(No type)").title()
 
-            # Level 2: Item Kind (e.g. Machine, Component, etc.)
+            # Level 2: Item Kind (e.g. Component, etc.)
             item_kind_val = _value(it, "item_kind_name")
             item_kind_label = _label(item_kind_val, "(No kind)")
 
