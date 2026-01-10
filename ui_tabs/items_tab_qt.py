@@ -86,10 +86,19 @@ class ItemsTab(QtWidgets.QWidget):
             )
 
         for it in sorted(self.items, key=_sort_key):
-            kind_label = _label(_value(it, "kind"), "(No type)").title()
-            item_kind_label = _label(_value(it, "item_kind_name"), "(No kind)")
-            material_label = _label(_value(it, "material_name"), "(No material)")
+            # Level 1: Kind (Item vs Fluid)
+            kind_val = _value(it, "kind")
+            kind_label = _label(kind_val, "(No type)").title()
 
+            # Level 2: Item Kind (e.g. Machine, Component, etc.)
+            item_kind_val = _value(it, "item_kind_name")
+            item_kind_label = _label(item_kind_val, "(No kind)")
+
+            # Check if Material exists
+            raw_mat_name = _value(it, "material_name")
+            has_material = raw_mat_name and raw_mat_name.strip()
+
+            # Build Tree Nodes
             kind_item = kind_nodes.get(kind_label)
             if kind_item is None:
                 kind_item = QtWidgets.QTreeWidgetItem([kind_label])
@@ -103,16 +112,23 @@ class ItemsTab(QtWidgets.QWidget):
                 kind_item.addChild(item_kind_item)
                 item_kind_nodes[item_kind_key] = item_kind_item
 
-            material_key = (kind_label, item_kind_label, material_label)
-            material_item = material_nodes.get(material_key)
-            if material_item is None:
-                material_item = QtWidgets.QTreeWidgetItem([material_label])
-                item_kind_item.addChild(material_item)
-                material_nodes[material_key] = material_item
+            # Determine Parent: Material Node OR Item Kind Node
+            if has_material:
+                material_label = raw_mat_name.strip()
+                material_key = (kind_label, item_kind_label, material_label)
+                material_item = material_nodes.get(material_key)
+                if material_item is None:
+                    material_item = QtWidgets.QTreeWidgetItem([material_label])
+                    item_kind_item.addChild(material_item)
+                    material_nodes[material_key] = material_item
+                parent_node = material_item
+            else:
+                # No material, attach directly to Item Kind
+                parent_node = item_kind_item
 
             item_node = QtWidgets.QTreeWidgetItem([it["name"]])
             item_node.setData(0, QtCore.Qt.UserRole, it["id"])
-            material_item.addChild(item_node)
+            parent_node.addChild(item_node)
             id_nodes[it["id"]] = item_node
 
         if selected_id is not None and selected_id in id_nodes:
