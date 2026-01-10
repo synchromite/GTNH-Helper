@@ -347,12 +347,29 @@ class _ItemDialogBase(QtWidgets.QDialog):
         self.item_kind_combo = QtWidgets.QComboBox()
         form.addWidget(self.item_kind_combo, 2, 1)
 
-        form.addWidget(QtWidgets.QLabel("Material"), 3, 0)
+        self.material_label = QtWidgets.QLabel("Material")
         self.material_combo = QtWidgets.QComboBox()
+        form.addWidget(self.material_label, 3, 0)
         form.addWidget(self.material_combo, 3, 1)
 
+        self.machine_type_label = QtWidgets.QLabel("Machine Type")
+        self.machine_type_combo = QtWidgets.QComboBox()
+        self.machine_type_combo.setEditable(True)
+        form.addWidget(self.machine_type_label, 3, 0)
+        form.addWidget(self.machine_type_combo, 3, 1)
+        self.machine_type_label.hide()
+        self.machine_type_combo.hide()
+
+        self.tier_label = QtWidgets.QLabel("Tier")
+        self.tier_combo = QtWidgets.QComboBox()
+        self.tier_combo.addItems([NONE_TIER_LABEL] + list(ALL_TIERS))
+        form.addWidget(self.tier_label, 4, 0)
+        form.addWidget(self.tier_combo, 4, 1)
+        self.tier_label.hide()
+        self.tier_combo.hide()
+
         self.is_base_check = QtWidgets.QCheckBox("Base resource (planner stops here later)")
-        form.addWidget(self.is_base_check, 4, 1)
+        form.addWidget(self.is_base_check, 5, 1)
 
         buttons = QtWidgets.QDialogButtonBox(
             QtWidgets.QDialogButtonBox.StandardButton.Save
@@ -364,13 +381,16 @@ class _ItemDialogBase(QtWidgets.QDialog):
 
         self._reload_item_kinds()
         self._reload_materials()
+        self._reload_machine_types()
 
         self.kind_combo.currentTextChanged.connect(self._on_high_level_kind_changed)
         self.item_kind_combo.currentTextChanged.connect(self._on_item_kind_selected)
         self.material_combo.currentTextChanged.connect(self._on_material_selected)
+        self.machine_type_combo.currentTextChanged.connect(self._on_machine_type_selected)
 
         self._load_row_defaults()
         self._on_high_level_kind_changed()
+        self._on_item_kind_selected()
 
     def _load_row_defaults(self) -> None:
         if not self._row:
@@ -385,6 +405,11 @@ class _ItemDialogBase(QtWidgets.QDialog):
         self.kind_combo.setCurrentText(self._row["kind"])
         item_kind_name = (self._row["item_kind_name"] or "") or NONE_KIND_LABEL
         self.item_kind_combo.setCurrentText(item_kind_name)
+
+        if (item_kind_name.strip().lower() == "machine") or bool(self._row["is_machine"]):
+            self.machine_type_combo.setCurrentText(self._row["display_name"] or "")
+            self.tier_combo.setCurrentText(self._row["machine_tier"] or NONE_TIER_LABEL)
+
         material_name = (self._row["material_name"] or "") or NONE_MATERIAL_LABEL
         self.material_combo.setCurrentText(material_name)
         self.is_base_check.setChecked(bool(self._row["is_base"]))
@@ -424,6 +449,14 @@ class _ItemDialogBase(QtWidgets.QDialog):
         v = (self.material_combo.currentText() or "").strip()
         self.material_id = self._material_name_to_id.get(v) if v and v != NONE_MATERIAL_LABEL else None
 
+    def _reload_machine_types(self) -> None:
+        rows = fetch_machine_metadata(self.app.conn)
+        types = sorted({(row["machine_type"] or "").strip() for row in rows if row["machine_type"]})
+        self.machine_type_combo.blockSignals(True)
+        self.machine_type_combo.clear()
+        self.machine_type_combo.addItems([""] + types)
+        self.machine_type_combo.blockSignals(False)
+
     def _ensure_item_kind(self, name: str) -> str | None:
         name = (name or "").strip()
         if not name:
@@ -443,6 +476,20 @@ class _ItemDialogBase(QtWidgets.QDialog):
 
     def _on_item_kind_selected(self) -> None:
         v = (self.item_kind_combo.currentText() or "").strip()
+
+        is_machine = v.lower() == "machine"
+        self.material_label.setVisible(not is_machine)
+        self.material_combo.setVisible(not is_machine)
+        self.machine_type_label.setVisible(is_machine)
+        self.machine_type_combo.setVisible(is_machine)
+        self.tier_label.setVisible(is_machine)
+        self.tier_combo.setVisible(is_machine)
+
+        if is_machine:
+            self.material_id = None
+        else:
+            self._on_material_selected()
+
         canonical = None
         if v == ADD_NEW_KIND_LABEL:
             new_name, ok = QtWidgets.QInputDialog.getText(self, "Add Item Kind", "New kind name:")
@@ -451,15 +498,25 @@ class _ItemDialogBase(QtWidgets.QDialog):
                 self.item_kind_id = None
                 return
             canonical = self._ensure_item_kind(new_name)
-        self._reload_item_kinds()
+
+        if v == ADD_NEW_KIND_LABEL:
+            self._reload_item_kinds()
+
         if canonical:
             self.item_kind_combo.setCurrentText(canonical)
+
         v2 = (self.item_kind_combo.currentText() or "").strip()
         self.item_kind_id = self._kind_name_to_id.get(v2) if v2 and v2 != NONE_KIND_LABEL else None
 
     def _on_material_selected(self) -> None:
         v = (self.material_combo.currentText() or "").strip()
         self.material_id = self._material_name_to_id.get(v) if v and v != NONE_MATERIAL_LABEL else None
+
+    def _on_machine_type_selected(self) -> None:
+        if self.machine_type_combo.isVisible():
+            val = self.machine_type_combo.currentText()
+            if val:
+                self.display_name_edit.setText(val)
 
     def _on_high_level_kind_changed(self) -> None:
         k = (self.kind_combo.currentText() or "").strip().lower()
@@ -509,6 +566,37 @@ class _ItemDialogBase(QtWidgets.QDialog):
         key = "".join(out).strip("_")
         return key or "item"
 
+    def _get_machine_values(self) -> dict:
+        if not self.machine_type_combo.isVisible():
+            return {}
+
+        m_type = self.machine_type_combo.currentText().strip()
+        tier = self.tier_combo.currentText().strip()
+
+        if not m_type or not tier or tier == NONE_TIER_LABEL:
+            return {}
+
+        row = self.app.conn.execute(
+            "SELECT * FROM machine_metadata WHERE LOWER(machine_type)=LOWER(?) AND tier=?",
+            (m_type, tier)
+        ).fetchone()
+
+        if not row:
+            return {}
+
+        return {
+            "machine_tier": tier,
+            "machine_input_slots": row["input_slots"],
+            "machine_output_slots": row["output_slots"],
+            "machine_storage_slots": row["storage_slots"],
+            "machine_power_slots": row["power_slots"],
+            "machine_circuit_slots": row["circuit_slots"],
+            "machine_input_tanks": row["input_tanks"],
+            "machine_input_tank_capacity_l": row["input_tank_capacity_l"],
+            "machine_output_tanks": row["output_tanks"],
+            "machine_output_tank_capacity_l": row["output_tank_capacity_l"],
+        }
+
     def save(self) -> None:
         raise NotImplementedError
 
@@ -546,6 +634,10 @@ class AddItemDialog(_ItemDialogBase):
             item_kind_id = self.item_kind_id
 
         material_id = self.material_id
+        
+        md = {}
+        if is_machine:
+             md = self._get_machine_values()
 
         cur = self.app.conn.execute("SELECT 1 FROM items WHERE key=?", (key,)).fetchone()
         if cur:
@@ -557,8 +649,11 @@ class AddItemDialog(_ItemDialogBase):
 
         try:
             cur = self.app.conn.execute(
-                "INSERT INTO items(key, display_name, kind, is_base, is_machine, item_kind_id, material_id) "
-                "VALUES(?,?,?,?,?,?,?)",
+                "INSERT INTO items(key, display_name, kind, is_base, is_machine, item_kind_id, material_id, "
+                "machine_tier, machine_input_slots, machine_output_slots, machine_storage_slots, "
+                "machine_power_slots, machine_circuit_slots, machine_input_tanks, machine_input_tank_capacity_l, "
+                "machine_output_tanks, machine_output_tank_capacity_l) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     key,
                     display_name,
@@ -567,6 +662,16 @@ class AddItemDialog(_ItemDialogBase):
                     is_machine,
                     item_kind_id,
                     material_id,
+                    md.get("machine_tier"),
+                    md.get("machine_input_slots"),
+                    md.get("machine_output_slots"),
+                    md.get("machine_storage_slots"),
+                    md.get("machine_power_slots"),
+                    md.get("machine_circuit_slots"),
+                    md.get("machine_input_tanks"),
+                    md.get("machine_input_tank_capacity_l"),
+                    md.get("machine_output_tanks"),
+                    md.get("machine_output_tank_capacity_l"),
                 ),
             )
             item_id = cur.lastrowid
@@ -632,9 +737,16 @@ class EditItemDialog(_ItemDialogBase):
 
         material_id = self.material_id
 
+        md = {}
+        if is_machine:
+             md = self._get_machine_values()
+
         try:
             self.app.conn.execute(
-                "UPDATE items SET display_name=?, kind=?, is_base=?, is_machine=?, item_kind_id=?, material_id=? "
+                "UPDATE items SET display_name=?, kind=?, is_base=?, is_machine=?, item_kind_id=?, material_id=?, "
+                "machine_tier=?, machine_input_slots=?, machine_output_slots=?, machine_storage_slots=?, "
+                "machine_power_slots=?, machine_circuit_slots=?, machine_input_tanks=?, machine_input_tank_capacity_l=?, "
+                "machine_output_tanks=?, machine_output_tank_capacity_l=? "
                 "WHERE id=?",
                 (
                     display_name,
@@ -643,6 +755,16 @@ class EditItemDialog(_ItemDialogBase):
                     is_machine,
                     item_kind_id,
                     material_id,
+                    md.get("machine_tier"),
+                    md.get("machine_input_slots"),
+                    md.get("machine_output_slots"),
+                    md.get("machine_storage_slots"),
+                    md.get("machine_power_slots"),
+                    md.get("machine_circuit_slots"),
+                    md.get("machine_input_tanks"),
+                    md.get("machine_input_tank_capacity_l"),
+                    md.get("machine_output_tanks"),
+                    md.get("machine_output_tank_capacity_l"),
                     self.item_id,
                 ),
             )
@@ -1248,6 +1370,551 @@ class _RecipeDialogBase(QtWidgets.QDialog):
     def save(self) -> None:
         raise NotImplementedError
 
+    def save(self) -> None:
+        raise NotImplementedError
+
+    # --- Shared List Management Methods (Moved from EditRecipeDialog) ---
+
+    def add_input(self) -> None:
+        d = ItemLineDialog(self.app, "Add Input", parent=self)
+        if d.exec() == QtWidgets.QDialog.DialogCode.Accepted and d.result:
+            if d.result.get("kind") == "fluid" and not self._check_tank_limit(direction="in"):
+                return
+            self.inputs.append(d.result)
+            self.in_list.addItem(self._fmt_line(d.result))
+
+    def add_output(self) -> None:
+        dialog_kwargs = self._get_output_dialog_kwargs()
+        d = ItemLineDialog(self.app, "Add Output", parent=self, **dialog_kwargs)
+        if d.exec() == QtWidgets.QDialog.DialogCode.Accepted and d.result:
+            if d.result.get("kind") == "fluid" and not self._check_tank_limit(direction="out"):
+                return
+            self.outputs.append(d.result)
+            self.out_list.addItem(self._fmt_line(d.result, is_output=True))
+
+    def edit_selected(self, list_widget: QtWidgets.QListWidget, backing_list: list, *, is_output: bool = False) -> None:
+        idx = list_widget.currentRow()
+        if idx < 0:
+            return
+        line = backing_list[idx]
+        dialog_kwargs = {}
+        if is_output:
+            dialog_kwargs = self._get_output_dialog_kwargs(current_slot=line.get("output_slot_index"))
+        d = ItemLineDialog(
+            self.app,
+            "Edit Output" if is_output else "Edit Input",
+            initial_line=line,
+            parent=self,
+            **dialog_kwargs,
+        )
+        if d.exec() == QtWidgets.QDialog.DialogCode.Accepted and d.result:
+            if d.result.get("kind") == "fluid":
+                if is_output and not self._check_tank_limit(direction="out", exclude_idx=idx):
+                    return
+                if not is_output and not self._check_tank_limit(direction="in", exclude_idx=idx):
+                    return
+            new_line = d.result
+            new_line["id"] = line.get("id")
+            backing_list[idx] = new_line
+            list_widget.item(idx).setText(self._fmt_line(new_line, is_output=is_output))
+
+    def remove_selected(self, list_widget: QtWidgets.QListWidget, backing_list: list) -> None:
+        idx = list_widget.currentRow()
+        if idx < 0:
+            return
+        backing_list.pop(idx)
+        list_widget.takeItem(idx)
+
+    @staticmethod
+    def _count_fluid_lines(lines: list[dict], *, exclude_idx: int | None = None) -> int:
+        count = 0
+        for idx, line in enumerate(lines):
+            if exclude_idx is not None and idx == exclude_idx:
+                continue
+            if line.get("kind") == "fluid":
+                count += 1
+        return count
+
+    def _check_tank_limit(self, *, direction: str, exclude_idx: int | None = None) -> bool:
+        in_tanks, out_tanks = self._get_machine_tank_limits()
+        limit = in_tanks if direction == "in" else out_tanks
+        if limit is None:
+            return True
+        lines = self.inputs if direction == "in" else self.outputs
+        if self._count_fluid_lines(lines, exclude_idx=exclude_idx) >= limit:
+            QtWidgets.QMessageBox.warning(
+                self,
+                "No tank available",
+                f"This machine only has {limit} fluid {direction} tank(s).",
+            )
+            return False
+        return True
+
+    def _get_used_output_slots(self, *, exclude_slot: int | None = None) -> set[int]:
+        used = set()
+        for line in self.outputs:
+            slot_idx = line.get("output_slot_index")
+            if slot_idx is not None:
+                slot_val = int(slot_idx)
+                if exclude_slot is not None and slot_val == exclude_slot:
+                    continue
+                used.add(slot_val)
+        return used
+
+    def _get_output_dialog_kwargs(self, *, current_slot: int | None = None) -> dict:
+        method = (self.method_combo.currentText() or "Machine").strip().lower()
+        if method == "machine" and self.machine_item_id is not None:
+            mos = self._get_machine_output_slots() or 1
+            if mos <= 1:
+                if current_slot is not None and current_slot != 0:
+                    return {"show_chance": True, "output_slot_choices": [current_slot], "require_chance": True}
+                return {"show_chance": True, "fixed_output_slot": 0}
+            used_slots = self._get_used_output_slots(exclude_slot=current_slot)
+            slots = [i for i in range(0, mos) if i not in used_slots]
+            if current_slot is not None and current_slot not in slots:
+                slots.append(current_slot)
+            slots.sort()
+            return {"show_chance": True, "output_slot_choices": slots, "require_chance": True}
+        return {"show_chance": True}
+
+
+class AddRecipeDialog(_RecipeDialogBase):
+    def __init__(self, app, parent=None):
+        super().__init__(app, "Add Recipe", parent=parent)
+        
+        # Connect shared buttons from base class
+        self.btn_add_input.clicked.connect(self.add_input)
+        self.btn_add_output.clicked.connect(self.add_output)
+        
+        # Add Edit/Remove buttons which are not in base layout
+        self.btn_edit_input = QtWidgets.QPushButton("Edit")
+        self.btn_edit_input.clicked.connect(lambda: self.edit_selected(self.in_list, self.inputs))
+        self.btn_remove_input = QtWidgets.QPushButton("Remove")
+        self.btn_remove_input.clicked.connect(lambda: self.remove_selected(self.in_list, self.inputs))
+        self.in_btns_layout.addWidget(self.btn_edit_input)
+        self.in_btns_layout.addWidget(self.btn_remove_input)
+
+        self.btn_edit_output = QtWidgets.QPushButton("Edit")
+        self.btn_edit_output.clicked.connect(lambda: self.edit_selected(self.out_list, self.outputs, is_output=True))
+        self.btn_remove_output = QtWidgets.QPushButton("Remove")
+        self.btn_remove_output.clicked.connect(lambda: self.remove_selected(self.out_list, self.outputs))
+        self.out_btns_layout.addWidget(self.btn_edit_output)
+        self.out_btns_layout.addWidget(self.btn_remove_output)
+
+    def save(self) -> None:
+        name = self.name_edit.text().strip()
+        name_item_id = self._resolve_name_item_id()
+        if name_item_id is None:
+            return
+        self.name_item_id = name_item_id
+        if not self._validate_name_output(name_item_id):
+            return
+
+        method = (self.method_combo.currentText() or "Machine").strip().lower()
+        if method == "crafting":
+            method_db = "crafting"
+            machine = None
+            self.machine_item_id = None
+            grid_size = (self.grid_combo.currentText() or "4x4").strip()
+            station_item_id = self.station_item_id
+        else:
+            method_db = "machine"
+            machine = self.machine_edit.text().strip() or None
+            machine_item_id = None if machine is None else self.machine_item_id
+            grid_size = None
+            station_item_id = None
+        tier_raw = (self.tier_combo.currentText() or "").strip()
+        tier = None if (tier_raw == "" or tier_raw == NONE_TIER_LABEL) else tier_raw
+        notes = self.notes_edit.toPlainText().strip() or None
+
+        try:
+            circuit = self._parse_int_opt(self.circuit_edit.text())
+            duration_s = self._parse_float_opt(self.duration_edit.text())
+            eut = self._parse_int_opt(self.eut_edit.text())
+        except ValueError as exc:
+            QtWidgets.QMessageBox.warning(self, "Invalid number", str(exc))
+            return
+
+        duration_ticks = None if duration_s is None else int(round(duration_s * TPS))
+
+        if not self.inputs and not self.outputs:
+            ok = QtWidgets.QMessageBox.question(self, "No lines?", "No inputs/outputs added. Save anyway?")
+            if ok != QtWidgets.QMessageBox.StandardButton.Yes:
+                return
+
+        try:
+            self.app.conn.execute("BEGIN")
+            cur = self.app.conn.execute(
+                """INSERT INTO recipes(name, method, machine, machine_item_id, grid_size, station_item_id, circuit, tier, duration_ticks, eu_per_tick, notes)
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+                (name, method_db, machine, machine_item_id, grid_size, station_item_id, circuit, tier, duration_ticks, eut, notes),
+            )
+            recipe_id = cur.lastrowid
+            self.app.recipe_focus_id = int(recipe_id)
+
+            for line in self.inputs:
+                if line["kind"] == "fluid":
+                    self.app.conn.execute(
+                        "INSERT INTO recipe_lines(recipe_id, direction, item_id, qty_liters, chance_percent, output_slot_index) "
+                        "VALUES(?,?,?,?,?,?)",
+                        (recipe_id, "in", line["item_id"], line["qty_liters"], None, None),
+                    )
+                else:
+                    self.app.conn.execute(
+                        "INSERT INTO recipe_lines(recipe_id, direction, item_id, qty_count, chance_percent, output_slot_index) "
+                        "VALUES(?,?,?,?,?,?)",
+                        (recipe_id, "in", line["item_id"], line["qty_count"], None, None),
+                    )
+
+            for line in self.outputs:
+                if line["kind"] == "fluid":
+                    self.app.conn.execute(
+                        "INSERT INTO recipe_lines(recipe_id, direction, item_id, qty_liters, chance_percent, output_slot_index) "
+                        "VALUES(?,?,?,?,?,?)",
+                        (
+                            recipe_id,
+                            "out",
+                            line["item_id"],
+                            line["qty_liters"],
+                            line.get("chance_percent", 100.0),
+                            line.get("output_slot_index"),
+                        ),
+                    )
+                else:
+                    self.app.conn.execute(
+                        "INSERT INTO recipe_lines(recipe_id, direction, item_id, qty_count, chance_percent, output_slot_index) "
+                        "VALUES(?,?,?,?,?,?)",
+                        (
+                            recipe_id,
+                            "out",
+                            line["item_id"],
+                            line["qty_count"],
+                            line.get("chance_percent", 100.0),
+                            line.get("output_slot_index"),
+                        ),
+                    )
+
+            self.app.conn.commit()
+        except Exception as exc:
+            self.app.conn.rollback()
+            QtWidgets.QMessageBox.critical(self, "Save failed", str(exc))
+            return
+
+        if hasattr(self.app, "refresh_items"):
+            self.app.refresh_items()
+        if hasattr(self.app, "refresh_recipes"):
+            self.app.refresh_recipes()
+        self.accept()
+
+
+class EditRecipeDialog(_RecipeDialogBase):
+    def __init__(self, app, recipe_id: int, parent=None):
+        self.recipe_id = recipe_id
+        self._variant_change_block = False
+        super().__init__(app, "Edit Recipe", parent=parent)
+        self._set_variant_visible(True)
+        self.variant_combo.currentIndexChanged.connect(self._on_variant_change)
+        self._load_recipe(recipe_id)
+
+        # Connect shared buttons
+        self.btn_add_input.clicked.connect(self.add_input)
+        self.btn_add_output.clicked.connect(self.add_output)
+
+        self.btn_edit_input = QtWidgets.QPushButton("Edit")
+        self.btn_edit_input.clicked.connect(lambda: self.edit_selected(self.in_list, self.inputs))
+        self.btn_remove_input = QtWidgets.QPushButton("Remove")
+        self.btn_remove_input.clicked.connect(lambda: self.remove_selected(self.in_list, self.inputs))
+        self.in_btns_layout.addWidget(self.btn_edit_input)
+        self.in_btns_layout.addWidget(self.btn_remove_input)
+
+        self.btn_edit_output = QtWidgets.QPushButton("Edit")
+        self.btn_edit_output.clicked.connect(lambda: self.edit_selected(self.out_list, self.outputs, is_output=True))
+        self.btn_remove_output = QtWidgets.QPushButton("Remove")
+        self.btn_remove_output.clicked.connect(lambda: self.remove_selected(self.out_list, self.outputs))
+        self.out_btns_layout.addWidget(self.btn_edit_output)
+        self.out_btns_layout.addWidget(self.btn_remove_output)
+
+    def _load_recipe(self, recipe_id: int) -> None:
+        r = self.app.conn.execute("SELECT * FROM recipes WHERE id=?", (recipe_id,)).fetchone()
+        if not r:
+            QtWidgets.QMessageBox.warning(self, "Not found", "Recipe not found.")
+            self.reject()
+            return
+
+        self.recipe_id = recipe_id
+        self.name_edit.setText(r["name"])
+        self.name_item_id = self._resolve_name_item_id(warn=False)
+        initial_method = (r["method"] or "machine").strip().lower()
+        self.method_combo.setCurrentText("Crafting" if initial_method == "crafting" else "Machine")
+        self.machine_edit.setText(r["machine"] or "")
+        self.machine_item_id = r["machine_item_id"]
+
+        grid_values = [self.grid_combo.itemText(i) for i in range(self.grid_combo.count())]
+        if r["grid_size"] and r["grid_size"] not in grid_values:
+            self.grid_combo.addItem(r["grid_size"])
+        if r["grid_size"]:
+            self.grid_combo.setCurrentText(r["grid_size"])
+
+        enabled_tiers = self.app.get_enabled_tiers() if hasattr(self.app, "get_enabled_tiers") else ALL_TIERS
+        current_tier = (r["tier"] or "").strip()
+        tiers = list(enabled_tiers)
+        values = [NONE_TIER_LABEL]
+        if current_tier and current_tier not in tiers:
+            values.append(current_tier)
+        values.extend(tiers)
+        self.tier_combo.clear()
+        self.tier_combo.addItems(values)
+        self.tier_combo.setCurrentText(current_tier or NONE_TIER_LABEL)
+
+        self.circuit_edit.setText("" if r["circuit"] is None else str(r["circuit"]))
+        seconds = "" if r["duration_ticks"] is None else f"{(r['duration_ticks'] / TPS):g}"
+        self.duration_edit.setText(seconds)
+        self.eut_edit.setText("" if r["eu_per_tick"] is None else str(r["eu_per_tick"]))
+        self.notes_edit.setPlainText(r["notes"] or "")
+
+        self.station_item_id = r["station_item_id"]
+        self.station_edit.setText("")
+        if self.station_item_id is not None:
+            row = self.app.conn.execute(
+                "SELECT COALESCE(display_name, key) AS name FROM items WHERE id=?",
+                (self.station_item_id,),
+            ).fetchone()
+            if row:
+                self.station_edit.setText(row["name"])
+
+        self.inputs = []
+        self.outputs = []
+        self.in_list.clear()
+        self.out_list.clear()
+        self._load_lines(recipe_id)
+
+        self._toggle_method_fields()
+        self._refresh_variant_choices(r)
+
+    def _refresh_variant_choices(self, recipe_row) -> None:
+        canonical_id = recipe_row["duplicate_of_recipe_id"] or recipe_row["id"]
+        rows = self.app.conn.execute(
+            """
+            SELECT r.id, r.name, r.method, r.machine, r.machine_item_id, r.grid_size, r.tier,
+                   r.station_item_id, r.duplicate_of_recipe_id,
+                   COALESCE(mi.display_name, mi.key) AS machine_item_name,
+                   COALESCE(si.display_name, si.key) AS station_item_name
+            FROM recipes r
+            LEFT JOIN items mi ON mi.id = r.machine_item_id
+            LEFT JOIN items si ON si.id = r.station_item_id
+            WHERE r.id=? OR r.duplicate_of_recipe_id=?
+            ORDER BY r.name, r.method, r.machine, r.tier, r.id
+            """,
+            (canonical_id, canonical_id),
+        ).fetchall()
+        base_name = (recipe_row["name"] or "").strip()
+
+        self._variant_change_block = True
+        try:
+            self.variant_combo.clear()
+            current_index = 0
+            for idx, row in enumerate(rows):
+                self.variant_combo.addItem(self._format_variant_label(row, base_name=base_name))
+                self.variant_combo.setItemData(idx, row["id"])
+                if row["id"] == self.recipe_id:
+                    current_index = idx
+            if rows:
+                self.variant_combo.setCurrentIndex(current_index)
+        finally:
+            self._variant_change_block = False
+
+    @staticmethod
+    def _format_variant_label(row, *, base_name: str = "") -> str:
+        name = (row["name"] or "").strip()
+        tier = (row["tier"] or "").strip()
+        tier_label = tier if tier else NONE_TIER_LABEL
+        method = (row["method"] or "machine").strip().lower()
+        name_prefix = ""
+        if name and base_name and name != base_name:
+            name_prefix = f"{name} • "
+        if method == "crafting":
+            grid = (row["grid_size"] or "").strip()
+            grid_label = f" {grid}" if grid else ""
+            return f"{name_prefix}Crafting{grid_label} • Tier: {tier_label}"
+        machine_label = (row["machine"] or row["machine_item_name"] or "").strip() or "Machine"
+        return f"{name_prefix}{machine_label} • Tier: {tier_label}"
+
+    def _on_variant_change(self) -> None:
+        if self._variant_change_block:
+            return
+        recipe_id = self.variant_combo.currentData()
+        if recipe_id is None or recipe_id == self.recipe_id:
+            return
+        self._load_recipe(int(recipe_id))
+
+    def _load_lines(self, recipe_id: int) -> None:
+        ins = self.app.conn.execute(
+            """
+            SELECT rl.id, rl.item_id, COALESCE(i.display_name, i.key) AS name, i.kind,
+                   rl.qty_count, rl.qty_liters, rl.chance_percent, rl.output_slot_index
+            FROM recipe_lines rl
+            JOIN items i ON i.id = rl.item_id
+            WHERE rl.recipe_id=? AND rl.direction='in'
+            ORDER BY rl.id
+            """,
+            (recipe_id,),
+        ).fetchall()
+
+        outs = self.app.conn.execute(
+            """
+            SELECT rl.id, rl.item_id, COALESCE(i.display_name, i.key) AS name, i.kind,
+                   rl.qty_count, rl.qty_liters, rl.chance_percent, rl.output_slot_index
+            FROM recipe_lines rl
+            JOIN items i ON i.id = rl.item_id
+            WHERE rl.recipe_id=? AND rl.direction='out'
+            ORDER BY rl.id
+            """,
+            (recipe_id,),
+        ).fetchall()
+
+        for row in ins:
+            qty_count = self._coerce_whole_number(row["qty_count"])
+            qty_liters = self._coerce_whole_number(row["qty_liters"])
+            line = {
+                "id": row["id"],
+                "item_id": row["item_id"],
+                "name": row["name"],
+                "kind": row["kind"],
+                "qty_count": qty_count,
+                "qty_liters": qty_liters,
+                "chance_percent": row["chance_percent"],
+                "output_slot_index": row["output_slot_index"],
+            }
+            self.inputs.append(line)
+            self.in_list.addItem(self._fmt_line(line))
+
+        for row in outs:
+            qty_count = self._coerce_whole_number(row["qty_count"])
+            qty_liters = self._coerce_whole_number(row["qty_liters"])
+            line = {
+                "id": row["id"],
+                "item_id": row["item_id"],
+                "name": row["name"],
+                "kind": row["kind"],
+                "qty_count": qty_count,
+                "qty_liters": qty_liters,
+                "chance_percent": row["chance_percent"],
+                "output_slot_index": row["output_slot_index"],
+            }
+            self.outputs.append(line)
+            self.out_list.addItem(self._fmt_line(line, is_output=True))
+
+    def save(self) -> None:
+        name = self.name_edit.text().strip()
+        name_item_id = self._resolve_name_item_id()
+        if name_item_id is None:
+            return
+        self.name_item_id = name_item_id
+        if not self._validate_name_output(name_item_id):
+            return
+
+        method = (self.method_combo.currentText() or "Machine").strip().lower()
+        if method == "crafting":
+            method_db = "crafting"
+            machine = None
+            self.machine_item_id = None
+            grid_size = (self.grid_combo.currentText() or "4x4").strip()
+            station_item_id = self.station_item_id
+        else:
+            method_db = "machine"
+            machine = self.machine_edit.text().strip() or None
+            machine_item_id = None if machine is None else self.machine_item_id
+            grid_size = None
+            station_item_id = None
+        tier_raw = (self.tier_combo.currentText() or "").strip()
+        tier = None if (tier_raw == "" or tier_raw == NONE_TIER_LABEL) else tier_raw
+        notes = self.notes_edit.toPlainText().strip() or None
+
+        try:
+            circuit = self._parse_int_opt(self.circuit_edit.text())
+            duration_s = self._parse_float_opt(self.duration_edit.text())
+            eut = self._parse_int_opt(self.eut_edit.text())
+        except ValueError as exc:
+            QtWidgets.QMessageBox.warning(self, "Invalid number", str(exc))
+            return
+
+        duration_ticks = None if duration_s is None else int(round(duration_s * TPS))
+
+        if not self.inputs and not self.outputs:
+            ok = QtWidgets.QMessageBox.question(self, "No lines?", "No inputs/outputs added. Save anyway?")
+            if ok != QtWidgets.QMessageBox.StandardButton.Yes:
+                return
+
+        try:
+            self.app.conn.execute("BEGIN")
+            
+            # Update recipe
+            self.app.conn.execute(
+                """UPDATE recipes SET 
+                   name=?, method=?, machine=?, machine_item_id=?, grid_size=?, station_item_id=?, 
+                   circuit=?, tier=?, duration_ticks=?, eu_per_tick=?, notes=?
+                   WHERE id=?""",
+                (name, method_db, machine, machine_item_id, grid_size, station_item_id, 
+                 circuit, tier, duration_ticks, eut, notes, self.recipe_id),
+            )
+            
+            # Delete old lines
+            self.app.conn.execute("DELETE FROM recipe_lines WHERE recipe_id=?", (self.recipe_id,))
+
+            # Re-insert lines
+            for line in self.inputs:
+                if line["kind"] == "fluid":
+                    self.app.conn.execute(
+                        "INSERT INTO recipe_lines(recipe_id, direction, item_id, qty_liters, chance_percent, output_slot_index) "
+                        "VALUES(?,?,?,?,?,?)",
+                        (self.recipe_id, "in", line["item_id"], line["qty_liters"], None, None),
+                    )
+                else:
+                    self.app.conn.execute(
+                        "INSERT INTO recipe_lines(recipe_id, direction, item_id, qty_count, chance_percent, output_slot_index) "
+                        "VALUES(?,?,?,?,?,?)",
+                        (self.recipe_id, "in", line["item_id"], line["qty_count"], None, None),
+                    )
+
+            for line in self.outputs:
+                if line["kind"] == "fluid":
+                    self.app.conn.execute(
+                        "INSERT INTO recipe_lines(recipe_id, direction, item_id, qty_liters, chance_percent, output_slot_index) "
+                        "VALUES(?,?,?,?,?,?)",
+                        (
+                            self.recipe_id,
+                            "out",
+                            line["item_id"],
+                            line["qty_liters"],
+                            line.get("chance_percent", 100.0),
+                            line.get("output_slot_index"),
+                        ),
+                    )
+                else:
+                    self.app.conn.execute(
+                        "INSERT INTO recipe_lines(recipe_id, direction, item_id, qty_count, chance_percent, output_slot_index) "
+                        "VALUES(?,?,?,?,?,?)",
+                        (
+                            self.recipe_id,
+                            "out",
+                            line["item_id"],
+                            line["qty_count"],
+                            line.get("chance_percent", 100.0),
+                            line.get("output_slot_index"),
+                        ),
+                    )
+
+            self.app.conn.commit()
+        except Exception as exc:
+            self.app.conn.rollback()
+            QtWidgets.QMessageBox.critical(self, "Save failed", str(exc))
+            return
+
+        if hasattr(self.app, "refresh_items"):
+            self.app.refresh_items()
+        if hasattr(self.app, "refresh_recipes"):
+            self.app.refresh_recipes()
+        self.accept()
 
 class EditRecipeDialog(_RecipeDialogBase):
     def __init__(self, app, recipe_id: int, parent=None):
@@ -1557,211 +2224,13 @@ class EditRecipeDialog(_RecipeDialogBase):
         if method == "crafting":
             method_db = "crafting"
             machine = None
-            machine_item_id = None
-            grid_size = (self.grid_combo.currentText() or "4x4").strip()
-            station_item_id = self.station_item_id
-        else:
-            method_db = "machine"
-            machine = self.machine_edit.text().strip() or None
-            machine_item_id = None if machine is None else self.machine_item_id
-            grid_size = None
-            station_item_id = None
-        tier_raw = (self.tier_combo.currentText() or "").strip()
-        tier = None if (tier_raw == "" or tier_raw == NONE_TIER_LABEL) else tier_raw
-        notes = self.notes_edit.toPlainText().strip() or None
-
-        try:
-            circuit = self._parse_int_opt(self.circuit_edit.text())
-            duration_s = self._parse_float_opt(self.duration_edit.text())
-            eut = self._parse_int_opt(self.eut_edit.text())
-        except ValueError as exc:
-            QtWidgets.QMessageBox.warning(self, "Invalid number", str(exc))
-            return
-
-        duration_ticks = None if duration_s is None else int(round(duration_s * TPS))
-
-        if not self.inputs and not self.outputs:
-            ok = QtWidgets.QMessageBox.question(self, "No lines?", "No inputs/outputs added. Save anyway?")
-            if ok != QtWidgets.QMessageBox.StandardButton.Yes:
-                return
-
-        try:
-            self.app.conn.execute("BEGIN")
-            self.app.conn.execute(
-                "UPDATE recipes SET name=?, method=?, machine=?, machine_item_id=?, grid_size=?, station_item_id=?, circuit=?, tier=?, duration_ticks=?, eu_per_tick=?, notes=? WHERE id=?",
-                (name, method_db, machine, machine_item_id, grid_size, station_item_id, circuit, tier, duration_ticks, eut, notes, self.recipe_id),
-            )
-            self.app.conn.execute("DELETE FROM recipe_lines WHERE recipe_id=?", (self.recipe_id,))
-
-            for line in self.inputs:
-                if line["kind"] == "fluid":
-                    self.app.conn.execute(
-                        "INSERT INTO recipe_lines(recipe_id, direction, item_id, qty_liters, chance_percent, output_slot_index) "
-                        "VALUES(?,?,?,?,?,?)",
-                        (self.recipe_id, "in", line["item_id"], line["qty_liters"], None, None),
-                    )
-                else:
-                    self.app.conn.execute(
-                        "INSERT INTO recipe_lines(recipe_id, direction, item_id, qty_count, chance_percent, output_slot_index) "
-                        "VALUES(?,?,?,?,?,?)",
-                        (self.recipe_id, "in", line["item_id"], line["qty_count"], None, None),
-                    )
-
-            for line in self.outputs:
-                chance = line.get("chance_percent", 100.0)
-                if line["kind"] == "fluid":
-                    self.app.conn.execute(
-                        "INSERT INTO recipe_lines(recipe_id, direction, item_id, qty_liters, chance_percent, output_slot_index) "
-                        "VALUES(?,?,?,?,?,?)",
-                        (
-                            self.recipe_id,
-                            "out",
-                            line["item_id"],
-                            line["qty_liters"],
-                            chance,
-                            line.get("output_slot_index"),
-                        ),
-                    )
-                else:
-                    self.app.conn.execute(
-                        "INSERT INTO recipe_lines(recipe_id, direction, item_id, qty_count, chance_percent, output_slot_index) "
-                        "VALUES(?,?,?,?,?,?)",
-                        (
-                            self.recipe_id,
-                            "out",
-                            line["item_id"],
-                            line["qty_count"],
-                            chance,
-                            line.get("output_slot_index"),
-                        ),
-                    )
-            self.app.conn.commit()
-        except Exception as exc:
-            self.app.conn.rollback()
-            QtWidgets.QMessageBox.critical(self, "Save failed", str(exc))
-            return
-
-        if hasattr(self.app, "status_bar"):
-            self.app.status_bar.showMessage(f"Updated recipe: {name}")
-        self.accept()
-
-
-class AddRecipeDialog(_RecipeDialogBase):
-    def __init__(self, app, parent=None):
-        super().__init__(app, "Add Recipe", parent=parent)
-
-        enabled_tiers = self.app.get_enabled_tiers() if hasattr(self.app, "get_enabled_tiers") else ALL_TIERS
-        values = [NONE_TIER_LABEL] + list(enabled_tiers)
-        self.tier_combo.clear()
-        self.tier_combo.addItems(values)
-        self.tier_combo.setCurrentText(NONE_TIER_LABEL)
-
-        self.method_combo.setCurrentText("Machine")
-
-        self.btn_remove_input = QtWidgets.QPushButton("Remove")
-        self.btn_remove_input.clicked.connect(lambda: self.remove_selected(self.in_list, self.inputs))
-        self.in_btns_layout.addWidget(self.btn_remove_input)
-
-        self.btn_remove_output = QtWidgets.QPushButton("Remove")
-        self.btn_remove_output.clicked.connect(lambda: self.remove_selected(self.out_list, self.outputs))
-        self.out_btns_layout.addWidget(self.btn_remove_output)
-
-    def add_input(self) -> None:
-        d = ItemLineDialog(self.app, "Add Input", parent=self)
-        if d.exec() == QtWidgets.QDialog.DialogCode.Accepted and d.result:
-            if d.result.get("kind") == "fluid" and not self._check_tank_limit(direction="in"):
-                return
-            self.inputs.append(d.result)
-            self.in_list.addItem(self._fmt_line(d.result))
-
-    def add_output(self) -> None:
-        method = (self.method_combo.currentText() or "Machine").strip().lower()
-        if method == "machine" and self.machine_item_id is not None:
-            mos = self._get_machine_output_slots() or 1
-            used_slots = self._get_used_output_slots()
-            if not self.outputs:
-                d = ItemLineDialog(self.app, "Add Output", fixed_output_slot=0, parent=self)
-            else:
-                if mos <= 1:
-                    QtWidgets.QMessageBox.warning(self, "No extra slots", "This machine only has 1 output slot.")
-                    return
-                available = [i for i in range(1, mos) if i not in used_slots]
-                if not available:
-                    QtWidgets.QMessageBox.warning(
-                        self,
-                        "No extra slots",
-                        "All additional output slots are already used.",
-                    )
-                    return
-                d = ItemLineDialog(
-                    self.app,
-                    "Add Output",
-                    show_chance=True,
-                    output_slot_choices=available,
-                    require_chance=True,
-                    parent=self,
-                )
-        else:
-            d = ItemLineDialog(self.app, "Add Output", show_chance=True, parent=self)
-        if d.exec() == QtWidgets.QDialog.DialogCode.Accepted and d.result:
-            if d.result.get("kind") == "fluid" and not self._check_tank_limit(direction="out"):
-                return
-            self.outputs.append(d.result)
-            self.out_list.addItem(self._fmt_line(d.result, is_output=True))
-
-    def remove_selected(self, list_widget: QtWidgets.QListWidget, backing_list: list) -> None:
-        idx = list_widget.currentRow()
-        if idx < 0:
-            return
-        backing_list.pop(idx)
-        list_widget.takeItem(idx)
-
-    @staticmethod
-    def _count_fluid_lines(lines: list[dict]) -> int:
-        return sum(1 for line in lines if line.get("kind") == "fluid")
-
-    def _check_tank_limit(self, *, direction: str) -> bool:
-        in_tanks, out_tanks = self._get_machine_tank_limits()
-        limit = in_tanks if direction == "in" else out_tanks
-        if limit is None:
-            return True
-        lines = self.inputs if direction == "in" else self.outputs
-        if self._count_fluid_lines(lines) >= limit:
-            QtWidgets.QMessageBox.warning(
-                self,
-                "No tank available",
-                f"This machine only has {limit} fluid {direction} tank(s).",
-            )
-            return False
-        return True
-
-    def _get_used_output_slots(self) -> set[int]:
-        used = set()
-        for line in self.outputs:
-            slot_idx = line.get("output_slot_index")
-            if slot_idx is not None:
-                used.add(int(slot_idx))
-        return used
-
-    def save(self) -> None:
-        name = self.name_edit.text().strip()
-        name_item_id = self._resolve_name_item_id()
-        if name_item_id is None:
-            return
-        self.name_item_id = name_item_id
-        if not self._validate_name_output(name_item_id):
-            return
-
-        method = (self.method_combo.currentText() or "Machine").strip().lower()
-        if method == "crafting":
-            method_db = "crafting"
-            machine = None
             self.machine_item_id = None
             grid_size = (self.grid_combo.currentText() or "4x4").strip()
             station_item_id = self.station_item_id
         else:
             method_db = "machine"
             machine = self.machine_edit.text().strip() or None
+            machine_item_id = None if machine is None else self.machine_item_id
             grid_size = None
             station_item_id = None
         tier_raw = (self.tier_combo.currentText() or "").strip()
