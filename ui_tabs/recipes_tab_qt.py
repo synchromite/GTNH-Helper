@@ -52,11 +52,16 @@ class RecipesTab(QtWidgets.QWidget):
 
     def render_recipes(self, recipes: list) -> None:
         selected_id = None
-        current_row = self.recipe_list.currentRow()
-        if 0 <= current_row < len(self.recipe_entries):
-            entry = self.recipe_entries[current_row]
-            if entry is not None:
-                selected_id = entry["id"]
+        focus_id = getattr(self.app, "recipe_focus_id", None)
+        if focus_id is not None:
+            selected_id = focus_id
+            self.app.recipe_focus_id = None
+        else:
+            current_row = self.recipe_list.currentRow()
+            if 0 <= current_row < len(self.recipe_entries):
+                entry = self.recipe_entries[current_row]
+                if entry is not None:
+                    selected_id = entry["id"]
 
         self.recipes = list(recipes)
         self.recipe_list.clear()
@@ -91,11 +96,13 @@ class RecipesTab(QtWidgets.QWidget):
             for idx, entry in enumerate(self.recipe_entries):
                 if entry is not None and entry["id"] == selected_id:
                     self.recipe_list.setCurrentRow(idx)
+                    self.recipe_list.scrollToItem(self.recipe_list.item(idx))
                     break
         elif self.recipe_entries:
             for idx, entry in enumerate(self.recipe_entries):
                 if entry is not None:
                     self.recipe_list.setCurrentRow(idx)
+                    self.recipe_list.scrollToItem(self.recipe_list.item(idx))
                     break
 
     def on_recipe_select(self, row: int) -> None:

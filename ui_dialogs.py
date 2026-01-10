@@ -1731,6 +1731,7 @@ class AddRecipeDialog(_RecipeDialogBase):
                 (name, method_db, machine, self.machine_item_id, grid_size, station_item_id, circuit, tier, duration_ticks, eut, notes),
             )
             recipe_id = cur.lastrowid
+            self.app.recipe_focus_id = int(recipe_id)
 
             for line in self.inputs:
                 if line["kind"] == "fluid":
