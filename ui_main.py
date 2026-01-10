@@ -627,7 +627,9 @@ class App(QtWidgets.QMainWindow):
             inventory_widget.render_items(self.items)
 
     def refresh_recipes(self) -> None:
-        available_machines = load_online_machine_availability(self.profile_conn)
+        available_machines = None
+        if not self.editor_enabled:
+            available_machines = load_online_machine_availability(self.profile_conn)
         try:
             self.recipes = fetch_recipes(self.conn, self.get_enabled_tiers(), available_machines)
         except sqlite3.ProgrammingError as exc:
@@ -635,7 +637,8 @@ class App(QtWidgets.QMainWindow):
                 raise
             self.db.switch_db(self.db_path)
             self._sync_db_handles()
-            available_machines = load_online_machine_availability(self.profile_conn)
+            if not self.editor_enabled:
+                available_machines = load_online_machine_availability(self.profile_conn)
             self.recipes = fetch_recipes(self.conn, self.get_enabled_tiers(), available_machines)
         widget = self.tab_widgets.get("recipes")
         if widget and hasattr(widget, "render_recipes"):
