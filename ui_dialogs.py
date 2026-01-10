@@ -304,6 +304,8 @@ class _ItemDialogBase(QtWidgets.QDialog):
         self.content_fluid_id_val = _row_get(row, "content_fluid_id")
         self.content_qty_val = _row_get(row, "content_qty_liters")
 
+        self._all_item_kinds: list[dict] = []
+        self._kind_usage: dict[int, set[str]] = {}
         self._kind_name_to_id: dict[str, int] = {}
         self._material_name_to_id: dict[str, int] = {}
         self._fluid_name_to_id: dict[str, int] = {}
@@ -445,18 +447,56 @@ class _ItemDialogBase(QtWidgets.QDialog):
         self.is_base_check.setChecked(bool(self._row["is_base"]))
 
     def _reload_item_kinds(self) -> None:
+        # 1. Fetch all kinds
         rows = self.app.conn.execute(
             "SELECT id, name FROM item_kinds ORDER BY sort_order ASC, name COLLATE NOCASE ASC"
         ).fetchall()
-        self.machine_kind_id = next((r["id"] for r in rows if (r["name"] or "").strip().lower() == "machine"), None)
+        self._all_item_kinds = rows
         self._kind_name_to_id = {r["name"]: r["id"] for r in rows}
-        values = [NONE_KIND_LABEL] + [r["name"] for r in rows] + [ADD_NEW_KIND_LABEL]
+        self.machine_kind_id = next((r["id"] for r in rows if (r["name"] or "").strip().lower() == "machine"), None)
+
+        # 2. Fetch usages to filter types (e.g. items vs fluids vs gases)
+        usage_rows = self.app.conn.execute(
+            "SELECT DISTINCT item_kind_id, kind FROM items WHERE item_kind_id IS NOT NULL"
+        ).fetchall()
+        self._kind_usage = {}
+        for r in usage_rows:
+            kid = r["item_kind_id"]
+            if kid not in self._kind_usage:
+                self._kind_usage[kid] = set()
+            self._kind_usage[kid].add(r["kind"])
+
+        self._update_item_kind_combo()
+
+    def _update_item_kind_combo(self) -> None:
+        current_kind_super = (self.kind_combo.currentText() or "").strip().lower()
+        if not current_kind_super:
+            current_kind_super = "item"
+
+        # Determine which names to show
+        filtered_names = [NONE_KIND_LABEL]
+        
+        for r in self._all_item_kinds:
+            kid = r["id"]
+            usages = self._kind_usage.get(kid, set())
+            
+            # Show if:
+            # 1. It is used by the current high-level kind (e.g. 'gas')
+            # 2. OR it is completely unused (orphan/new) so we can adopt it
+            if (not usages) or (current_kind_super in usages):
+                filtered_names.append(r["name"])
+        
+        filtered_names.append(ADD_NEW_KIND_LABEL)
+
+        # Update Combo
         cur = self.item_kind_combo.currentText()
         self.item_kind_combo.blockSignals(True)
         self.item_kind_combo.clear()
-        self.item_kind_combo.addItems(values)
-        if cur not in values:
+        self.item_kind_combo.addItems(filtered_names)
+        
+        if cur not in filtered_names:
             cur = NONE_KIND_LABEL
+        
         self.item_kind_combo.setCurrentText(cur)
         self.item_kind_combo.blockSignals(False)
 
@@ -626,6 +666,7 @@ class _ItemDialogBase(QtWidgets.QDialog):
                 self.display_name_edit.setText(val)
 
     def _on_high_level_kind_changed(self) -> None:
+        self._update_item_kind_combo()
         self._on_item_kind_selected()
         self.item_kind_combo.setEnabled(True)
 
