@@ -149,7 +149,7 @@ class ItemsTab(QtWidgets.QWidget):
         txt = (
             f"Name: {it['name']}\n"
             f"Kind: {it['kind']}\n"
-            f"Item Kind: {it['item_kind_name'] or ''}\n"
+            f"Item Type: {it['item_kind_name'] or ''}\n"
             f"Material: {it['material_name'] or ''}\n"
             f"Base: {'Yes' if it['is_base'] else 'No'}\n"
         )

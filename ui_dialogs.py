@@ -166,17 +166,22 @@ class ItemPickerDialog(QtWidgets.QDialog):
 
         show_items = True
         show_fluids = True
+        show_gases = True
         if self.kinds:
             show_items = "item" in self.kinds
             show_fluids = "fluid" in self.kinds
+            show_gases = "gas" in self.kinds
         p_items = QtWidgets.QTreeWidgetItem(self.tree, ["Items"]) if show_items else None
         p_fluids = QtWidgets.QTreeWidgetItem(self.tree, ["Fluids"]) if show_fluids else None
+        p_gases = QtWidgets.QTreeWidgetItem(self.tree, ["Gases"]) if show_gases else None
         if p_items:
             p_items.setExpanded(True)
         if p_fluids:
             p_fluids.setExpanded(True)
+        if p_gases:
+            p_gases.setExpanded(True)
 
-        added_any = {"item": False, "fluid": False}
+        added_any = {"item": False, "fluid": False, "gas": False}
         item_kind_nodes: dict[str, QtWidgets.QTreeWidgetItem] = {}
 
         for row in self._items:
@@ -191,7 +196,7 @@ class ItemPickerDialog(QtWidgets.QDialog):
                 if kind_name not in item_kind_nodes:
                     item_kind_nodes[kind_name] = QtWidgets.QTreeWidgetItem(p_items, [kind_name])
                     item_kind_nodes[kind_name].setExpanded(bool(query))
-                parent = item_kind_nodes[kind_name]
+                    parent = item_kind_nodes[kind_name]
             elif row["kind"] == "fluid" and p_fluids is not None:
                 try:
                     kind_name = (row["item_kind_name"] or "").strip()
@@ -200,6 +205,16 @@ class ItemPickerDialog(QtWidgets.QDialog):
                 kind_name = kind_name if kind_name else "(fluid)"
                 if kind_name not in item_kind_nodes:
                     item_kind_nodes[kind_name] = QtWidgets.QTreeWidgetItem(p_fluids, [kind_name])
+                    item_kind_nodes[kind_name].setExpanded(bool(query))
+                parent = item_kind_nodes[kind_name]
+            elif row["kind"] == "gas" and p_gases is not None:
+                try:
+                    kind_name = (row["item_kind_name"] or "").strip()
+                except Exception:
+                    kind_name = ""
+                kind_name = kind_name if kind_name else "(gas)"
+                if kind_name not in item_kind_nodes:
+                    item_kind_nodes[kind_name] = QtWidgets.QTreeWidgetItem(p_gases, [kind_name])
                     item_kind_nodes[kind_name].setExpanded(bool(query))
                 parent = item_kind_nodes[kind_name]
             else:
@@ -212,6 +227,8 @@ class ItemPickerDialog(QtWidgets.QDialog):
             QtWidgets.QTreeWidgetItem(p_items, ["(no matches)"])
         if p_fluids is not None and not added_any["fluid"]:
             QtWidgets.QTreeWidgetItem(p_fluids, ["(no matches)"])
+        if p_gases is not None and not added_any["gas"]:
+            QtWidgets.QTreeWidgetItem(p_gases, ["(no matches)"])
 
         if p_items is not None:
             for k_parent in self._children(p_items):
@@ -222,6 +239,11 @@ class ItemPickerDialog(QtWidgets.QDialog):
                 if self._select_first_child(k_parent):
                     return
             self._select_first_child(p_fluids)
+        if p_gases is not None:
+            for k_parent in self._children(p_gases):
+                if self._select_first_child(k_parent):
+                    return
+            self._select_first_child(p_gases)
 
     def _children(self, item: QtWidgets.QTreeWidgetItem) -> list[QtWidgets.QTreeWidgetItem]:
         return [item.child(i) for i in range(item.childCount())]
@@ -300,10 +322,10 @@ class _ItemDialogBase(QtWidgets.QDialog):
 
         form.addWidget(QtWidgets.QLabel("Kind"), 1, 0)
         self.kind_combo = QtWidgets.QComboBox()
-        self.kind_combo.addItems(["item", "fluid"])
+        self.kind_combo.addItems(["item", "fluid", "gas"])
         form.addWidget(self.kind_combo, 1, 1)
 
-        form.addWidget(QtWidgets.QLabel("Item Kind"), 2, 0)
+        form.addWidget(QtWidgets.QLabel("Item Type"), 2, 0)
         self.item_kind_combo = QtWidgets.QComboBox()
         form.addWidget(self.item_kind_combo, 2, 1)
 
@@ -507,9 +529,9 @@ class _ItemDialogBase(QtWidgets.QDialog):
         kind_high = (self.kind_combo.currentText() or "").strip().lower()
 
         is_machine = v.lower() == "machine"
-        is_fluid = kind_high == "fluid"
+        is_fluid_like = kind_high in ("fluid", "gas")
 
-        # Material is hidden if Machine OR Fluid.
+        # Material is hidden if Machine OR Fluid/Gas.
         # But for regular items, it depends on the checkbox.
         
         self.machine_type_label.setVisible(is_machine)
@@ -517,13 +539,13 @@ class _ItemDialogBase(QtWidgets.QDialog):
         self.tier_label.setVisible(is_machine)
         self.tier_combo.setVisible(is_machine)
 
-        if is_machine or is_fluid:
+        if is_machine or is_fluid_like:
             self.has_material_check.setVisible(False)
             self.material_label.setVisible(False)
             self.material_combo.setVisible(False)
             self.material_id = None
             
-            # Machines/Fluids can't be containers of other fluids (usually)
+            # Machines/Fluids/Gases can't be containers of other fluids (usually)
             self.is_container_check.setVisible(False)
             self.is_container_check.setChecked(False)
         else:
@@ -694,8 +716,8 @@ class AddItemDialog(_ItemDialogBase):
         key = self._slugify(display_name)
 
         kind = (self.kind_combo.currentText() or "").strip().lower()
-        if kind not in ("item", "fluid"):
-            QtWidgets.QMessageBox.warning(self, "Invalid kind", "Kind must be item or fluid.")
+        if kind not in ("item", "fluid", "gas"):
+            QtWidgets.QMessageBox.warning(self, "Invalid kind", "Kind must be item, fluid, or gas.")
             return
 
         is_base = 1 if self.is_base_check.isChecked() else 0
@@ -707,7 +729,7 @@ class AddItemDialog(_ItemDialogBase):
             else:
                 is_machine = 1 if (self.item_kind_combo.currentText() or "").strip().lower() == "machine" else 0
 
-        if kind == "fluid":
+        if kind in ("fluid", "gas"):
             is_machine = 0
             item_kind_id = self.item_kind_id
         else:
@@ -814,8 +836,8 @@ class EditItemDialog(_ItemDialogBase):
             return
 
         kind = (self.kind_combo.currentText() or "").strip().lower()
-        if kind not in ("item", "fluid"):
-            QtWidgets.QMessageBox.warning(self, "Invalid kind", "Kind must be item or fluid.")
+        if kind not in ("item", "fluid", "gas"):
+            QtWidgets.QMessageBox.warning(self, "Invalid kind", "Kind must be item, fluid, or gas.")
             return
 
         is_base = 1 if self.is_base_check.isChecked() else 0
@@ -827,7 +849,7 @@ class EditItemDialog(_ItemDialogBase):
             else:
                 is_machine = 1 if (self.item_kind_combo.currentText() or "").strip().lower() == "machine" else 0
 
-        if kind == "fluid":
+        if kind in ("fluid", "gas"):
             is_machine = 0
             item_kind_id = self.item_kind_id
         else:
@@ -1030,7 +1052,7 @@ class ItemLineDialog(QtWidgets.QDialog):
             return
         kind = self._selected["kind"]
         self.kind_label.setText(kind)
-        self.qty_label.setText("Liters (L)" if kind == "fluid" else "Count")
+        self.qty_label.setText("Liters (L)" if kind in ("fluid", "gas") else "Count")
 
     def pick_item(self) -> None:
         dlg = ItemPickerDialog(self.app, title="Pick Item", parent=self)
@@ -1064,7 +1086,7 @@ class ItemLineDialog(QtWidgets.QDialog):
             QtWidgets.QMessageBox.warning(self, "Invalid quantity", "Quantity must be > 0.")
             return
 
-        if it["kind"] == "fluid":
+        if it["kind"] in ("fluid", "gas"):
             self.result = {"item_id": it["id"], "name": it["name"], "kind": it["kind"], "qty_liters": qty, "qty_count": None}
         else:
             self.result = {"item_id": it["id"], "name": it["name"], "kind": it["kind"], "qty_liters": None, "qty_count": qty}
@@ -1373,7 +1395,7 @@ class _RecipeDialogBase(QtWidgets.QDialog):
             slot_idx = line.get("output_slot_index")
             if slot_idx is not None:
                 slot_txt = f" (Slot {slot_idx})"
-        if line["kind"] == "fluid":
+        if line["kind"] in ("fluid", "gas"):
             qty = self._coerce_whole_number(line["qty_liters"])
             return f"{line['name']} × {qty} L{slot_txt}{chance_txt}"
         qty = self._coerce_whole_number(line["qty_count"])
@@ -1488,7 +1510,7 @@ class _RecipeDialogBase(QtWidgets.QDialog):
     def add_input(self) -> None:
         d = ItemLineDialog(self.app, "Add Input", parent=self)
         if d.exec() == QtWidgets.QDialog.DialogCode.Accepted and d.result:
-            if d.result.get("kind") == "fluid" and not self._check_tank_limit(direction="in"):
+            if d.result.get("kind") in ("fluid", "gas") and not self._check_tank_limit(direction="in"):
                 return
             self.inputs.append(d.result)
             self.in_list.addItem(self._fmt_line(d.result))
@@ -1497,7 +1519,7 @@ class _RecipeDialogBase(QtWidgets.QDialog):
         dialog_kwargs = self._get_output_dialog_kwargs()
         d = ItemLineDialog(self.app, "Add Output", parent=self, **dialog_kwargs)
         if d.exec() == QtWidgets.QDialog.DialogCode.Accepted and d.result:
-            if d.result.get("kind") == "fluid" and not self._check_tank_limit(direction="out"):
+            if d.result.get("kind") in ("fluid", "gas") and not self._check_tank_limit(direction="out"):
                 return
             self.outputs.append(d.result)
             self.out_list.addItem(self._fmt_line(d.result, is_output=True))
@@ -1518,7 +1540,7 @@ class _RecipeDialogBase(QtWidgets.QDialog):
             **dialog_kwargs,
         )
         if d.exec() == QtWidgets.QDialog.DialogCode.Accepted and d.result:
-            if d.result.get("kind") == "fluid":
+            if d.result.get("kind") in ("fluid", "gas"):
                 if is_output and not self._check_tank_limit(direction="out", exclude_idx=idx):
                     return
                 if not is_output and not self._check_tank_limit(direction="in", exclude_idx=idx):
@@ -1541,7 +1563,7 @@ class _RecipeDialogBase(QtWidgets.QDialog):
         for idx, line in enumerate(lines):
             if exclude_idx is not None and idx == exclude_idx:
                 continue
-            if line.get("kind") == "fluid":
+            if line.get("kind") in ("fluid", "gas"):
                 count += 1
         return count
 
@@ -1663,7 +1685,7 @@ class AddRecipeDialog(_RecipeDialogBase):
             self.app.recipe_focus_id = int(recipe_id)
 
             for line in self.inputs:
-                if line["kind"] == "fluid":
+                if line["kind"] in ("fluid", "gas"):
                     self.app.conn.execute(
                         "INSERT INTO recipe_lines(recipe_id, direction, item_id, qty_liters, chance_percent, output_slot_index) "
                         "VALUES(?,?,?,?,?,?)",
@@ -1677,7 +1699,7 @@ class AddRecipeDialog(_RecipeDialogBase):
                     )
 
             for line in self.outputs:
-                if line["kind"] == "fluid":
+                if line["kind"] in ("fluid", "gas"):
                     self.app.conn.execute(
                         "INSERT INTO recipe_lines(recipe_id, direction, item_id, qty_liters, chance_percent, output_slot_index) "
                         "VALUES(?,?,?,?,?,?)",
@@ -1973,7 +1995,7 @@ class EditRecipeDialog(_RecipeDialogBase):
 
             # Re-insert lines
             for line in self.inputs:
-                if line["kind"] == "fluid":
+                if line["kind"] in ("fluid", "gas"):
                     self.app.conn.execute(
                         "INSERT INTO recipe_lines(recipe_id, direction, item_id, qty_liters, chance_percent, output_slot_index) "
                         "VALUES(?,?,?,?,?,?)",
@@ -1987,7 +2009,7 @@ class EditRecipeDialog(_RecipeDialogBase):
                     )
 
             for line in self.outputs:
-                if line["kind"] == "fluid":
+                if line["kind"] in ("fluid", "gas"):
                     self.app.conn.execute(
                         "INSERT INTO recipe_lines(recipe_id, direction, item_id, qty_liters, chance_percent, output_slot_index) "
                         "VALUES(?,?,?,?,?,?)",
