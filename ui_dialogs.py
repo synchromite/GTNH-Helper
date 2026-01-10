@@ -470,8 +470,9 @@ class _ItemDialogBase(QtWidgets.QDialog):
             
             # Show if:
             # 1. It is used by the current high-level kind (e.g. 'gas')
-            # 2. OR it is completely unused (orphan/new) so we can adopt it
-            if (not usages) or (current_kind_super in usages):
+            # We strictly filter out unused kinds so they don't leak into other categories.
+            # (New kinds are handled in _on_item_kind_selected)
+            if current_kind_super in usages:
                 filtered_names.append(r["name"])
         
         filtered_names.append(ADD_NEW_KIND_LABEL)
@@ -595,6 +596,10 @@ class _ItemDialogBase(QtWidgets.QDialog):
             self._reload_item_kinds()
 
         if canonical:
+            # If strictly filtering, the new kind isn't associated yet, so we must force-add it
+            # Insert before "Add New..." (which is always last)
+            if self.item_kind_combo.findText(canonical) == -1:
+                self.item_kind_combo.insertItem(self.item_kind_combo.count() - 1, canonical)
             self.item_kind_combo.setCurrentText(canonical)
 
         v2 = (self.item_kind_combo.currentText() or "").strip()
