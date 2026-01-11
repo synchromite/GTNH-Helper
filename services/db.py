@@ -162,7 +162,7 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         key TEXT NOT NULL UNIQUE,
         display_name TEXT,
-        kind TEXT NOT NULL CHECK(kind IN ('item','fluid')),
+        kind TEXT NOT NULL CHECK(kind IN ('item','fluid','gas','machine')),
         is_base INTEGER NOT NULL DEFAULT 0,
         material_id INTEGER,
         FOREIGN KEY(material_id) REFERENCES materials(id) ON DELETE SET NULL
@@ -213,6 +213,12 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
     if not _has_col("items", "machine_output_tank_capacity_l"):
         conn.execute("ALTER TABLE items ADD COLUMN machine_output_tank_capacity_l INTEGER")
 
+    if not _has_col("items", "content_fluid_id"):
+        conn.execute("ALTER TABLE items ADD COLUMN content_fluid_id INTEGER")
+
+    if not _has_col("items", "content_qty_liters"):
+        conn.execute("ALTER TABLE items ADD COLUMN content_qty_liters INTEGER")
+
     # Detailed item classification (user-editable list of kinds)
     if not _has_col("items", "item_kind_id"):
         conn.execute("ALTER TABLE items ADD COLUMN item_kind_id INTEGER")
@@ -228,7 +234,7 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
         machine_item_id INTEGER NOT NULL,
         direction TEXT NOT NULL CHECK(direction IN ('in','out')),
         slot_index INTEGER NOT NULL,
-        content_kind TEXT NOT NULL CHECK(content_kind IN ('item','fluid')),
+        content_kind TEXT NOT NULL CHECK(content_kind IN ('item','fluid','gas','machine')), 
         label TEXT,
         UNIQUE(machine_item_id, direction, slot_index),
         FOREIGN KEY(machine_item_id) REFERENCES items(id) ON DELETE CASCADE
