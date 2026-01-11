@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 
+from services.db import ALL_TIERS
 
 def load_online_machine_availability(profile_conn: sqlite3.Connection | None) -> dict[str, set[str]]:
     if profile_conn is None:
@@ -21,7 +22,6 @@ def load_online_machine_availability(profile_conn: sqlite3.Connection | None) ->
         available.setdefault(machine_type, set()).add(tier)
     return available
 
-
 def _recipe_machine_available(row: sqlite3.Row, available_machines: dict[str, set[str]]) -> bool:
     method = (row["method"] or "machine").strip().lower()
     if method != "machine":
@@ -36,8 +36,23 @@ def _recipe_machine_available(row: sqlite3.Row, available_machines: dict[str, se
     tier = (row["tier"] or "").strip() or (row["machine_item_tier"] or "").strip()
     if not tier:
         return True
-    return tier in tiers
 
+    # Check for exact match or higher tier
+    if tier in tiers:
+        return True
+
+    try:
+        req_idx = ALL_TIERS.index(tier)
+        for owned in tiers:
+            try:
+                if ALL_TIERS.index(owned) >= req_idx:
+                    return True
+            except ValueError:
+                continue
+    except ValueError:
+        pass
+
+    return False
 
 def fetch_recipes(
     conn: sqlite3.Connection,
@@ -62,7 +77,6 @@ def fetch_recipes(
         return rows
     return [row for row in rows if _recipe_machine_available(row, available_machines)]
 
-
 def fetch_recipe_lines(conn: sqlite3.Connection, recipe_id: int) -> list[sqlite3.Row]:
     return conn.execute(
         """
@@ -75,14 +89,12 @@ def fetch_recipe_lines(conn: sqlite3.Connection, recipe_id: int) -> list[sqlite3
         (recipe_id,),
     ).fetchall()
 
-
 def fetch_item_name(conn: sqlite3.Connection, item_id: int) -> str:
     row = conn.execute(
         "SELECT COALESCE(display_name, key) AS name FROM items WHERE id=?",
         (item_id,),
     ).fetchone()
     return row["name"] if row else ""
-
 
 def fetch_machine_output_slots(conn: sqlite3.Connection, machine_item_id: int) -> int | None:
     row = conn.execute(

@@ -5,6 +5,7 @@ import math
 import sqlite3
 from typing import Iterable
 
+from services.db import ALL_TIERS
 
 @dataclass
 class PlanStep:
@@ -388,7 +389,23 @@ class PlannerService:
         tier = (row["tier"] or "").strip() or (row["machine_item_tier"] or "").strip()
         if not tier:
             return True
-        return tier in tiers
+
+        # Check for exact match or higher tier
+        if tier in tiers:
+            return True
+
+        try:
+            req_idx = ALL_TIERS.index(tier)
+            for owned in tiers:
+                try:
+                    if ALL_TIERS.index(owned) >= req_idx:
+                        return True
+                except ValueError:
+                    continue
+        except ValueError:
+            pass
+
+        return False
 
     def _recipe_machine_match_rank(self, row: sqlite3.Row, available_machines: dict[str, set[str]]) -> int:
         if not available_machines:
