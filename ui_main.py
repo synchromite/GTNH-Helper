@@ -13,7 +13,7 @@ from services.recipes import fetch_recipes, load_online_machine_availability
 from services.tab_config import apply_tab_reorder, config_path, load_tab_config, save_tab_config
 from ui_dialogs import ItemMergeConflictDialog, MaterialManagerDialog
 from ui_tabs.inventory_tab import InventoryTab
-from ui_tabs.items_tab_qt import ItemsTab
+from ui_tabs.items_tab_qt import ItemsTab, FluidsTab
 from ui_tabs.recipes_tab_qt import RecipesTab
 from ui_tabs.planner_tab_qt import PlannerTab
 from ui_tabs.tiers_tab import TiersTab
@@ -131,6 +131,7 @@ class App(QtWidgets.QMainWindow):
 
         self.tab_registry = {
             "items": {"label": "Items"},
+            "fluids": {"label": "Fluids"},
             "recipes": {"label": "Recipes"},
             "inventory": {"label": "Inventory"},
             "planner": {"label": "Planner"},
@@ -203,6 +204,8 @@ class App(QtWidgets.QMainWindow):
         label = self.tab_registry[tab_id]["label"]
         if tab_id == "items":
             widget = ItemsTab(self, self)
+        elif tab_id == "fluids":
+            widget = FluidsTab(self, self)
         elif tab_id == "recipes":
             widget = RecipesTab(self, self)
         elif tab_id == "inventory":
@@ -288,6 +291,8 @@ class App(QtWidgets.QMainWindow):
         if widget is None:
             return
         if tab_id == "items" and hasattr(widget, "render_items"):
+            widget.render_items(self.items)
+        elif tab_id == "fluids" and hasattr(widget, "render_items"):
             widget.render_items(self.items)
         elif tab_id == "recipes" and hasattr(widget, "render_recipes"):
             widget.render_recipes(self.recipes)
@@ -627,6 +632,9 @@ class App(QtWidgets.QMainWindow):
             self._sync_db_handles()
             self.items = fetch_items(self.conn)
         widget = self.tab_widgets.get("items")
+        if widget and hasattr(widget, "render_items"):
+            widget.render_items(self.items)
+        widget = self.tab_widgets.get("fluids")
         if widget and hasattr(widget, "render_items"):
             widget.render_items(self.items)
         inventory_widget = self.tab_widgets.get("inventory")

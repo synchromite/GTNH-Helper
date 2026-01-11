@@ -5,7 +5,7 @@ from PySide6 import QtCore, QtWidgets
 from ui_dialogs import AddItemDialog, EditItemDialog
 
 
-class ItemsTab(QtWidgets.QWidget):
+class BaseItemTab(QtWidgets.QWidget):
     def __init__(self, app, parent=None):
         super().__init__(parent)
         self.app = app
@@ -50,6 +50,10 @@ class ItemsTab(QtWidgets.QWidget):
         self.item_details.setReadOnly(True)
         right.addWidget(self.item_details)
 
+    def should_display_item(self, item: dict) -> bool:
+        """Determine if this item should be displayed in this tab."""
+        return True
+
     def render_items(self, items: list) -> None:
         selected_id = None
         current_item = self.item_tree.currentItem()
@@ -86,6 +90,9 @@ class ItemsTab(QtWidgets.QWidget):
             )
 
         for it in sorted(self.items, key=_sort_key):
+            if not self.should_display_item(it):
+                continue
+
             # Level 1: Kind (Item, Fluid, Gas, Machine)
             kind_val = _value(it, "kind")
             kind_label = _label(kind_val, "(No type)").title()
@@ -249,3 +256,16 @@ class ItemsTab(QtWidgets.QWidget):
         self.app.refresh_items()
         self._item_details_set("")
         self.app.status_bar.showMessage(f"Deleted item: {it['name']}")
+
+class ItemsTab(BaseItemTab):
+    def should_display_item(self, item: dict) -> bool:
+        # Countable items: Exclude Fluids and Gases
+        kind = (item.get("kind") or "").strip().lower()
+        return kind not in ("fluid", "gas")
+
+
+class FluidsTab(BaseItemTab):
+    def should_display_item(self, item: dict) -> bool:
+        # Liters: Only Fluids and Gases
+        kind = (item.get("kind") or "").strip().lower()
+        return kind in ("fluid", "gas")
