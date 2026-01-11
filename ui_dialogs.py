@@ -509,9 +509,9 @@ class _ItemDialogBase(QtWidgets.QDialog):
         self.material_id = self._material_name_to_id.get(v) if v and v != NONE_MATERIAL_LABEL else None
     
     def _reload_fluids(self) -> None:
-        # Fetch all items that are kind='fluid'
+        # Fetch all items that are kind='fluid' or 'gas'
         rows = self.app.conn.execute(
-            "SELECT id, COALESCE(display_name, key) as name FROM items WHERE kind='fluid' ORDER BY name COLLATE NOCASE ASC"
+            "SELECT id, COALESCE(display_name, key) as name FROM items WHERE kind IN ('fluid', 'gas') ORDER BY name COLLATE NOCASE ASC"
         ).fetchall()
         self._fluid_name_to_id = {r["name"]: r["id"] for r in rows}
         values = [NONE_FLUID_LABEL] + [r["name"] for r in rows]
