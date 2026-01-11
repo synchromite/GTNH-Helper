@@ -104,6 +104,12 @@ class App(QtWidgets.QMainWindow):
         super().__init__()
         self.resize(1100, 700)
 
+        # Set the application icon (visible in the dock/task switcher)
+        icon_path = Path(__file__).parent / "images" / "Helper_Icon.png"
+        icon = QtGui.QIcon(str(icon_path))
+        self.setWindowIcon(icon)
+        QtWidgets.QApplication.instance().setWindowIcon(icon)
+
         # Default behavior is "client mode". Creating a file named `.enable_editor`
         # next to this script enables editor capabilities.
         self.editor_enabled = self._detect_editor_enabled()
@@ -406,7 +412,7 @@ class App(QtWidgets.QMainWindow):
         except Exception:
             name = "(unknown)"
         mode = "Editor" if self.editor_enabled else "Client"
-        self.setWindowTitle(f"GTNH Recipe DB — {mode} — {name}")
+        self.setWindowTitle(f"GTNH Helper — {mode} — {name}")
 
     def closeEvent(self, event) -> None:
         try:
