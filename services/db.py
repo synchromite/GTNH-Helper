@@ -180,6 +180,8 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE items ADD COLUMN is_machine INTEGER NOT NULL DEFAULT 0")
     if not _has_col("items", "machine_tier"):
         conn.execute("ALTER TABLE items ADD COLUMN machine_tier TEXT")
+    if not _has_col("items", "machine_type"):
+        conn.execute("ALTER TABLE items ADD COLUMN machine_type TEXT")
     if not _has_col("items", "machine_output_slots"):
         # Output slots (how many distinct output stacks a machine can emit per run).
         # Common early machines have 1; higher tiers may have more.

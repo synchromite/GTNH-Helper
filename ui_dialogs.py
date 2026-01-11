@@ -1175,7 +1175,9 @@ class _RecipeDialogBase(QtWidgets.QDialog):
 
         form.addWidget(QtWidgets.QLabel("Name"), 0, 0)
         self.name_edit = QtWidgets.QLineEdit()
-        form.addWidget(self.name_edit, 0, 1)
+        self.name_edit.setReadOnly(True)
+        self.name_edit.setPlaceholderText("Use 'Pick' button...")
+
         name_btns = QtWidgets.QHBoxLayout()
         name_pick = QtWidgets.QPushButton("Pick…")
         name_pick.clicked.connect(self.pick_name)
@@ -1183,7 +1185,13 @@ class _RecipeDialogBase(QtWidgets.QDialog):
         name_clear.clicked.connect(self.clear_name)
         name_btns.addWidget(name_pick)
         name_btns.addWidget(name_clear)
-        form.addLayout(name_btns, 0, 2)
+
+        name_frame = QtWidgets.QWidget()
+        name_layout = QtWidgets.QHBoxLayout(name_frame)
+        name_layout.setContentsMargins(0, 0, 0, 0)
+        name_layout.addWidget(self.name_edit)
+        name_layout.addLayout(name_btns)
+        form.addWidget(name_frame, 0, 1)
 
         form.addWidget(QtWidgets.QLabel("Method"), 0, 2)
         self.method_combo = QtWidgets.QComboBox()
@@ -1205,6 +1213,8 @@ class _RecipeDialogBase(QtWidgets.QDialog):
         form.addWidget(self.method_label_stack, 2, 0)
 
         self.machine_edit = QtWidgets.QLineEdit()
+        self.machine_edit.setReadOnly(True)
+        self.machine_edit.setPlaceholderText("Use 'Pick' button...")
         self.machine_item_id = None
         machine_btns = QtWidgets.QHBoxLayout()
         machine_pick = QtWidgets.QPushButton("Pick…")
@@ -1363,6 +1373,11 @@ class _RecipeDialogBase(QtWidgets.QDialog):
         self.station_edit.setText("")
 
     def _resolve_name_item_id(self, *, warn: bool = True) -> int | None:
+        # If we have a specific item ID from the picker (or loaded from DB), use it.
+        if self.name_item_id is not None:
+            return self.name_item_id
+
+        # Fallback logic (legacy or if ID was somehow cleared but text remains)
         name = (self.name_edit.text() or "").strip()
         if not name:
             if warn:
