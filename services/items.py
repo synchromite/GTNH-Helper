@@ -5,14 +5,38 @@ import sqlite3
 
 def fetch_items(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     return conn.execute(
-        "SELECT i.id, i.key, COALESCE(i.display_name, i.key) AS name, i.kind, i.is_base, i.is_machine, i.machine_tier, "
-        "       i.machine_input_slots, i.machine_output_slots, i.machine_storage_slots, i.machine_power_slots, "
-        "       i.machine_circuit_slots, i.machine_input_tanks, i.machine_input_tank_capacity_l, "
-        "       i.machine_output_tanks, i.machine_output_tank_capacity_l, "
-        "       i.material_id, m.name AS material_name, "
-        "       k.name AS item_kind_name "
-        "FROM items i "
-        "LEFT JOIN materials m ON m.id = i.material_id "
-        "LEFT JOIN item_kinds k ON k.id = i.item_kind_id "
-        "ORDER BY name"
+        """
+        SELECT 
+            i.id, 
+            i.key, 
+            COALESCE(i.display_name, i.key) AS name, 
+            i.kind, 
+            i.is_base, 
+            i.is_machine, 
+            i.machine_tier, 
+            i.machine_type,
+            -- For machine stats, prefer the Item override, fallback to Machine Metadata
+            COALESCE(i.machine_input_slots, mm.input_slots, 1) AS machine_input_slots,
+            COALESCE(i.machine_output_slots, mm.output_slots, 1) AS machine_output_slots,
+            COALESCE(i.machine_storage_slots, mm.storage_slots, 0) AS machine_storage_slots,
+            COALESCE(i.machine_power_slots, mm.power_slots, 0) AS machine_power_slots,
+            COALESCE(i.machine_circuit_slots, mm.circuit_slots, 0) AS machine_circuit_slots,
+            COALESCE(i.machine_input_tanks, mm.input_tanks, 0) AS machine_input_tanks,
+            COALESCE(i.machine_input_tank_capacity_l, mm.input_tank_capacity_l, 0) AS machine_input_tank_capacity_l,
+            COALESCE(i.machine_output_tanks, mm.output_tanks, 0) AS machine_output_tanks,
+            COALESCE(i.machine_output_tank_capacity_l, mm.output_tank_capacity_l, 0) AS machine_output_tank_capacity_l,
+            
+            i.material_id, 
+            m.name AS material_name, 
+            k.name AS item_kind_name 
+        FROM items i 
+        LEFT JOIN materials m ON m.id = i.material_id 
+        LEFT JOIN item_kinds k ON k.id = i.item_kind_id 
+        -- Join metadata based on Type + Tier
+        LEFT JOIN machine_metadata mm ON (
+            mm.machine_type = i.machine_type 
+            AND mm.tier = i.machine_tier
+        )
+        ORDER BY name
+        """
     ).fetchall()

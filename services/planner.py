@@ -7,6 +7,39 @@ from typing import Iterable
 
 from services.db import ALL_TIERS
 
+GT_VOLTAGES = [
+    (8, "ULV"), (32, "LV"), (128, "MV"), (512, "HV"), (2048, "EV"),
+    (8192, "IV"), (32768, "LuV"), (131072, "ZPM"), (524288, "UV"),
+    (2147483647, "MAX")
+]
+
+def get_calculated_tier(row: sqlite3.Row) -> str:
+    """Determine the effective tier of a recipe from its explicit tier OR its voltage."""
+    # 1. Trust explicit DB tier if present (e.g. "Steam Age", "Stone Age", "LV")
+    tier_str = (row["tier"] or "").strip()
+    if tier_str:
+        return tier_str
+
+    # 2. Crafting recipes default to Stone Age if no tier specified
+    method = (row["method"] or "").strip().lower()
+    if method == "crafting":
+        return "Stone Age"
+
+    # 3. Fallback: Calculate electrical tier from EU/t
+    try:
+        eu = int(float(row["eu_per_tick"] or 0))
+    except (ValueError, TypeError):
+        eu = 0
+        
+    if eu <= 0:
+        return "Stone Age" # Assume manual/primitive if 0 EU
+
+    for voltage, name in GT_VOLTAGES:
+        if eu <= voltage:
+            return name
+    return "MAX"
+
+
 @dataclass
 class PlanStep:
     recipe_id: int
@@ -129,7 +162,8 @@ class PlannerService:
                 errors.append(f"Detected cyclic dependency for {item['name']}.")
                 continue
 
-            recipe = self._pick_recipe_for_item(item_id, enabled_tiers, crafting_6x6_unlocked)
+            # Pass 'items' to helper to access machine stats
+            recipe = self._pick_recipe_for_item(item_id, enabled_tiers, crafting_6x6_unlocked, items)
             if not recipe:
                 errors.append(f"No recipe found for {item['name']}.")
                 missing_recipes.append((item_id, item["name"], qty_needed))
@@ -249,8 +283,35 @@ class PlannerService:
 
     # ---------- Data loaders ----------
     def _load_items(self) -> dict[int, dict]:
+        # Updated to join machine_metadata for inheritance of slot/tank counts
         rows = self.conn.execute(
-            "SELECT id, COALESCE(display_name, key) AS name, kind, is_base FROM items ORDER BY name"
+            """
+            SELECT 
+                i.id, 
+                i.key, 
+                COALESCE(i.display_name, i.key) AS name, 
+                i.kind, 
+                i.is_base, 
+                i.is_machine, 
+                i.machine_tier, 
+                i.machine_type,
+                COALESCE(i.machine_input_slots, mm.input_slots, 1) AS machine_input_slots,
+                COALESCE(i.machine_output_slots, mm.output_slots, 1) AS machine_output_slots,
+                COALESCE(i.machine_storage_slots, mm.storage_slots, 0) AS machine_storage_slots,
+                COALESCE(i.machine_power_slots, mm.power_slots, 0) AS machine_power_slots,
+                COALESCE(i.machine_circuit_slots, mm.circuit_slots, 0) AS machine_circuit_slots,
+                COALESCE(i.machine_input_tanks, mm.input_tanks, 0) AS machine_input_tanks,
+                COALESCE(i.machine_input_tank_capacity_l, mm.input_tank_capacity_l, 0) AS machine_input_tank_capacity_l,
+                COALESCE(i.machine_output_tanks, mm.output_tanks, 0) AS machine_output_tanks,
+                COALESCE(i.machine_output_tank_capacity_l, mm.output_tank_capacity_l, 0) AS machine_output_tank_capacity_l,
+                i.material_id
+            FROM items i 
+            LEFT JOIN machine_metadata mm ON (
+                mm.machine_type = i.machine_type 
+                AND mm.tier = i.machine_tier
+            )
+            ORDER BY name
+            """
         ).fetchall()
         return {row["id"]: row for row in rows}
 
@@ -277,19 +338,18 @@ class PlannerService:
         item_id: int,
         enabled_tiers: Iterable[str],
         crafting_6x6_unlocked: bool,
+        items: dict[int, dict],
     ):
-        tiers = list(enabled_tiers)
-        placeholders = ",".join(["?"] * len(tiers))
-        if tiers:
-            tier_clause = f"AND (r.tier IS NULL OR TRIM(r.tier)='' OR r.tier IN ({placeholders})) "
-        else:
-            tier_clause = "AND (r.tier IS NULL OR TRIM(r.tier)='') "
+        # 1. Fetch ALL recipes, calculating separate input counts for items vs fluids
         sql = (
             "SELECT r.id, r.name, r.method, r.machine, r.machine_item_id, r.grid_size, "
             "r.station_item_id, r.circuit, r.tier, r.duration_ticks, r.eu_per_tick, "
             "mi.machine_tier AS machine_item_tier, "
             "COALESCE(mi.display_name, mi.key) AS machine_item_name, "
-            "COALESCE(SUM(CASE WHEN rl_in.direction='in' THEN 1 ELSE 0 END), 0) AS input_count, "
+            # Calculate item input count vs fluid input count
+            "COALESCE(SUM(CASE WHEN rl_in.direction='in' AND (input_item.kind IN ('fluid','gas')) THEN 1 ELSE 0 END), 0) AS fluid_req_count, "
+            "COALESCE(SUM(CASE WHEN rl_in.direction='in' AND (input_item.kind NOT IN ('fluid','gas') OR input_item.kind IS NULL) THEN 1 ELSE 0 END), 0) AS item_req_count, "
+            
             "COALESCE(SUM(CASE WHEN rl_in.direction='in' "
             "THEN COALESCE(rl_in.qty_count, rl_in.qty_liters, 1) ELSE 0 END), 0) AS input_qty "
             ", COALESCE(MAX(CASE WHEN rl_out.direction='out' "
@@ -298,56 +358,89 @@ class PlannerService:
             "LEFT JOIN items mi ON mi.id = r.machine_item_id "
             "JOIN recipe_lines rl_out ON rl_out.recipe_id = r.id "
             "LEFT JOIN recipe_lines rl_in ON rl_in.recipe_id = r.id AND rl_in.direction='in' "
+            "LEFT JOIN items input_item ON input_item.id = rl_in.item_id "
             "WHERE rl_out.direction='out' AND rl_out.item_id=? "
-            f"{tier_clause}"
             "GROUP BY r.id "
             "ORDER BY r.name"
         )
-        params = [item_id]
-        if tiers:
-            params.extend(tiers)
-        rows = self.conn.execute(sql, params).fetchall()
+        
+        rows = self.conn.execute(sql, [item_id]).fetchall()
+        
+        # 2. Hard Filter: 6x6 Crafting
         if not crafting_6x6_unlocked:
             rows = [r for r in rows if not (r["method"] == "crafting" and (r["grid_size"] or "").strip() == "6x6")]
+        
         if not rows:
             return None
 
+        # 3. Setup Availability
         available_machines = self._load_machine_availability()
-        if available_machines:
-            rows = [row for row in rows if self._recipe_machine_available(row, available_machines)]
-            if not rows:
-                return None
+        enabled_tiers_set = set(enabled_tiers)
+        tier_sort_map = {name: i for i, name in enumerate(ALL_TIERS)}
+        
+        def recipe_rank(row) -> tuple:
+            # We want the lowest score (tuple comparison).
+            
+            # --- PRE-CALCULATION ---
+            req_tier = get_calculated_tier(row)
+            method = (row["method"] or "machine").strip().lower()
+            machine_type = (row["machine"] or "").strip().lower()
+            
+            # --- CRITERIA 1: AVAILABILITY SCORE ---
+            # 0 = Owned / Immediate
+            # 1 = Unlocked Tier
+            # 2 = Locked Tier
+            # 3 = Capacity Error (Impossible)
+            
+            avail_score = 2 
+            
+            # Check Capacity First
+            if row["machine_item_id"]:
+                m_item = items.get(row["machine_item_id"])
+                if m_item:
+                    req_items = int(row["item_req_count"] or 0)
+                    req_fluids = int(row["fluid_req_count"] or 0)
+                    avail_slots = int(m_item["machine_input_slots"] or 1)
+                    avail_tanks = int(m_item["machine_input_tanks"] or 0)
+                    
+                    if req_items > avail_slots or req_fluids > avail_tanks:
+                        avail_score = 3
+            
+            if avail_score != 3:
+                # Normal ownership logic
+                if method == "crafting":
+                    avail_score = 0
+                elif method == "machine" and machine_type:
+                    if machine_type in available_machines:
+                        owned_tiers = available_machines[machine_type]
+                        if req_tier in owned_tiers:
+                            avail_score = 0
+                        elif "Steam Age" in owned_tiers and req_tier == "Steam Age":
+                            avail_score = 0
+                
+                if avail_score > 0:
+                    if req_tier in enabled_tiers_set:
+                        avail_score = 1
+                    elif req_tier == "Stone Age":
+                        avail_score = 1
 
-        tier_order = {tier: index for index, tier in enumerate(tiers)}
-
-        def _safe_divide(numerator: float, denominator: float) -> float:
-            if denominator <= 0:
-                return float("inf")
-            return numerator / denominator
-
-        def recipe_rank(row) -> tuple[int, int, float, float, float, str]:
-            match_rank = self._recipe_machine_match_rank(row, available_machines)
-            tier = (row["tier"] or "").strip()
-            if not tier:
-                tier_rank = -1
-            else:
-                tier_rank = tier_order.get(tier, len(tier_order) + 1)
-            output_qty = row["output_qty"] if "output_qty" in row.keys() else None
-            output_qty = float(output_qty or 0)
+            # --- CRITERIA 2: EFFICIENCY (Input per Output) ---
+            output_qty = float(row["output_qty"] or 1)
             input_qty = float(row["input_qty"] or 0)
-            input_ratio = _safe_divide(input_qty, output_qty)
-            duration_ticks = float(row["duration_ticks"] or 0)
-            time_per_output = _safe_divide(duration_ticks, output_qty)
-            eu_per_tick = float(row["eu_per_tick"] or 0)
-            total_energy = duration_ticks * eu_per_tick
-            energy_per_output = _safe_divide(total_energy, output_qty)
+            ratio = input_qty / output_qty if output_qty > 0 else 999.0
+
+            # --- CRITERIA 3: SPEED ---
+            duration = float(row["duration_ticks"] or 0)
+            time_per_item = duration / output_qty if output_qty > 0 else duration
+
+            # --- CRITERIA 4: TIER RANK ---
+            t_rank = tier_sort_map.get(req_tier, 999)
+
             return (
-                match_rank,
-                input_ratio,      # Prioritize Material Efficiency (1st)
-                time_per_output,  # Prioritize Speed (2nd)
-                tier_rank,        # Consider Tier last (3rd)
-                energy_per_output,
-                (row["name"] or "").lower(),
+                avail_score,      
+                ratio,            
+                time_per_item,    
+                t_rank            
             )
 
         return min(rows, key=recipe_rank)
@@ -376,6 +469,7 @@ class PlannerService:
         return available
 
     def _recipe_machine_available(self, row: sqlite3.Row, available_machines: dict[str, set[str]]) -> bool:
+        # Legacy method kept for safety, but main logic is now in ranking
         method = (row["method"] or "machine").strip().lower()
         if method != "machine":
             return True
@@ -389,22 +483,8 @@ class PlannerService:
         tier = (row["tier"] or "").strip() or (row["machine_item_tier"] or "").strip()
         if not tier:
             return True
-
-        # Check for exact match or higher tier
         if tier in tiers:
             return True
-
-        try:
-            req_idx = ALL_TIERS.index(tier)
-            for owned in tiers:
-                try:
-                    if ALL_TIERS.index(owned) >= req_idx:
-                        return True
-                except ValueError:
-                    continue
-        except ValueError:
-            pass
-
         return False
 
     def _recipe_machine_match_rank(self, row: sqlite3.Row, available_machines: dict[str, set[str]]) -> int:
