@@ -800,6 +800,27 @@ def merge_db(
                 stats["items_updated"] += 1
 
             item_key_to_dest_id[key] = dest_row["id"]
+        # ---- Machine IO Slots ----
+        src_slots = src.execute(
+            "SELECT machine_item_id, direction, slot_index, content_kind, label FROM machine_io_slots"
+        ).fetchall()
+
+        # Map src_id -> key using the already-fetched src_items
+        src_id_to_key = {r["id"]: r["key"] for r in src_items}
+
+        for row in src_slots:
+            k = src_id_to_key.get(row["machine_item_id"])
+            if not k:
+                continue
+            dest_id = item_key_to_dest_id.get(k)
+            if not dest_id:
+                continue
+
+            dest_conn.execute(
+                "INSERT OR IGNORE INTO machine_io_slots(machine_item_id, direction, slot_index, content_kind, label) "
+                "VALUES(?, ?, ?, ?, ?)",
+                (dest_id, row["direction"], row["slot_index"], row["content_kind"], row["label"]),
+            )
 
         # ---- Recipes ----
         src_recipes = src.execute(
