@@ -426,13 +426,18 @@ class PlannerService:
         return 1
 
     def _recipe_output_qty(self, recipe_id: int, item_id: int, kind: str) -> int:
-        row = self.conn.execute(
+        rows = self.conn.execute(
             "SELECT qty_count, qty_liters FROM recipe_lines WHERE recipe_id=? AND direction='out' AND item_id=?",
             (recipe_id, item_id),
-        ).fetchone()
-        if not row:
+        ).fetchall()
+        
+        if not rows:
             return 0
-        return self._qty_from_row(row, kind)
+            
+        total_qty = 0
+        for row in rows:
+            total_qty += self._qty_from_row(row, kind)
+        return total_qty
 
     def _recipe_inputs(self, recipe_id: int):
         return self.conn.execute(
