@@ -407,7 +407,11 @@ class _ItemDialogBase(QtWidgets.QDialog):
         self.item_kind_combo.setCurrentText(item_kind_name)
 
         if (item_kind_name.strip().lower() == "machine") or bool(self._row["is_machine"]):
-            self.machine_type_combo.setCurrentText(self._row["display_name"] or "")
+            # Prefer machine_type, fallback to display_name for legacy/migration
+            m_type = _row_get(self._row, "machine_type")
+            if not m_type:
+                 m_type = self._row["display_name"]
+            self.machine_type_combo.setCurrentText(m_type or "")
             self.tier_combo.setCurrentText(self._row["machine_tier"] or NONE_TIER_LABEL)
 
         material_name = (self._row["material_name"] or "") or NONE_MATERIAL_LABEL
@@ -784,8 +788,10 @@ class AddItemDialog(_ItemDialogBase):
                      content_qty = 0
         
         md = {}
+        machine_type_val = None
         if is_machine:
              md = self._get_machine_values()
+             machine_type_val = (self.machine_type_combo.currentText() or "").strip() or None
 
         cur = self.app.conn.execute("SELECT 1 FROM items WHERE key=?", (key,)).fetchone()
         if cur:
@@ -798,11 +804,11 @@ class AddItemDialog(_ItemDialogBase):
         try:
             cur = self.app.conn.execute(
                 "INSERT INTO items(key, display_name, kind, is_base, is_machine, item_kind_id, material_id, "
-                "machine_tier, machine_input_slots, machine_output_slots, machine_storage_slots, "
+                "machine_type, machine_tier, machine_input_slots, machine_output_slots, machine_storage_slots, "
                 "machine_power_slots, machine_circuit_slots, machine_input_tanks, machine_input_tank_capacity_l, "
                 "machine_output_tanks, machine_output_tank_capacity_l, "
                 "content_fluid_id, content_qty_liters) "
-                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     key,
                     display_name,
@@ -811,6 +817,7 @@ class AddItemDialog(_ItemDialogBase):
                     is_machine,
                     item_kind_id,
                     material_id,
+                    machine_type_val,
                     md.get("machine_tier"),
                     md.get("machine_input_slots"),
                     md.get("machine_output_slots"),
@@ -844,7 +851,7 @@ class EditItemDialog(_ItemDialogBase):
     def __init__(self, app, item_id: int, parent=None):
         row = app.conn.execute(
             "SELECT i.id, i.key, COALESCE(i.display_name, i.key) AS name, i.display_name, i.kind, "
-            "       i.is_base, i.is_machine, i.machine_tier, i.machine_input_slots, i.machine_output_slots, "
+            "       i.is_base, i.is_machine, i.machine_type, i.machine_tier, i.machine_input_slots, i.machine_output_slots, "
             "       i.machine_storage_slots, i.machine_power_slots, i.machine_circuit_slots, i.machine_input_tanks, "
             "       i.machine_input_tank_capacity_l, i.machine_output_tanks, i.machine_output_tank_capacity_l, "
             "       i.content_fluid_id, i.content_qty_liters, "
@@ -894,13 +901,15 @@ class EditItemDialog(_ItemDialogBase):
                      content_qty = 0
 
         md = {}
+        machine_type_val = None
         if is_machine:
              md = self._get_machine_values()
+             machine_type_val = (self.machine_type_combo.currentText() or "").strip() or None
 
         try:
             self.app.conn.execute(
                 "UPDATE items SET display_name=?, kind=?, is_base=?, is_machine=?, item_kind_id=?, material_id=?, "
-                "machine_tier=?, machine_input_slots=?, machine_output_slots=?, machine_storage_slots=?, "
+                "machine_type=?, machine_tier=?, machine_input_slots=?, machine_output_slots=?, machine_storage_slots=?, "
                 "machine_power_slots=?, machine_circuit_slots=?, machine_input_tanks=?, machine_input_tank_capacity_l=?, "
                 "machine_output_tanks=?, machine_output_tank_capacity_l=?, "
                 "content_fluid_id=?, content_qty_liters=? "
@@ -912,6 +921,7 @@ class EditItemDialog(_ItemDialogBase):
                     is_machine,
                     item_kind_id,
                     material_id,
+                    machine_type_val,
                     md.get("machine_tier"),
                     md.get("machine_input_slots"),
                     md.get("machine_output_slots"),
@@ -1452,7 +1462,7 @@ class _RecipeDialogBase(QtWidgets.QDialog):
         if self.machine_item_id is None:
             return None
         row = self.app.conn.execute(
-            "SELECT COALESCE(display_name, key) AS name, machine_tier, machine_output_slots "
+            "SELECT COALESCE(display_name, key) AS name, machine_type, machine_tier, machine_output_slots "
             "FROM items WHERE id=?",
             (self.machine_item_id,),
         ).fetchone()
@@ -1463,20 +1473,22 @@ class _RecipeDialogBase(QtWidgets.QDialog):
         if tier is None:
             tier = (row["machine_tier"] or "").strip() or None
         if tier:
-            meta = self.app.conn.execute(
-                """
-                SELECT output_slots
-                FROM machine_metadata
-                WHERE LOWER(machine_type)=LOWER(?) AND tier=?
-                """,
-                (row["name"], tier),
-            ).fetchone()
-            if meta:
-                try:
-                    slots = int(meta["output_slots"] or 1)
-                except Exception:
-                    slots = 1
-                return slots if slots > 0 else 1
+            machine_type = (row["machine_type"] or "").strip()
+            if machine_type:
+                meta = self.app.conn.execute(
+                    """
+                    SELECT output_slots
+                    FROM machine_metadata
+                    WHERE LOWER(machine_type)=LOWER(?) AND tier=?
+                    """,
+                    (machine_type, tier),
+                ).fetchone()
+                if meta:
+                    try:
+                        slots = int(meta["output_slots"] or 1)
+                    except Exception:
+                        slots = 1
+                    return slots if slots > 0 else 1
         try:
             mos = int(row["machine_output_slots"] or 1)
         except Exception:
@@ -1487,7 +1499,7 @@ class _RecipeDialogBase(QtWidgets.QDialog):
         if self.machine_item_id is None:
             return None, None
         row = self.app.conn.execute(
-            "SELECT COALESCE(display_name, key) AS name, machine_tier, "
+            "SELECT COALESCE(display_name, key) AS name, machine_type, machine_tier, "
             "machine_input_tanks, machine_output_tanks FROM items WHERE id=?",
             (self.machine_item_id,),
         ).fetchone()
@@ -1498,18 +1510,20 @@ class _RecipeDialogBase(QtWidgets.QDialog):
         if tier is None:
             tier = (row["machine_tier"] or "").strip() or None
         if tier:
-            meta = self.app.conn.execute(
-                """
-                SELECT input_tanks, output_tanks
-                FROM machine_metadata
-                WHERE LOWER(machine_type)=LOWER(?) AND tier=?
-                """,
-                (row["name"], tier),
-            ).fetchone()
-            if meta:
-                in_tanks = int(meta["input_tanks"] or 0)
-                out_tanks = int(meta["output_tanks"] or 0)
-                return (in_tanks if in_tanks > 0 else None, out_tanks if out_tanks > 0 else None)
+            machine_type = (row["machine_type"] or "").strip()
+            if machine_type:
+                meta = self.app.conn.execute(
+                    """
+                    SELECT input_tanks, output_tanks
+                    FROM machine_metadata
+                    WHERE LOWER(machine_type)=LOWER(?) AND tier=?
+                    """,
+                    (machine_type, tier),
+                ).fetchone()
+                if meta:
+                    in_tanks = int(meta["input_tanks"] or 0)
+                    out_tanks = int(meta["output_tanks"] or 0)
+                    return (in_tanks if in_tanks > 0 else None, out_tanks if out_tanks > 0 else None)
         try:
             in_tanks = int(row["machine_input_tanks"] or 0)
         except Exception:
