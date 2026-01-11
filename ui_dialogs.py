@@ -739,21 +739,12 @@ class _ItemDialogBase(QtWidgets.QDialog):
     def save(self) -> None:
         raise NotImplementedError
 
-
 class AddItemDialog(_ItemDialogBase):
     def __init__(self, app, parent=None):
         super().__init__(app, "Add Item", parent=parent)
 
     def save(self) -> None:
         display_name = (self.display_name_edit.text() or "").strip()
-        if not display_name:
-            QtWidgets.QMessageBox.warning(self, "Missing name", "Display Name is required.")
-            return
-
-        key = self._slugify(display_name)
-
-        def save(self) -> None:
-            display_name = (self.display_name_edit.text() or "").strip()
         if not display_name:
             QtWidgets.QMessageBox.warning(self, "Missing name", "Display Name is required.")
             return
