@@ -70,7 +70,10 @@ def test_ensure_schema_creates_tables_and_defaults():
         "SELECT id FROM item_kinds WHERE LOWER(name)=LOWER('Machine')"
     ).fetchone()
     assert machine_kind is not None
-
+    
+    lines_columns = _table_columns(conn, "recipe_lines")
+    for column in ("chance_percent", "consumption_chance", "output_slot_index"):
+        assert column in lines_columns
 
 def test_materials_crud():
     conn = sqlite3.connect(":memory:")
