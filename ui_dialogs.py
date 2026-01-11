@@ -95,18 +95,18 @@ class ItemPickerDialog(QtWidgets.QDialog):
 
     def reload_items(self) -> None:
         if self.machines_only:
-            enabled = self.app.get_enabled_tiers() if hasattr(self.app, "get_enabled_tiers") else ALL_TIERS
-            placeholders = ",".join(["?"] * len(enabled))
+            # Select all machines (kind='machine' OR kind='item' flagged as machine)
+            # We do NOT filter by enabled tiers here, so recipe editors can see all available machines.
             sql = (
                 "SELECT i.id, i.key, COALESCE(i.display_name, i.key) AS name, i.kind, "
                 "       i.machine_tier, i.is_machine, k.name AS item_kind_name "
                 "FROM items i "
                 "LEFT JOIN item_kinds k ON k.id = i.item_kind_id "
-                "WHERE i.kind='item' AND (LOWER(COALESCE(k.name,''))=LOWER('Machine') OR i.is_machine=1) "
-                f"AND (i.machine_tier IS NULL OR TRIM(i.machine_tier)='' OR i.machine_tier IN ({placeholders})) "
+                "WHERE (i.kind='machine') "
+                "   OR (i.kind='item' AND (LOWER(COALESCE(k.name,''))=LOWER('Machine') OR i.is_machine=1)) "
                 "ORDER BY name"
             )
-            self._items = self.app.conn.execute(sql, tuple(enabled)).fetchall()
+            self._items = self.app.conn.execute(sql).fetchall()
         else:
             if self.kinds:
                 placeholders = ",".join(["?"] * len(self.kinds))
