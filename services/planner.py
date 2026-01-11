@@ -343,9 +343,9 @@ class PlannerService:
             energy_per_output = _safe_divide(total_energy, output_qty)
             return (
                 match_rank,
-                tier_rank,
-                input_ratio,
-                time_per_output,
+                input_ratio,      # Prioritize Material Efficiency (1st)
+                time_per_output,  # Prioritize Speed (2nd)
+                tier_rank,        # Consider Tier last (3rd)
                 energy_per_output,
                 (row["name"] or "").lower(),
             )
