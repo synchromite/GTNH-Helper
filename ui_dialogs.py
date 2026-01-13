@@ -47,10 +47,12 @@ class ItemPickerDialog(QtWidgets.QDialog):
         self.app = app
         self.machines_only = machines_only
         self.kinds = kinds
+        self._base_kinds = set(kinds) if kinds else {"item", "fluid", "gas", "machine"}
         self.result: dict | None = None
         self._items = []
         self._display_map: dict[QtWidgets.QTreeWidgetItem, dict] = {}
         self._dup_name_counts: dict[tuple[str, str], int] = {}
+        self._tab_kinds: list[set[str]] = []
 
         self.setWindowTitle(title)
         self.resize(520, 520)
@@ -67,6 +69,8 @@ class ItemPickerDialog(QtWidgets.QDialog):
         self.search_edit.textChanged.connect(self._schedule_rebuild)
         top.addWidget(self.search_edit)
         layout.addLayout(top)
+
+        self._build_tabs(layout)
 
         self.tree = QtWidgets.QTreeWidget()
         self.tree.setHeaderHidden(True)
@@ -89,6 +93,48 @@ class ItemPickerDialog(QtWidgets.QDialog):
         self.reload_items()
         self.rebuild_tree()
         self.search_edit.setFocus()
+
+    def _build_tabs(self, layout: QtWidgets.QVBoxLayout) -> None:
+        if self.machines_only:
+            return
+        self.tabs = QtWidgets.QTabBar()
+        self.tabs.setExpanding(True)
+        self.tabs.setUsesScrollButtons(False)
+        self._tab_kinds = []
+
+        def _add_tab(label: str, kinds: set[str]) -> None:
+            self._tab_kinds.append(kinds)
+            self.tabs.addTab(label)
+
+        if "item" in self._base_kinds:
+            _add_tab("Items", {"item"})
+        if self._base_kinds & {"fluid", "gas"}:
+            _add_tab("Fluids", {"fluid", "gas"})
+        if "machine" in self._base_kinds:
+            _add_tab("Machines", {"machine"})
+        _add_tab("All", set(self._base_kinds))
+
+        self.tabs.currentChanged.connect(self.rebuild_tree)
+        layout.addWidget(self.tabs)
+        self._select_default_tab()
+
+    def _select_default_tab(self) -> None:
+        if not getattr(self, "tabs", None):
+            return
+        for idx, kinds in enumerate(self._tab_kinds):
+            if kinds == self._base_kinds:
+                self.tabs.setCurrentIndex(idx)
+                return
+        self.tabs.setCurrentIndex(0)
+
+    def _active_kinds(self) -> set[str]:
+        if self.machines_only:
+            return {"machine"}
+        if getattr(self, "tabs", None) and self._tab_kinds:
+            idx = self.tabs.currentIndex()
+            if 0 <= idx < len(self._tab_kinds):
+                return set(self._tab_kinds[idx])
+        return set(self._base_kinds)
 
     def _schedule_rebuild(self) -> None:
         self._search_timer.start()
@@ -144,7 +190,11 @@ class ItemPickerDialog(QtWidgets.QDialog):
             key = (row["kind"], row["name"])
             self._dup_name_counts[key] = self._dup_name_counts.get(key, 0) + 1
 
+        active_kinds = None if self.machines_only else self._active_kinds()
+
         def _matches(row) -> bool:
+            if active_kinds is not None and row["kind"] not in active_kinds:
+                return False
             if not query:
                 return True
             return query in (row["name"] or "").lower()
@@ -164,15 +214,11 @@ class ItemPickerDialog(QtWidgets.QDialog):
             self._select_first_child(p_machines)
             return
 
-        show_items = True
-        show_fluids = True
-        show_gases = True
-        show_machines = True
-        if self.kinds:
-            show_items = "item" in self.kinds
-            show_fluids = "fluid" in self.kinds
-            show_gases = "gas" in self.kinds
-            show_machines = "machine" in self.kinds
+        active_kinds = self._active_kinds()
+        show_items = "item" in active_kinds
+        show_fluids = "fluid" in active_kinds
+        show_gases = "gas" in active_kinds
+        show_machines = "machine" in active_kinds
 
         p_items = QtWidgets.QTreeWidgetItem(self.tree, ["Items"]) if show_items else None
         p_fluids = QtWidgets.QTreeWidgetItem(self.tree, ["Fluids"]) if show_fluids else None
