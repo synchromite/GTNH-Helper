@@ -278,7 +278,16 @@ class ItemMergeConflictDialog(QtWidgets.QDialog):
 
 
 class _ItemDialogBase(QtWidgets.QDialog):
-    def __init__(self, app, title: str, *, row=None, parent=None):
+    def __init__(
+        self,
+        app,
+        title: str,
+        *,
+        row=None,
+        parent=None,
+        allowed_kinds: list[str] | None = None,
+        default_kind: str | None = None,
+    ):
         super().__init__(parent)
         self.app = app
         self._row = row
@@ -297,6 +306,8 @@ class _ItemDialogBase(QtWidgets.QDialog):
         self._kind_name_to_id: dict[str, int] = {}
         self._material_name_to_id: dict[str, int] = {}
         self._fluid_name_to_id: dict[str, int] = {}
+        self._allowed_kinds = allowed_kinds
+        self._default_kind = default_kind
         
         self.setWindowTitle(title)
         self.setModal(True)
@@ -312,10 +323,12 @@ class _ItemDialogBase(QtWidgets.QDialog):
 
         form.addWidget(QtWidgets.QLabel("Kind"), 1, 0)
         self.kind_combo = QtWidgets.QComboBox()
-        self.kind_combo.addItems(["item", "fluid", "gas", "machine"])
+        kind_values = allowed_kinds or ["item", "fluid", "gas", "machine"]
+        self.kind_combo.addItems(kind_values)
         form.addWidget(self.kind_combo, 1, 1)
 
-        form.addWidget(QtWidgets.QLabel("Item Type"), 2, 0)
+        self.item_kind_label = QtWidgets.QLabel("Item Type")
+        form.addWidget(self.item_kind_label, 2, 0)
         self.item_kind_combo = QtWidgets.QComboBox()
         form.addWidget(self.item_kind_combo, 2, 1)
 
@@ -391,7 +404,10 @@ class _ItemDialogBase(QtWidgets.QDialog):
     def _load_row_defaults(self) -> None:
         if not self._row:
             self.display_name_edit.setText("")
-            self.kind_combo.setCurrentText("item")
+            if self._default_kind:
+                self.kind_combo.setCurrentText(self._default_kind)
+            else:
+                self.kind_combo.setCurrentText(self.kind_combo.itemText(0))
             self.item_kind_combo.setCurrentText(NONE_KIND_LABEL)
             self.material_combo.setCurrentText(NONE_MATERIAL_LABEL)
             self.is_base_check.setChecked(False)
@@ -565,6 +581,9 @@ class _ItemDialogBase(QtWidgets.QDialog):
         is_machine_kind = kind_high == "machine"
         is_fluid_like = kind_high in ("fluid", "gas")
 
+        self.item_kind_label.setVisible(not is_machine_kind)
+        self.item_kind_combo.setVisible(not is_machine_kind)
+
         # Machine-specific fields depend on KIND, not Item Type
         self.machine_type_label.setVisible(is_machine_kind)
         self.machine_type_combo.setVisible(is_machine_kind)
@@ -607,7 +626,10 @@ class _ItemDialogBase(QtWidgets.QDialog):
             self.item_kind_combo.setCurrentText(canonical)
 
         v2 = (self.item_kind_combo.currentText() or "").strip()
-        self.item_kind_id = self._kind_name_to_id.get(v2) if v2 and v2 != NONE_KIND_LABEL else None
+        if is_machine_kind:
+            self.item_kind_id = self.machine_kind_id
+        else:
+            self.item_kind_id = self._kind_name_to_id.get(v2) if v2 and v2 != NONE_KIND_LABEL else None
 
     def _on_has_material_toggled(self) -> None:
         checked = self.has_material_check.isChecked()
@@ -664,7 +686,10 @@ class _ItemDialogBase(QtWidgets.QDialog):
     def _on_high_level_kind_changed(self) -> None:
         self._update_item_kind_combo()
         self._on_item_kind_selected()
-        self.item_kind_combo.setEnabled(True)
+        if (self.kind_combo.currentText() or "").strip().lower() == "machine":
+            self.item_kind_combo.setEnabled(False)
+        else:
+            self.item_kind_combo.setEnabled(True)
 
     def _clear_layout(self, layout: QtWidgets.QGridLayout) -> None:
         while layout.count():
@@ -720,8 +745,14 @@ class _ItemDialogBase(QtWidgets.QDialog):
         raise NotImplementedError
 
 class AddItemDialog(_ItemDialogBase):
-    def __init__(self, app, parent=None):
-        super().__init__(app, "Add Item", parent=parent)
+    def __init__(self, app, parent=None, *, allowed_kinds: list[str] | None = None, default_kind: str | None = None):
+        super().__init__(
+            app,
+            "Add Item",
+            parent=parent,
+            allowed_kinds=allowed_kinds,
+            default_kind=default_kind,
+        )
 
     def save(self) -> None:
         display_name = (self.display_name_edit.text() or "").strip()
@@ -763,6 +794,12 @@ class AddItemDialog(_ItemDialogBase):
         if is_machine:
             md = self._get_machine_values()
             machine_type_val = (self.machine_type_combo.currentText() or "").strip() or None
+            if not machine_type_val:
+                QtWidgets.QMessageBox.warning(self, "Missing machine type", "Machine Type is required.")
+                return
+            if not md.get("machine_tier"):
+                QtWidgets.QMessageBox.warning(self, "Missing tier", "Tier is required for machines.")
+                return
 
         cur = self.app.conn.execute("SELECT 1 FROM items WHERE key=?", (key,)).fetchone()
         if cur:
@@ -862,6 +899,12 @@ class EditItemDialog(_ItemDialogBase):
         if is_machine:
             md = self._get_machine_values()
             machine_type_val = (self.machine_type_combo.currentText() or "").strip() or None
+            if not machine_type_val:
+                QtWidgets.QMessageBox.warning(self, "Missing machine type", "Machine Type is required.")
+                return
+            if not md.get("machine_tier"):
+                QtWidgets.QMessageBox.warning(self, "Missing tier", "Tier is required for machines.")
+                return
 
         try:
             self.app.conn.execute(
