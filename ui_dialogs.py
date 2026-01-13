@@ -70,11 +70,11 @@ class ItemPickerDialog(QtWidgets.QDialog):
         top.addWidget(self.search_edit)
         layout.addLayout(top)
 
-        self._build_tabs(layout)
-
         self.tree = QtWidgets.QTreeWidget()
         self.tree.setHeaderHidden(True)
         self.tree.itemDoubleClicked.connect(lambda *_: self.on_ok())
+
+        self._build_tabs(layout)
         layout.addWidget(self.tree, stretch=1)
 
         btns = QtWidgets.QHBoxLayout()
