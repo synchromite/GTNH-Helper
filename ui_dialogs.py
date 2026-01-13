@@ -678,10 +678,7 @@ class _ItemDialogBase(QtWidgets.QDialog):
             self.content_fluid_id = None
 
     def _on_machine_type_selected(self) -> None:
-        if self.machine_type_combo.isVisible():
-            val = self.machine_type_combo.currentText()
-            if val:
-                self.display_name_edit.setText(val)
+        return
 
     def _on_high_level_kind_changed(self) -> None:
         self._update_item_kind_combo()

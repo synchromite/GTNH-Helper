@@ -101,10 +101,15 @@ class BaseItemTab(QtWidgets.QWidget):
             # Level 2: Item Kind (e.g. Component, etc.)
             item_kind_val = self._get_value(it, "item_kind_name")
             item_kind_label = _label(item_kind_val, "(No kind)")
+            if (kind_val or "").strip().lower() == "machine":
+                machine_type_val = self._get_value(it, "machine_type")
+                item_kind_label = _label(machine_type_val, "(Machine type)")
 
             # Check if Material exists
             raw_mat_name = self._get_value(it, "material_name")
             has_material = raw_mat_name and raw_mat_name.strip()
+            if (kind_val or "").strip().lower() == "machine":
+                has_material = False
 
             # Build Tree Nodes
             kind_item = kind_nodes.get(kind_label)
