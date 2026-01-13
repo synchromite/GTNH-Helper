@@ -443,13 +443,20 @@ def _canonical_recipe_name(name: str) -> str:
 
 
 def _recipe_line_signature(line: dict[str, Any] | sqlite3.Row) -> tuple:
+    if isinstance(line, sqlite3.Row):
+        try:
+            consumption_chance = line["consumption_chance"]
+        except Exception:
+            consumption_chance = 1.0
+    else:
+        consumption_chance = line.get("consumption_chance", 1.0)
     return (
         line["direction"],
         line["item_key"],
         line["qty_count"],
         line["qty_liters"],
         line["chance_percent"],
-        line.get("consumption_chance", 1.0),
+        consumption_chance,
         line["output_slot_index"],
     )
 
@@ -874,7 +881,7 @@ def merge_db(
                     ln["qty_count"],
                     ln["qty_liters"],
                     ln["chance_percent"],
-                    ln.get("consumption_chance", 1.0),
+                    ln["consumption_chance"] if "consumption_chance" in ln.keys() else 1.0,
                     ln["output_slot_index"],
                 ),
             )

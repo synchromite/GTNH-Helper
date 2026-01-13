@@ -98,7 +98,15 @@ def fetch_item_name(conn: sqlite3.Connection, item_id: int) -> str:
 
 def fetch_machine_output_slots(conn: sqlite3.Connection, machine_item_id: int) -> int | None:
     row = conn.execute(
-        "SELECT machine_output_slots FROM items WHERE id=?",
+        """
+        SELECT COALESCE(mm.output_slots, 1) AS machine_output_slots
+        FROM items i
+        LEFT JOIN machine_metadata mm ON (
+            mm.machine_type = i.machine_type
+            AND mm.tier = i.machine_tier
+        )
+        WHERE i.id=?
+        """,
         (machine_item_id,),
     ).fetchone()
     if not row:

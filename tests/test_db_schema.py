@@ -33,15 +33,9 @@ def test_ensure_schema_creates_tables_and_defaults():
         "material_id",
         "is_machine",
         "machine_tier",
-        "machine_input_slots",
-        "machine_output_slots",
-        "machine_storage_slots",
-        "machine_power_slots",
-        "machine_circuit_slots",
-        "machine_input_tanks",
-        "machine_input_tank_capacity_l",
-        "machine_output_tanks",
-        "machine_output_tank_capacity_l",
+        "machine_type",
+        "content_fluid_id",
+        "content_qty_liters",
     ):
         assert column in item_columns
 
