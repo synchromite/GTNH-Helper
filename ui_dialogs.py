@@ -405,22 +405,25 @@ class _ItemDialogBase(QtWidgets.QDialog):
         self.tier_combo.hide()
         
         # Row 6: Fluid Container options
+        self.container_group = QtWidgets.QGroupBox("Fluid Container")
+        container_layout = QtWidgets.QGridLayout(self.container_group)
         self.is_container_check = QtWidgets.QCheckBox("Is Fluid Container? (e.g. Cell/Bucket)")
-        form.addWidget(self.is_container_check, 6, 1)
-        
+        container_layout.addWidget(self.is_container_check, 0, 0, 1, 2)
+
         self.content_fluid_label = QtWidgets.QLabel("Contains Fluid")
         self.content_fluid_combo = QtWidgets.QComboBox()
-        form.addWidget(self.content_fluid_label, 7, 0)
-        form.addWidget(self.content_fluid_combo, 7, 1)
-        
+        container_layout.addWidget(self.content_fluid_label, 1, 0)
+        container_layout.addWidget(self.content_fluid_combo, 1, 1)
+
         self.content_qty_label = QtWidgets.QLabel("Amount (L)")
         self.content_qty_edit = QtWidgets.QLineEdit("1000")
         self.content_qty_edit.setValidator(QtGui.QIntValidator(1, 1000000))
-        form.addWidget(self.content_qty_label, 8, 0)
-        form.addWidget(self.content_qty_edit, 8, 1)
+        container_layout.addWidget(self.content_qty_label, 2, 0)
+        container_layout.addWidget(self.content_qty_edit, 2, 1)
+        form.addWidget(self.container_group, 6, 0, 1, 2)
 
         self.is_base_check = QtWidgets.QCheckBox("Base resource (planner stops here later)")
-        form.addWidget(self.is_base_check, 9, 1)
+        form.addWidget(self.is_base_check, 7, 1)
 
         buttons = QtWidgets.QDialogButtonBox(
             QtWidgets.QDialogButtonBox.StandardButton.Save
@@ -645,15 +648,15 @@ class _ItemDialogBase(QtWidgets.QDialog):
             self.material_label.setVisible(False)
             self.material_combo.setVisible(False)
             self.material_id = None
-            
-            self.is_container_check.setVisible(False)
+
+            self.container_group.setVisible(False)
             self.is_container_check.setChecked(False)
             self._on_is_container_toggled()
         else:
             self.has_material_check.setVisible(True)
-            self._on_has_material_toggled() 
-            
-            self.is_container_check.setVisible(True)
+            self._on_has_material_toggled()
+
+            self.container_group.setVisible(True)
             self._on_is_container_toggled()
 
         canonical = None
