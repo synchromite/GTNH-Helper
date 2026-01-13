@@ -80,6 +80,7 @@ This document is a step-by-step QA checklist for validating the application when
    - Display Name: `Water`
    - Kind: `fluid`
    - Save.
+2. Switch to the **Fluids** tab to confirm the `Water` item appears.
 2. Add a **Container** item:
    - Display Name: `Water Cell`
    - Kind: `item`
