@@ -289,6 +289,12 @@ class FluidsTab(BaseItemTab):
                 "To enable editing, create a file named '.enable_editor' next to the app.",
             )
             return
-        dialog = AddItemDialog(self.app, parent=self, allowed_kinds=["fluid", "gas"], default_kind="fluid")
+        dialog = AddItemDialog(
+            self.app,
+            parent=self,
+            title="Add Fluid",
+            allowed_kinds=["fluid", "gas"],
+            default_kind="fluid",
+        )
         if dialog.exec() == QtWidgets.QDialog.DialogCode.Accepted:
             self.app.refresh_items()

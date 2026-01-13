@@ -589,6 +589,9 @@ class _ItemDialogBase(QtWidgets.QDialog):
         self.machine_type_combo.setVisible(is_machine_kind)
         self.tier_label.setVisible(is_machine_kind)
         self.tier_combo.setVisible(is_machine_kind)
+        self.is_base_check.setVisible(not is_machine_kind)
+        if is_machine_kind:
+            self.is_base_check.setChecked(False)
 
         # Material is hidden if Machine Kind OR Fluid/Gas.
         if is_machine_kind or is_fluid_like:
@@ -599,6 +602,7 @@ class _ItemDialogBase(QtWidgets.QDialog):
             
             self.is_container_check.setVisible(False)
             self.is_container_check.setChecked(False)
+            self._on_is_container_toggled()
         else:
             self.has_material_check.setVisible(True)
             self._on_has_material_toggled() 
@@ -742,10 +746,18 @@ class _ItemDialogBase(QtWidgets.QDialog):
         raise NotImplementedError
 
 class AddItemDialog(_ItemDialogBase):
-    def __init__(self, app, parent=None, *, allowed_kinds: list[str] | None = None, default_kind: str | None = None):
+    def __init__(
+        self,
+        app,
+        parent=None,
+        *,
+        title: str = "Add Item",
+        allowed_kinds: list[str] | None = None,
+        default_kind: str | None = None,
+    ):
         super().__init__(
             app,
-            "Add Item",
+            title,
             parent=parent,
             allowed_kinds=allowed_kinds,
             default_kind=default_kind,
