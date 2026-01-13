@@ -6,6 +6,13 @@ from ui_dialogs import AddItemDialog, EditItemDialog
 
 
 class BaseItemTab(QtWidgets.QWidget):
+    @staticmethod
+    def _get_value(item: dict | QtCore.QVariant | object, key: str):
+        try:
+            return item[key]
+        except Exception:
+            return None
+
     def __init__(self, app, parent=None):
         super().__init__(parent)
         self.app = app
@@ -69,12 +76,6 @@ class BaseItemTab(QtWidgets.QWidget):
         material_nodes: dict[tuple[str, str, str], QtWidgets.QTreeWidgetItem] = {}
         id_nodes: dict[int, QtWidgets.QTreeWidgetItem] = {}
 
-        def _value(item: dict | QtCore.QVariant | object, key: str):
-            try:
-                return item[key]
-            except Exception:
-                return None
-
         def _label(value: str | None, fallback: str) -> str:
             if value is None:
                 return fallback
@@ -83,10 +84,10 @@ class BaseItemTab(QtWidgets.QWidget):
 
         def _sort_key(it: dict) -> tuple[str, str, str, str]:
             return (
-                (_value(it, "kind") or "").strip().lower(),
-                (_value(it, "item_kind_name") or "").strip().lower(),
-                (_value(it, "material_name") or "").strip().lower(),
-                (_value(it, "name") or "").strip().lower(),
+                (self._get_value(it, "kind") or "").strip().lower(),
+                (self._get_value(it, "item_kind_name") or "").strip().lower(),
+                (self._get_value(it, "material_name") or "").strip().lower(),
+                (self._get_value(it, "name") or "").strip().lower(),
             )
 
         for it in sorted(self.items, key=_sort_key):
@@ -94,15 +95,15 @@ class BaseItemTab(QtWidgets.QWidget):
                 continue
 
             # Level 1: Kind (Item, Fluid, Gas, Machine)
-            kind_val = _value(it, "kind")
+            kind_val = self._get_value(it, "kind")
             kind_label = _label(kind_val, "(No type)").title()
 
             # Level 2: Item Kind (e.g. Component, etc.)
-            item_kind_val = _value(it, "item_kind_name")
+            item_kind_val = self._get_value(it, "item_kind_name")
             item_kind_label = _label(item_kind_val, "(No kind)")
 
             # Check if Material exists
-            raw_mat_name = _value(it, "material_name")
+            raw_mat_name = self._get_value(it, "material_name")
             has_material = raw_mat_name and raw_mat_name.strip()
 
             # Build Tree Nodes
@@ -260,12 +261,12 @@ class BaseItemTab(QtWidgets.QWidget):
 class ItemsTab(BaseItemTab):
     def should_display_item(self, item: dict) -> bool:
         # Countable items: Exclude Fluids and Gases
-        kind = (item.get("kind") or "").strip().lower()
+        kind = (self._get_value(item, "kind") or "").strip().lower()
         return kind not in ("fluid", "gas")
 
 
 class FluidsTab(BaseItemTab):
     def should_display_item(self, item: dict) -> bool:
         # Liters: Only Fluids and Gases
-        kind = (item.get("kind") or "").strip().lower()
+        kind = (self._get_value(item, "kind") or "").strip().lower()
         return kind in ("fluid", "gas")
