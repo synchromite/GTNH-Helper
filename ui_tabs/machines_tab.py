@@ -24,22 +24,20 @@ class MachineAvailabilityDialog(QtWidgets.QDialog):
         layout.addLayout(form)
 
         form.addWidget(QtWidgets.QLabel("Owned"), 0, 0)
-        self.owned_spin = QtWidgets.QSpinBox()
-        self.owned_spin.setRange(0, 9999)
-        form.addWidget(self.owned_spin, 0, 1)
+        self.owned_check = QtWidgets.QCheckBox()
+        form.addWidget(self.owned_check, 0, 1)
 
         form.addWidget(QtWidgets.QLabel("Online"), 1, 0)
-        self.online_spin = QtWidgets.QSpinBox()
-        self.online_spin.setRange(0, 9999)
-        form.addWidget(self.online_spin, 1, 1)
+        self.online_check = QtWidgets.QCheckBox()
+        form.addWidget(self.online_check, 1, 1)
 
         availability = self.app.get_machine_availability(machine["machine_type"], machine["machine_tier"])
         owned = int(availability.get("owned", 0))
         online = int(availability.get("online", 0))
-        self.owned_spin.setValue(owned)
-        self.online_spin.setValue(min(online, owned))
-        self.online_spin.setMaximum(owned)
-        self.owned_spin.valueChanged.connect(self._on_owned_changed)
+        self.owned_check.setChecked(owned > 0)
+        self.online_check.setChecked(online > 0 and owned > 0)
+        self.owned_check.toggled.connect(self._on_owned_changed)
+        self.online_check.toggled.connect(self._on_online_changed)
 
         buttons = QtWidgets.QDialogButtonBox(
             QtWidgets.QDialogButtonBox.StandardButton.Save
@@ -49,14 +47,23 @@ class MachineAvailabilityDialog(QtWidgets.QDialog):
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
 
-    def _on_owned_changed(self, value: int) -> None:
-        self.online_spin.setMaximum(value)
-        if self.online_spin.value() > value:
-            self.online_spin.setValue(value)
+    def _on_owned_changed(self, checked: bool) -> None:
+        if not checked:
+            prev = self.online_check.blockSignals(True)
+            self.online_check.setChecked(False)
+            self.online_check.blockSignals(prev)
+
+    def _on_online_changed(self, checked: bool) -> None:
+        if checked and not self.owned_check.isChecked():
+            prev = self.owned_check.blockSignals(True)
+            self.owned_check.setChecked(True)
+            self.owned_check.blockSignals(prev)
 
     def _save(self) -> None:
-        owned = self.owned_spin.value()
-        online = min(self.online_spin.value(), owned)
+        owned = 1 if self.owned_check.isChecked() else 0
+        online = 1 if self.online_check.isChecked() else 0
+        if online > owned:
+            online = owned
         self.app.set_machine_availability(
             [(self.machine["machine_type"], self.machine["machine_tier"], owned, online)]
         )
