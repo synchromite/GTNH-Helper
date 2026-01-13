@@ -29,6 +29,7 @@ This document is a step-by-step QA checklist for validating the application when
 **Goal:** Machine stats live in `machine_metadata`, so at least one machine definition must exist before machine items will show accurate stats.
 
 1. Open **Machines** tab.
+2. Ensure **Unlocked tiers only** is **unchecked** so the machine tier row is visible.
 2. Click **Edit Metadata…**.
 3. Add a row:
    - **Machine Type:** `Lathe`
