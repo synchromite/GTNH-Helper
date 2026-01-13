@@ -29,8 +29,7 @@ This document is a step-by-step QA checklist for validating the application when
 **Goal:** Machine stats live in `machine_metadata`, so at least one machine definition must exist before machine items will show accurate stats.
 
 1. Open **Machines** tab.
-2. Ensure **Unlocked tiers only** is **unchecked** so the machine tier row is visible.
-2. Click **Edit Metadata…**.
+2. Click **Edit Specs…** (editor mode required).
 3. Add a row:
    - **Machine Type:** `Lathe`
    - **Tier:** `LV`
@@ -40,7 +39,7 @@ This document is a step-by-step QA checklist for validating the application when
    - **Output Tanks:** `0`
 4. Save and close.
 
-**Expected:** The metadata row is listed in the Machines tab and persists after closing/reopening the dialog.
+**Expected:** The metadata row is saved in the editor dialog and persists after reopening it.
 
 ---
 
@@ -61,12 +60,13 @@ This document is a step-by-step QA checklist for validating the application when
 
 ---
 
-## 3) Verify Machine Specs in Item Details
+## 3) Verify Machine Specs in Machine Details
 
 **Goal:** Machine stats should resolve through metadata, not from per-item columns.
 
-1. In **Items** tab, click the machine item (`Basic Lathe`).
-2. Look at the **details panel** on the right.
+1. Open **Machines** tab.
+2. Select the machine item (`Basic Lathe`) in the list.
+3. Look at the **details panel** on the right.
 
 **Expected:** You see machine stats (Input Slots, Output Slots, Tanks, etc.) matching the metadata entered in Step 1.
 
@@ -146,8 +146,8 @@ This document is a step-by-step QA checklist for validating the application when
 **Goal:** Verify Owned/Online availability tracking.
 
 1. Open **Machines** tab.
-2. Find `Lathe / LV` row.
-3. Check **Owned** and **Online**.
+2. Double-click `Basic Lathe (LV)` in the list.
+3. In the **Availability** dialog, set **Owned** to `1` and **Online** to `1`.
 4. Click **Save**.
 
 **Expected:**
