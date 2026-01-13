@@ -97,31 +97,48 @@ This document is a step-by-step QA checklist for validating the application when
 
 ---
 
-## 5) Create a Simple Recipe (Machine)
+## 5) Materials + Item Setup (Iron)
+
+**Goal:** Verify materials can be managed and assigned to items before recipe creation.
+
+1. Open **Manage Materials** from the menu.
+2. Add a row:
+   - **Name:** `Iron`
+   - **Attributes:** (leave blank)
+3. Save and close.
+4. Open **Items** tab.
+5. Add item:
+   - Display Name: `Iron Ingot`
+   - Kind: `item`
+   - Check **Has Material?**
+   - Select **Material** = `Iron`
+   - Save.
+6. Add item:
+   - Display Name: `Iron Rod`
+   - Kind: `item`
+   - Check **Has Material?**
+   - Select **Material** = `Iron`
+   - Save.
+
+**Expected:**
+- The `Iron` material is available and assignable.
+- Both items save with the selected material.
+
+---
+
+## 6) Create a Simple Recipe (Machine)
 
 **Goal:** Validate recipe creation with machine metadata-driven constraints.
 
-**Prep — create input/output items**
-1. Open **Items** tab.
-2. Add item:
-   - Display Name: `Iron Ingot`
-   - Kind: `item`
-   - Save.
-3. Add item:
-   - Display Name: `Iron Rod`
-   - Kind: `item`
-   - Save.
-
-**Create the recipe**
-4. Open **Recipes** tab → **Add Recipe**.
-5. Recipe info:
+1. Open **Recipes** tab → **Add Recipe**.
+2. Recipe info:
    - **Name:** `Lathe Test`
    - **Method:** Machine
    - **Machine Item:** `Basic Lathe`
-6. Add one input and one output:
+3. Add one input and one output:
    - Input: `Iron Ingot` × 1
    - Output: `Iron Rod` × 1
-7. Save recipe.
+4. Save recipe.
 
 **Expected:**
 - Recipe saves.
@@ -129,7 +146,7 @@ This document is a step-by-step QA checklist for validating the application when
 
 ---
 
-## 6) Verify Recipe Detail Panel
+## 7) Verify Recipe Detail Panel
 
 **Goal:** Confirm UI reflects machine metadata.
 
@@ -141,7 +158,7 @@ This document is a step-by-step QA checklist for validating the application when
 
 ---
 
-## 7) Set Machine Availability
+## 8) Set Machine Availability
 
 **Goal:** Verify Owned/Online availability tracking.
 
@@ -155,7 +172,7 @@ This document is a step-by-step QA checklist for validating the application when
 
 ---
 
-## 8) Inventory & Planner Smoke Test
+## 9) Inventory & Planner Smoke Test
 
 **Goal:** Ensure inventory and planner run end-to-end with the new schema.
 
@@ -177,7 +194,7 @@ This document is a step-by-step QA checklist for validating the application when
 
 ---
 
-## 9) Optional: Merge/Import Sanity
+## 10) Optional: Merge/Import Sanity
 
 **Goal:** Confirm merge/import doesn’t crash when recipe lines include consumption chance.
 
@@ -190,7 +207,7 @@ This document is a step-by-step QA checklist for validating the application when
 
 ---
 
-## 10) Failure Mode Checks
+## 11) Failure Mode Checks
 
 **Goal:** Confirm user-facing errors appear and prevent invalid saves or actions. Each failure should show a clear message and leave data unchanged.**
 
