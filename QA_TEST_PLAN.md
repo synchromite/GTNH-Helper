@@ -76,12 +76,14 @@ This document is a step-by-step QA checklist for validating the application when
 
 **Goal:** Verify the fluid container group works on a blank database.
 
-1. Add a **Fluid** item:
+1. Switch to the **Fluids** tab.
+2. Add a **Fluid** item:
    - Display Name: `Water`
    - Kind: `fluid`
    - Save.
-2. Switch to the **Fluids** tab to confirm the `Water` item appears.
-2. Add a **Container** item:
+3. Confirm `Water` appears in the Fluids list.
+4. Switch back to the **Items** tab.
+5. Add a **Container** item:
    - Display Name: `Water Cell`
    - Kind: `item`
    - Check **Is Fluid Container?**
@@ -99,15 +101,27 @@ This document is a step-by-step QA checklist for validating the application when
 
 **Goal:** Validate recipe creation with machine metadata-driven constraints.
 
-1. Open **Recipes** tab → **Add Recipe**.
-2. Recipe info:
+**Prep — create input/output items**
+1. Open **Items** tab.
+2. Add item:
+   - Display Name: `Iron Ingot`
+   - Kind: `item`
+   - Save.
+3. Add item:
+   - Display Name: `Iron Rod`
+   - Kind: `item`
+   - Save.
+
+**Create the recipe**
+4. Open **Recipes** tab → **Add Recipe**.
+5. Recipe info:
    - **Name:** `Lathe Test`
    - **Method:** Machine
    - **Machine Item:** `Basic Lathe`
-3. Add one input and one output (create new items if necessary):
+6. Add one input and one output:
    - Input: `Iron Ingot` × 1
    - Output: `Iron Rod` × 1
-4. Save recipe.
+7. Save recipe.
 
 **Expected:**
 - Recipe saves.
@@ -141,17 +155,25 @@ This document is a step-by-step QA checklist for validating the application when
 
 ---
 
-## 8) Planner Smoke Test
+## 8) Inventory & Planner Smoke Test
 
-**Goal:** Ensure planner runs end-to-end with the new schema.
+**Goal:** Ensure inventory and planner run end-to-end with the new schema.
 
-1. Open **Planner** tab.
-2. Click **Select…** and choose `Iron Rod`.
-3. Set quantity to `1`.
-4. Click **Plan**.
+**Populate inventory (also validates the Inventory tab)**
+1. Open **Inventory** tab.
+2. Find `Iron Ingot` and set its quantity to `1`.
+3. Find `Iron Rod` and set its quantity to `0`.
+4. Save/confirm the inventory update if prompted.
+
+**Run the planner**
+5. Open **Planner** tab.
+6. Click **Select…** and choose `Iron Rod`.
+7. Set quantity to `1`.
+8. Click **Plan**.
 
 **Expected:**
 - Shopping list and process steps appear without errors.
+- Planner uses inventory quantities when **Use Inventory Data** is checked.
 
 ---
 
@@ -165,6 +187,33 @@ This document is a step-by-step QA checklist for validating the application when
    - Recipes and lines show after import.
 
 **Expected:** Import completes successfully, no missing outputs.
+
+---
+
+## 10) Failure Mode Checks
+
+**Goal:** Confirm user-facing errors appear and prevent invalid saves or actions. Each failure should show a clear message and leave data unchanged.**
+
+1. **Add Item — missing name**
+   - Open **Add Item**, leave Display Name blank, click **Save**.
+   - **Expected:** Warning dialog about missing name; item is not created.
+
+2. **Planner — no target item**
+   - Open **Planner** tab, click **Plan** without selecting an item.
+   - **Expected:** “Choose a target item first” dialog.
+
+3. **Planner — invalid quantity**
+   - Select a target item but enter a non-integer or 0.
+   - **Expected:** “Invalid quantity” dialog; plan does not run.
+
+4. **Recipes — missing output item**
+   - In **Add Recipe**, set a name item but remove all outputs for that item.
+   - **Expected:** Warning that outputs must include the selected item.
+
+5. **Delete item referenced by a recipe**
+   - Try deleting `Iron Ingot` (or any item in a recipe) from **Items**.
+   - **Expected:** Error dialog saying it’s referenced by a recipe; item remains.
+
 
 ---
 
