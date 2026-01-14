@@ -75,6 +75,7 @@ class MachinesTab(QtWidgets.QWidget):
         super().__init__(parent)
         self.app = app
         self._machines: list[dict[str, object]] = []
+        self._selected_machine: dict[str, object] | None = None
         self._sort_mode = self.app.get_machine_sort_mode() if hasattr(self.app, "get_machine_sort_mode") else "Machine (A→Z)"
         self._preferences_loaded = False
 
@@ -121,6 +122,14 @@ class MachinesTab(QtWidgets.QWidget):
 
         right = QtWidgets.QVBoxLayout()
         content.addLayout(right, stretch=1)
+
+        detail_controls = QtWidgets.QHBoxLayout()
+        detail_controls.addWidget(QtWidgets.QLabel("Tier"))
+        self.detail_tier_combo = QtWidgets.QComboBox()
+        self.detail_tier_combo.currentTextChanged.connect(self._on_detail_tier_changed)
+        detail_controls.addWidget(self.detail_tier_combo)
+        detail_controls.addStretch(1)
+        right.addLayout(detail_controls)
 
         self.details = QtWidgets.QTextEdit()
         self.details.setReadOnly(True)
@@ -169,16 +178,47 @@ class MachinesTab(QtWidgets.QWidget):
             ORDER BY name
             """
         ).fetchall()
-        self._machines = [dict(row) for row in rows]
+        self._machines = self._group_machine_rows([dict(row) for row in rows])
         self._rebuild_tier_filter()
         if not self._preferences_loaded:
             self._load_preferences()
         self._render_rows()
 
+    def _group_machine_rows(self, rows: list[dict[str, object]]) -> list[dict[str, object]]:
+        grouped: dict[str, dict[str, object]] = {}
+        for row in rows:
+            machine_type = (row.get("machine_type") or "").strip()
+            name = (row.get("name") or machine_type or "").strip()
+            key = machine_type or name
+            if not key:
+                continue
+            entry = grouped.setdefault(
+                key,
+                {
+                    "machine_type": machine_type or name,
+                    "label": machine_type or name or "(Unnamed machine)",
+                    "tiers": [],
+                    "tier_rows": {},
+                },
+            )
+            tier = (row.get("machine_tier") or "").strip()
+            if tier:
+                if tier not in entry["tiers"]:
+                    entry["tiers"].append(tier)
+                entry["tier_rows"][tier] = row
+        return list(grouped.values())
+
+    def _sorted_tiers(self, tiers: list[str]) -> list[str]:
+        tier_order = {tier: idx for idx, tier in enumerate(ALL_TIERS)}
+        extras = sorted([tier for tier in tiers if tier not in tier_order])
+        ordered = sorted([tier for tier in tiers if tier in tier_order], key=lambda t: tier_order[t])
+        return ordered + extras
+
     def _rebuild_tier_filter(self) -> None:
         current = self.filter_tier_combo.currentText() if hasattr(self, "filter_tier_combo") else ""
-        tiers = {(row.get("machine_tier") or "").strip() for row in self._machines}
-        tiers = {tier for tier in tiers if tier}
+        tiers = set()
+        for row in self._machines:
+            tiers.update({tier for tier in row.get("tiers", []) if tier})
         ordered = list(ALL_TIERS)
         extras = sorted(tiers - set(ALL_TIERS))
         choices = ["All tiers"] + ordered + extras
@@ -218,26 +258,33 @@ class MachinesTab(QtWidgets.QWidget):
             val = (value or "").strip()
             return (tier_order.get(val, len(ALL_TIERS)), val.lower())
 
+        def group_tier_key(machine: dict[str, object], *, reverse: bool = False) -> tuple[int, str]:
+            tiers = self._sorted_tiers(list(machine.get("tiers", [])))
+            if not tiers:
+                return (len(ALL_TIERS), "")
+            tier = tiers[-1] if reverse else tiers[0]
+            return tier_key(tier)
+
         if mode == "Machine (Z→A)":
-            return sorted(rows, key=lambda r: (r.get("name") or "").lower(), reverse=True)
+            return sorted(rows, key=lambda r: (r.get("label") or "").lower(), reverse=True)
         if mode == "Tier (progression)":
             return sorted(
                 rows,
                 key=lambda r: (
-                    tier_key(r.get("machine_tier") or ""),
-                    (r.get("name") or "").lower(),
+                    group_tier_key(r),
+                    (r.get("label") or "").lower(),
                 ),
             )
         if mode == "Tier (reverse)":
             return sorted(
                 rows,
                 key=lambda r: (
-                    tier_key(r.get("machine_tier") or ""),
-                    (r.get("name") or "").lower(),
+                    group_tier_key(r, reverse=True),
+                    (r.get("label") or "").lower(),
                 ),
                 reverse=True,
             )
-        return sorted(rows, key=lambda r: (r.get("name") or "").lower())
+        return sorted(rows, key=lambda r: (r.get("label") or "").lower())
 
     def _render_rows(self) -> None:
         rows = self._sorted_metadata_rows()
@@ -253,9 +300,10 @@ class MachinesTab(QtWidgets.QWidget):
         self.empty_label.hide()
 
         for row in rows:
-            label = row.get("name") or row.get("machine_type") or "(Unnamed machine)"
-            tier = (row.get("machine_tier") or "").strip()
-            display = f"{label} ({tier})" if tier else str(label)
+            label = row.get("label") or row.get("machine_type") or "(Unnamed machine)"
+            tiers = self._sorted_tiers(list(row.get("tiers", [])))
+            tier_label = ", ".join(tiers)
+            display = f"{label} ({tier_label})" if tiers else str(label)
             item = QtWidgets.QListWidgetItem(display)
             item.setData(QtCore.Qt.ItemDataRole.UserRole, row)
             self.machine_list.addItem(item)
@@ -268,33 +316,44 @@ class MachinesTab(QtWidgets.QWidget):
         enabled_tiers = set(self.app.get_enabled_tiers())
         search_text = (self.search_edit.text() or "").strip().lower() if hasattr(self, "search_edit") else ""
         any_visible = False
+        selected_row = self.machine_list.currentRow() if hasattr(self, "machine_list") else -1
+        selected_hidden = False
         for row_idx in range(self.machine_list.count()):
             item = self.machine_list.item(row_idx)
             row_state = item.data(QtCore.Qt.ItemDataRole.UserRole) or {}
-            tier = (row_state.get("machine_tier") or "").strip()
-            name = (row_state.get("name") or row_state.get("machine_type") or "").lower()
+            tiers = [tier.strip() for tier in row_state.get("tiers", []) if tier]
+            name = (row_state.get("label") or row_state.get("machine_type") or "").lower()
             matches = True
             if tier_filter and tier_filter != "All tiers":
-                matches = tier == tier_filter
+                matches = tier_filter in tiers
             if matches and unlocked_only:
-                matches = tier in enabled_tiers
+                matches = bool(set(tiers) & enabled_tiers)
             if matches and search_text:
                 matches = search_text in name
             item.setHidden(not matches)
             if matches:
                 any_visible = True
+            if row_idx == selected_row:
+                selected_hidden = not matches
         if not any_visible:
+            self.details.clear()
+        if selected_hidden:
+            self._selected_machine = None
+            self.detail_tier_combo.clear()
+            self.detail_tier_combo.setEnabled(False)
             self.details.clear()
 
     def _on_tier_filter_changed(self, value: str) -> None:
         if hasattr(self.app, "set_machine_tier_filter"):
             self.app.set_machine_tier_filter(value)
         self._apply_filters()
+        self._refresh_detail_tier_selection()
 
     def _on_unlocked_filter_toggled(self, checked: bool) -> None:
         if hasattr(self.app, "set_machine_unlocked_only"):
             self.app.set_machine_unlocked_only(checked)
         self._apply_filters()
+        self._refresh_detail_tier_selection()
 
     def _on_search_changed(self, value: str) -> None:
         if hasattr(self.app, "set_machine_search"):
@@ -303,22 +362,82 @@ class MachinesTab(QtWidgets.QWidget):
 
     def _on_machine_selected(self, row: int) -> None:
         if row < 0:
+            self._selected_machine = None
+            self.detail_tier_combo.clear()
+            self.detail_tier_combo.setEnabled(False)
             self.details.clear()
             return
         item = self.machine_list.item(row)
         if item is None:
+            self._selected_machine = None
+            self.detail_tier_combo.clear()
+            self.detail_tier_combo.setEnabled(False)
             self.details.clear()
             return
         machine = item.data(QtCore.Qt.ItemDataRole.UserRole)
         if not machine:
+            self._selected_machine = None
+            self.detail_tier_combo.clear()
+            self.detail_tier_combo.setEnabled(False)
             self.details.clear()
             return
-        self._render_machine_details(machine)
+        self._selected_machine = machine
+        self._populate_detail_tiers(machine)
 
-    def _render_machine_details(self, machine: dict[str, object]) -> None:
-        name = machine.get("name") or machine.get("machine_type") or ""
+    def _populate_detail_tiers(self, machine: dict[str, object]) -> None:
+        tiers = self._sorted_tiers(list(machine.get("tiers", [])))
+        chosen_tier = self._pick_detail_tier(tiers)
+        self.detail_tier_combo.blockSignals(True)
+        self.detail_tier_combo.clear()
+        self.detail_tier_combo.addItems(tiers)
+        self.detail_tier_combo.setEnabled(bool(tiers))
+        if chosen_tier:
+            self.detail_tier_combo.setCurrentText(chosen_tier)
+        self.detail_tier_combo.blockSignals(False)
+        if chosen_tier:
+            self._render_machine_details(machine, chosen_tier)
+        else:
+            self.details.clear()
+
+    def _pick_detail_tier(self, tiers: list[str]) -> str | None:
+        if not tiers:
+            return None
+        tier_filter = self.filter_tier_combo.currentText() if hasattr(self, "filter_tier_combo") else "All tiers"
+        if tier_filter and tier_filter != "All tiers" and tier_filter in tiers:
+            return tier_filter
+        if self.filter_unlocked_cb.isChecked() if hasattr(self, "filter_unlocked_cb") else False:
+            enabled_tiers = set(self.app.get_enabled_tiers())
+            for tier in tiers:
+                if tier in enabled_tiers:
+                    return tier
+        return tiers[0]
+
+    def _refresh_detail_tier_selection(self) -> None:
+        if not self._selected_machine:
+            return
+        tiers = self._sorted_tiers(list(self._selected_machine.get("tiers", [])))
+        chosen_tier = self._pick_detail_tier(tiers)
+        if not chosen_tier:
+            return
+        if self.detail_tier_combo.currentText() != chosen_tier:
+            self.detail_tier_combo.blockSignals(True)
+            self.detail_tier_combo.setCurrentText(chosen_tier)
+            self.detail_tier_combo.blockSignals(False)
+        self._render_machine_details(self._selected_machine, chosen_tier)
+
+    def _on_detail_tier_changed(self, tier: str) -> None:
+        if not self._selected_machine:
+            return
+        if not tier:
+            self.details.clear()
+            return
+        self._render_machine_details(self._selected_machine, tier)
+
+    def _render_machine_details(self, machine: dict[str, object], tier: str) -> None:
         machine_type = machine.get("machine_type") or ""
-        tier = machine.get("machine_tier") or ""
+        label = machine.get("label") or machine_type or ""
+        row = (machine.get("tier_rows") or {}).get(tier, {})
+        item_name = row.get("name") or label
         availability = self.app.get_machine_availability(machine_type, tier)
         owned = availability.get("owned", 0)
         online = availability.get("online", 0)
@@ -330,40 +449,51 @@ class MachinesTab(QtWidgets.QWidget):
                 return default
 
         text = (
-            f"Name: {name}\n"
+            f"Machine: {label}\n"
+            f"Item Name: {item_name}\n"
             f"Machine Type: {machine_type}\n"
             f"Tier: {tier}\n"
             f"Owned: {owned}\n"
             f"Online: {online}\n"
             "\nMachine Specs\n"
-            f"Input Slots: {_as_int(machine.get('machine_input_slots'), default=1) or 1}\n"
-            f"Output Slots: {_as_int(machine.get('machine_output_slots'), default=1) or 1}\n"
-            f"Byproduct Slots: {_as_int(machine.get('machine_byproduct_slots'))}\n"
-            f"Storage Slots: {_as_int(machine.get('machine_storage_slots'))}\n"
-            f"Power Slots: {_as_int(machine.get('machine_power_slots'))}\n"
-            f"Circuit Slots: {_as_int(machine.get('machine_circuit_slots'))}\n"
-            f"Input Tanks: {_as_int(machine.get('machine_input_tanks'))}\n"
-            f"Input Tank Capacity (L): {_as_int(machine.get('machine_input_tank_capacity_l'))}\n"
-            f"Output Tanks: {_as_int(machine.get('machine_output_tanks'))}\n"
-            f"Output Tank Capacity (L): {_as_int(machine.get('machine_output_tank_capacity_l'))}\n"
+            f"Input Slots: {_as_int(row.get('machine_input_slots'), default=1) or 1}\n"
+            f"Output Slots: {_as_int(row.get('machine_output_slots'), default=1) or 1}\n"
+            f"Byproduct Slots: {_as_int(row.get('machine_byproduct_slots'))}\n"
+            f"Storage Slots: {_as_int(row.get('machine_storage_slots'))}\n"
+            f"Power Slots: {_as_int(row.get('machine_power_slots'))}\n"
+            f"Circuit Slots: {_as_int(row.get('machine_circuit_slots'))}\n"
+            f"Input Tanks: {_as_int(row.get('machine_input_tanks'))}\n"
+            f"Input Tank Capacity (L): {_as_int(row.get('machine_input_tank_capacity_l'))}\n"
+            f"Output Tanks: {_as_int(row.get('machine_output_tanks'))}\n"
+            f"Output Tank Capacity (L): {_as_int(row.get('machine_output_tank_capacity_l'))}\n"
             "EU/t: —\n"
         )
         self.details.setPlainText(text)
 
     def _open_availability_dialog(self, item: QtWidgets.QListWidgetItem) -> None:
-        machine = item.data(QtCore.Qt.ItemDataRole.UserRole)
-        if not machine:
+        machine = item.data(QtCore.Qt.ItemDataRole.UserRole) if item else None
+        tier = self.detail_tier_combo.currentText() if hasattr(self, "detail_tier_combo") else ""
+        if not machine or not tier:
+            QtWidgets.QMessageBox.information(
+                self,
+                "Missing tier",
+                "Select a machine tier before updating availability.",
+            )
             return
-        if not machine.get("machine_type") or not machine.get("machine_tier"):
+        if not machine.get("machine_type"):
             QtWidgets.QMessageBox.information(
                 self,
                 "Missing machine info",
-                "This machine is missing a type or tier.",
+                "This machine is missing a type.",
             )
             return
-        dialog = MachineAvailabilityDialog(self.app, machine, parent=self)
+        dialog = MachineAvailabilityDialog(
+            self.app,
+            {"machine_type": machine.get("machine_type"), "machine_tier": tier, "name": machine.get("label")},
+            parent=self,
+        )
         if dialog.exec() == QtWidgets.QDialog.DialogCode.Accepted:
-            self._render_machine_details(machine)
+            self._render_machine_details(machine, tier)
 
     def _open_metadata_editor(self) -> None:
         if not self.app.editor_enabled:
