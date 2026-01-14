@@ -2510,14 +2510,14 @@ class MachineMetadataEditorDialog(QtWidgets.QDialog):
         spin = QtWidgets.QSpinBox()
         spin.setRange(minimum, maximum)
         spin.setValue(self._slot_defaults.get(key, 0))
-        spin.valueChanged.connect(lambda _=0, k=key: self._on_value_changed(k))
-        checkbox.toggled.connect(lambda checked, k=key: self._on_slot_toggled(k, checked))
         self.form.addWidget(checkbox, row, 0)
         self.form.addWidget(spin, row, 1)
+        self.slot_widgets[key] = (checkbox, spin)
+        spin.valueChanged.connect(lambda _=0, k=key: self._on_value_changed(k))
+        checkbox.toggled.connect(lambda checked, k=key: self._on_slot_toggled(k, checked))
         if required:
             checkbox.setChecked(True)
             checkbox.setEnabled(False)
-        self.slot_widgets[key] = (checkbox, spin)
 
         if with_capacity:
             cap_row = self.form.rowCount()
@@ -2534,7 +2534,10 @@ class MachineMetadataEditorDialog(QtWidgets.QDialog):
     def _on_slot_toggled(self, key: str, checked: bool) -> None:
         if self._loading:
             return
-        checkbox, spin = self.slot_widgets[key]
+        slot = self.slot_widgets.get(key)
+        if slot is None:
+            return
+        checkbox, spin = slot
         if checked and spin.value() == 0 and spin.minimum() > 0:
             spin.setValue(spin.minimum())
         spin.setVisible(checked)
