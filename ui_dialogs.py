@@ -2631,3 +2631,150 @@ class MaterialManagerDialog(QtWidgets.QDialog):
         if hasattr(self.app, "refresh_items"):
             self.app.refresh_items()
         self.accept()
+
+
+class ItemKindManagerDialog(QtWidgets.QDialog):
+    def __init__(self, app, parent=None):
+        super().__init__(parent)
+        self.app = app
+        self.setWindowTitle("Manage Item Kinds")
+        self.setModal(True)
+        self.resize(640, 420)
+
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.addWidget(QtWidgets.QLabel("Define item kinds for item classification and grouping."))
+
+        self.table = QtWidgets.QTableWidget(0, 3)
+        self.table.setHorizontalHeaderLabels(["Name", "Sort Order", "Built-in"])
+        self.table.verticalHeader().setVisible(False)
+        self.table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.ResizeMode.Stretch)
+        layout.addWidget(self.table, stretch=1)
+
+        controls = QtWidgets.QHBoxLayout()
+        self.add_row_btn = QtWidgets.QPushButton("Add Row")
+        self.add_row_btn.clicked.connect(self._add_row)
+        self.remove_row_btn = QtWidgets.QPushButton("Remove Selected")
+        self.remove_row_btn.clicked.connect(self._remove_selected_rows)
+        controls.addWidget(self.add_row_btn)
+        controls.addWidget(self.remove_row_btn)
+        controls.addStretch(1)
+        layout.addLayout(controls)
+
+        buttons = QtWidgets.QDialogButtonBox(
+            QtWidgets.QDialogButtonBox.StandardButton.Save
+            | QtWidgets.QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self._save)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+        self._existing_ids: set[int] = set()
+        self._load_rows()
+
+    def _load_rows(self) -> None:
+        self.table.setRowCount(0)
+        rows = self.app.conn.execute(
+            "SELECT id, name, sort_order, is_builtin FROM item_kinds ORDER BY sort_order ASC, name COLLATE NOCASE ASC"
+        ).fetchall()
+        self._existing_ids = {int(row["id"]) for row in rows}
+        for row in rows:
+            self._add_row(row)
+        if self.table.rowCount() == 0:
+            self._add_row()
+
+    def _add_row(self, row=None) -> None:
+        if isinstance(row, bool):
+            row = None
+        row_idx = self.table.rowCount()
+        self.table.insertRow(row_idx)
+
+        name_item = QtWidgets.QTableWidgetItem((row["name"] or "").strip() if row else "")
+        if row:
+            name_item.setData(QtCore.Qt.ItemDataRole.UserRole, int(row["id"]))
+        self.table.setItem(row_idx, 0, name_item)
+
+        sort_item = QtWidgets.QTableWidgetItem(str(row["sort_order"]) if row else "0")
+        self.table.setItem(row_idx, 1, sort_item)
+
+        builtin_item = QtWidgets.QTableWidgetItem("Yes" if row and row["is_builtin"] else "No")
+        builtin_item.setFlags(builtin_item.flags() & ~QtCore.Qt.ItemFlag.ItemIsEditable)
+        if row and row["is_builtin"]:
+            builtin_item.setData(QtCore.Qt.ItemDataRole.UserRole, True)
+        self.table.setItem(row_idx, 2, builtin_item)
+
+    def _remove_selected_rows(self) -> None:
+        rows = sorted({idx.row() for idx in self.table.selectionModel().selectedRows()}, reverse=True)
+        for row_idx in rows:
+            builtin_item = self.table.item(row_idx, 2)
+            if builtin_item and builtin_item.data(QtCore.Qt.ItemDataRole.UserRole):
+                QtWidgets.QMessageBox.warning(
+                    self, "Cannot remove built-in", "Built-in kinds cannot be removed."
+                )
+                continue
+            self.table.removeRow(row_idx)
+
+    def _validate_rows(self) -> list[dict] | None:
+        rows: list[dict] = []
+        seen: set[str] = set()
+        for row_idx in range(self.table.rowCount()):
+            name_item = self.table.item(row_idx, 0)
+            name = (name_item.text() if name_item else "").strip()
+            if not name:
+                QtWidgets.QMessageBox.warning(self, "Missing name", f"Row {row_idx + 1} needs a kind name.")
+                return None
+            canon = name.casefold()
+            if canon in seen:
+                QtWidgets.QMessageBox.warning(self, "Duplicate name", f"Kind '{name}' is listed twice.")
+                return None
+            seen.add(canon)
+            sort_item = self.table.item(row_idx, 1)
+            sort_raw = (sort_item.text() if sort_item else "").strip()
+            try:
+                sort_order = int(sort_raw) if sort_raw != "" else 0
+            except ValueError:
+                QtWidgets.QMessageBox.warning(self, "Invalid sort order", f"Row {row_idx + 1} needs a number.")
+                return None
+            kind_id = None
+            if name_item is not None:
+                kind_id = name_item.data(QtCore.Qt.ItemDataRole.UserRole)
+            rows.append({"id": kind_id, "name": name, "sort_order": sort_order})
+        return rows
+
+    def _save(self) -> None:
+        rows = self._validate_rows()
+        if rows is None:
+            return
+
+        current_ids = {int(r["id"]) for r in rows if r["id"] is not None}
+        removed_ids = self._existing_ids - current_ids
+        try:
+            for kind_id in removed_ids:
+                row = self.app.conn.execute(
+                    "SELECT is_builtin FROM item_kinds WHERE id=?",
+                    (int(kind_id),),
+                ).fetchone()
+                if row and int(row["is_builtin"] or 0) == 1:
+                    continue
+                self.app.conn.execute("UPDATE items SET item_kind_id=NULL WHERE item_kind_id=?", (int(kind_id),))
+                self.app.conn.execute("DELETE FROM item_kinds WHERE id=?", (int(kind_id),))
+            for row in rows:
+                if row["id"] is None:
+                    self.app.conn.execute(
+                        "INSERT INTO item_kinds(name, sort_order, is_builtin) VALUES(?, ?, 0)",
+                        (row["name"], row["sort_order"]),
+                    )
+                else:
+                    self.app.conn.execute(
+                        "UPDATE item_kinds SET name=?, sort_order=? WHERE id=?",
+                        (row["name"], row["sort_order"], int(row["id"])),
+                    )
+            self.app.conn.commit()
+        except Exception as exc:
+            self.app.conn.rollback()
+            QtWidgets.QMessageBox.critical(self, "Save failed", str(exc))
+            return
+
+        if hasattr(self.app, "refresh_items"):
+            self.app.refresh_items()
+        self.accept()

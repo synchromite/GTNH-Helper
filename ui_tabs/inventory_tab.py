@@ -53,7 +53,7 @@ class InventoryTab(QtWidgets.QWidget):
         btns.addWidget(self.btn_clear)
         btns.addStretch(1)
 
-        tip = QtWidgets.QLabel("Tip: items use counts; fluids use liters (L).")
+        tip = QtWidgets.QLabel("Tip: items use counts; fluids and gases use liters (L).")
         tip.setStyleSheet("color: #666;")
         right.addWidget(tip)
         right.addStretch(1)
@@ -96,7 +96,7 @@ class InventoryTab(QtWidgets.QWidget):
 
     def _inventory_unit_for_item(self, item) -> str:
         kind = (item["kind"] or "").strip().lower()
-        return "L" if kind == "fluid" else "count"
+        return "L" if kind in ("fluid", "gas") else "count"
 
     def on_inventory_select(self, row: int) -> None:
         if row < 0 or row >= len(self.items):

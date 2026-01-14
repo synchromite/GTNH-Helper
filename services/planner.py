@@ -549,20 +549,25 @@ class PlannerService:
                         owned_tiers = available_machines[machine_type]
                         if self._tier_available(req_tier, owned_tiers):
                             avail_score = 0
-                
+
                 if avail_score > 0:
                     if req_tier in enabled_tiers_set:
                         avail_score = 1
                     elif req_tier == "Stone Age":
                         avail_score = 1
 
-            # --- CRITERIA 2: EFFICIENCY (Input per Output) ---
+            # --- CRITERIA 2: MACHINE COUNT (Prefer more available machines) ---
+            machine_count = 0
+            if method == "machine" and machine_type:
+                machine_count = self._machine_count_for_tier(machine_type, machine_tier, available_machines)
+
+            # --- CRITERIA 3: EFFICIENCY (Input per Output) ---
             output_qty = float(row["output_qty"] or 1)
             input_qty = float(row["input_qty"] or 0)
             ratio = input_qty / output_qty if output_qty > 0 else 999.0
 
-            # --- CRITERIA 3: SPEED ---
-            scaled_duration, _scaled_eu = apply_overclock(
+            # --- CRITERIA 4: SPEED + POWER ---
+            scaled_duration, scaled_eu = apply_overclock(
                 row["duration_ticks"],
                 row["eu_per_tick"],
                 req_tier,
@@ -571,19 +576,27 @@ class PlannerService:
             duration = float(scaled_duration or 0)
             time_per_item = duration / output_qty if output_qty > 0 else duration
 
-            # --- CRITERIA 4: TIER RANK ---
+            # --- CRITERIA 5: ENERGY COST ---
+            if scaled_eu is None or scaled_duration is None:
+                energy_per_item = float("inf")
+            else:
+                energy_per_item = (float(scaled_eu) * float(scaled_duration)) / output_qty if output_qty > 0 else 0.0
+
+            # --- CRITERIA 6: TIER RANK ---
             t_rank = tier_sort_map.get(req_tier, 999)
 
             return (
-                avail_score,      
-                ratio,            
-                time_per_item,    
-                t_rank            
+                avail_score,
+                -machine_count,
+                ratio,
+                energy_per_item,
+                time_per_item,
+                t_rank,
             )
 
         return min(rows, key=recipe_rank)
 
-    def _load_machine_availability(self) -> dict[str, set[str]]:
+    def _load_machine_availability(self) -> dict[str, dict[str, dict[str, int]]]:
         if self._machine_availability_cache is not None:
             return self._machine_availability_cache
         if self.profile_conn is None:
@@ -592,7 +605,7 @@ class PlannerService:
         rows = self.profile_conn.execute(
             "SELECT machine_type, tier, owned, online FROM machine_availability"
         ).fetchall()
-        available: dict[str, set[str]] = {}
+        available: dict[str, dict[str, dict[str, int]]] = {}
         for row in rows:
             owned = int(row["owned"] or 0)
             online = int(row["online"] or 0)
@@ -602,26 +615,45 @@ class PlannerService:
             if not machine_type:
                 continue
             tier = (row["tier"] or "").strip()
-            available.setdefault(machine_type, set()).add(tier)
+            available.setdefault(machine_type, {})[tier] = {"owned": owned, "online": online}
         self._machine_availability_cache = available
         return available
 
-    def _tier_available(self, required_tier: str, owned_tiers: set[str]) -> bool:
+    def _tier_available(self, required_tier: str, owned_tiers: dict[str, dict[str, int]]) -> bool:
         if required_tier in owned_tiers:
             return True
         required_rank = _tier_rank(required_tier)
         if required_rank is None:
             return False
-        for owned in owned_tiers:
+        for owned in owned_tiers.keys():
             owned_rank = _tier_rank(owned)
             if owned_rank is not None and owned_rank >= required_rank:
                 return True
         return False
 
+    def _machine_count_for_tier(
+        self,
+        machine_type: str,
+        machine_tier: str | None,
+        available_machines: dict[str, dict[str, dict[str, int]]],
+    ) -> int:
+        tiers = available_machines.get(machine_type, {})
+        if not tiers:
+            return 0
+        if machine_tier and machine_tier in tiers:
+            record = tiers[machine_tier]
+            return max(int(record.get("online", 0)), int(record.get("owned", 0)))
+        best = 0
+        for record in tiers.values():
+            count = max(int(record.get("online", 0)), int(record.get("owned", 0)))
+            if count > best:
+                best = count
+        return best
+
     def _pick_machine_tier(
         self,
         row: sqlite3.Row,
-        available_machines: dict[str, set[str]],
+        available_machines: dict[str, dict[str, dict[str, int]]],
     ) -> str | None:
         method = (row["method"] or "machine").strip().lower()
         if method != "machine":
@@ -631,11 +663,15 @@ class PlannerService:
             return None
         tiers = available_machines.get(machine_type)
         if tiers:
-            return _highest_tier(tiers)
+            return _highest_tier(tiers.keys())
         machine_item_tier = (row["machine_item_tier"] or "").strip()
         return machine_item_tier or None
 
-    def _recipe_machine_available(self, row: sqlite3.Row, available_machines: dict[str, set[str]]) -> bool:
+    def _recipe_machine_available(
+        self,
+        row: sqlite3.Row,
+        available_machines: dict[str, dict[str, dict[str, int]]],
+    ) -> bool:
         # Legacy method kept for safety, but main logic is now in ranking
         method = (row["method"] or "machine").strip().lower()
         if method != "machine":
@@ -654,7 +690,11 @@ class PlannerService:
             return True
         return False
 
-    def _recipe_machine_match_rank(self, row: sqlite3.Row, available_machines: dict[str, set[str]]) -> int:
+    def _recipe_machine_match_rank(
+        self,
+        row: sqlite3.Row,
+        available_machines: dict[str, dict[str, dict[str, int]]],
+    ) -> int:
         if not available_machines:
             return 1
         method = (row["method"] or "machine").strip().lower()

@@ -11,9 +11,9 @@ from services.db_lifecycle import DbLifecycle
 from services.items import fetch_items
 from services.recipes import fetch_recipes
 from services.tab_config import apply_tab_reorder, config_path, load_tab_config, save_tab_config
-from ui_dialogs import ItemMergeConflictDialog, MaterialManagerDialog
+from ui_dialogs import ItemKindManagerDialog, ItemMergeConflictDialog, MaterialManagerDialog
 from ui_tabs.inventory_tab import InventoryTab
-from ui_tabs.items_tab_qt import ItemsTab, FluidsTab
+from ui_tabs.items_tab_qt import ItemsTab, FluidsTab, GasesTab
 from ui_tabs.recipes_tab_qt import RecipesTab
 from ui_tabs.planner_tab_qt import PlannerTab
 from ui_tabs.tiers_tab import TiersTab
@@ -132,6 +132,7 @@ class App(QtWidgets.QMainWindow):
         self.tab_registry = {
             "items": {"label": "Items"},
             "fluids": {"label": "Fluids"},
+            "gases": {"label": "Gases"},
             "recipes": {"label": "Recipes"},
             "inventory": {"label": "Inventory"},
             "planner": {"label": "Planner"},
@@ -206,6 +207,8 @@ class App(QtWidgets.QMainWindow):
             widget = ItemsTab(self, self)
         elif tab_id == "fluids":
             widget = FluidsTab(self, self)
+        elif tab_id == "gases":
+            widget = GasesTab(self, self)
         elif tab_id == "recipes":
             widget = RecipesTab(self, self)
         elif tab_id == "inventory":
@@ -293,6 +296,8 @@ class App(QtWidgets.QMainWindow):
         if tab_id == "items" and hasattr(widget, "render_items"):
             widget.render_items(self.items)
         elif tab_id == "fluids" and hasattr(widget, "render_items"):
+            widget.render_items(self.items)
+        elif tab_id == "gases" and hasattr(widget, "render_items"):
             widget.render_items(self.items)
         elif tab_id == "recipes" and hasattr(widget, "render_recipes"):
             widget.render_recipes(self.recipes)
@@ -399,6 +404,10 @@ class App(QtWidgets.QMainWindow):
         materials_action.setEnabled(self.editor_enabled)
         materials_action.triggered.connect(self.menu_manage_materials)
         tools_menu.addAction(materials_action)
+        kinds_action = QtGui.QAction("Manage Item Kinds…", self)
+        kinds_action.setEnabled(self.editor_enabled)
+        kinds_action.triggered.connect(self.menu_manage_item_kinds)
+        tools_menu.addAction(kinds_action)
 
     def _apply_theme(self, theme: str) -> None:
         app = QtWidgets.QApplication.instance()
@@ -488,6 +497,18 @@ class App(QtWidgets.QMainWindow):
             )
             return
         dlg = MaterialManagerDialog(self, parent=self)
+        dlg.exec()
+
+    def menu_manage_item_kinds(self) -> None:
+        if not self.editor_enabled:
+            QtWidgets.QMessageBox.information(
+                self,
+                "Editor locked",
+                "This copy is running in client mode.\n\n"
+                "To enable editing, create a file named '.enable_editor' next to the app.",
+            )
+            return
+        dlg = ItemKindManagerDialog(self, parent=self)
         dlg.exec()
 
     def menu_export_content_db(self) -> None:
@@ -635,6 +656,9 @@ class App(QtWidgets.QMainWindow):
         if widget and hasattr(widget, "render_items"):
             widget.render_items(self.items)
         widget = self.tab_widgets.get("fluids")
+        if widget and hasattr(widget, "render_items"):
+            widget.render_items(self.items)
+        widget = self.tab_widgets.get("gases")
         if widget and hasattr(widget, "render_items"):
             widget.render_items(self.items)
         inventory_widget = self.tab_widgets.get("inventory")

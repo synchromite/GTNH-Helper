@@ -298,3 +298,32 @@ class FluidsTab(BaseItemTab):
         )
         if dialog.exec() == QtWidgets.QDialog.DialogCode.Accepted:
             self.app.refresh_items()
+
+
+class GasesTab(BaseItemTab):
+    def __init__(self, app, parent=None):
+        super().__init__(app, parent=parent)
+        self.btn_add_item.setText("Add Gas")
+
+    def should_display_item(self, item: dict) -> bool:
+        kind = (self._get_value(item, "kind") or "").strip().lower()
+        return kind == "gas"
+
+    def open_add_item_dialog(self) -> None:
+        if not self.app.editor_enabled:
+            QtWidgets.QMessageBox.information(
+                self,
+                "Editor locked",
+                "This copy is running in client mode.\n\n"
+                "To enable editing, create a file named '.enable_editor' next to the app.",
+            )
+            return
+        dialog = AddItemDialog(
+            self.app,
+            parent=self,
+            title="Add Gas",
+            allowed_kinds=["gas"],
+            default_kind="gas",
+        )
+        if dialog.exec() == QtWidgets.QDialog.DialogCode.Accepted:
+            self.app.refresh_items()
