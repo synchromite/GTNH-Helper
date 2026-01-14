@@ -27,13 +27,6 @@ class TiersTab(QtWidgets.QWidget):
             row, col = divmod(i, cols)
             grid.addWidget(checkbox, row, col)
 
-        btns = QtWidgets.QHBoxLayout()
-        layout.addLayout(btns)
-        save_btn = QtWidgets.QPushButton("Save")
-        save_btn.clicked.connect(self._tiers_save_to_db)
-        btns.addWidget(save_btn)
-        btns.addStretch(1)
-
         unlocks = QtWidgets.QGroupBox("Crafting")
         unlocks_layout = QtWidgets.QVBoxLayout(unlocks)
         self.unlocked_6x6_checkbox = QtWidgets.QCheckBox(
