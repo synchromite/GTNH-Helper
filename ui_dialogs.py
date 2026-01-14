@@ -349,8 +349,8 @@ class _ItemDialogBase(QtWidgets.QDialog):
         self.content_qty_val = _row_get(row, "content_qty_liters")
 
         self._all_item_kinds: list[dict] = []
-        self._kind_usage: dict[int, set[str]] = {}
         self._kind_name_to_id: dict[str, int] = {}
+        self._kind_id_to_applies: dict[int, str] = {}
         self._material_name_to_id: dict[str, int] = {}
         self._fluid_name_to_id: dict[str, int] = {}
         self._allowed_kinds = allowed_kinds
@@ -538,22 +538,12 @@ class _ItemDialogBase(QtWidgets.QDialog):
     def _reload_item_kinds(self) -> None:
         # 1. Fetch all kinds
         rows = self.app.conn.execute(
-            "SELECT id, name FROM item_kinds ORDER BY sort_order ASC, name COLLATE NOCASE ASC"
+            "SELECT id, name, applies_to FROM item_kinds ORDER BY sort_order ASC, name COLLATE NOCASE ASC"
         ).fetchall()
         self._all_item_kinds = rows
         self._kind_name_to_id = {r["name"]: r["id"] for r in rows}
+        self._kind_id_to_applies = {r["id"]: (r["applies_to"] or "item").strip().lower() for r in rows}
         self.machine_kind_id = next((r["id"] for r in rows if (r["name"] or "").strip().lower() == "machine"), None)
-
-        # 2. Fetch usages to filter types (e.g. items vs fluids vs gases)
-        usage_rows = self.app.conn.execute(
-            "SELECT DISTINCT item_kind_id, kind FROM items WHERE item_kind_id IS NOT NULL"
-        ).fetchall()
-        self._kind_usage = {}
-        for r in usage_rows:
-            kid = r["item_kind_id"]
-            if kid not in self._kind_usage:
-                self._kind_usage[kid] = set()
-            self._kind_usage[kid].add(r["kind"])
 
         self._update_item_kind_combo()
 
@@ -564,19 +554,13 @@ class _ItemDialogBase(QtWidgets.QDialog):
 
         # Determine which names to show
         filtered_names = [NONE_KIND_LABEL]
-        
-        for r in self._all_item_kinds:
-            kid = r["id"]
-            usages = self._kind_usage.get(kid, set())
-            
-            # Show if:
-            # 1. It is used by the current high-level kind (e.g. 'gas')
-            # We strictly filter out unused kinds so they don't leak into other categories.
-            # (New kinds are handled in _on_item_kind_selected)
-            if current_kind_super in usages:
-                filtered_names.append(r["name"])
-        
-        filtered_names.append(ADD_NEW_KIND_LABEL)
+        if current_kind_super in ("item", "fluid"):
+            for r in self._all_item_kinds:
+                kid = r["id"]
+                applies_to = self._kind_id_to_applies.get(kid, "item")
+                if applies_to == current_kind_super:
+                    filtered_names.append(r["name"])
+            filtered_names.append(ADD_NEW_KIND_LABEL)
 
         # Update Combo
         cur = self.item_kind_combo.currentText()
@@ -637,10 +621,13 @@ class _ItemDialogBase(QtWidgets.QDialog):
         self.machine_type_combo.addItems([""] + types)
         self.machine_type_combo.blockSignals(False)
 
-    def _ensure_item_kind(self, name: str) -> str | None:
+    def _ensure_item_kind(self, name: str, applies_to: str) -> str | None:
         name = (name or "").strip()
         if not name:
             return None
+        applies_to = (applies_to or "item").strip().lower()
+        if applies_to not in ("item", "fluid"):
+            applies_to = "item"
         row = self.app.conn.execute(
             "SELECT name FROM item_kinds WHERE LOWER(name)=LOWER(?)",
             (name,),
@@ -648,8 +635,8 @@ class _ItemDialogBase(QtWidgets.QDialog):
         if row:
             return row["name"]
         self.app.conn.execute(
-            "INSERT INTO item_kinds(name, sort_order, is_builtin) VALUES(?, 500, 0)",
-            (name,),
+            "INSERT INTO item_kinds(name, sort_order, is_builtin, applies_to) VALUES(?, 500, 0, ?)",
+            (name, applies_to),
         )
         self.app.conn.commit()
         return name
@@ -660,10 +647,13 @@ class _ItemDialogBase(QtWidgets.QDialog):
 
         # "Machine" is now a top-level Kind
         is_machine_kind = kind_high == "machine"
-        is_fluid_like = kind_high in ("fluid", "gas")
+        is_fluid_kind = kind_high == "fluid"
+        is_gas_kind = kind_high == "gas"
+        is_fluid_like = is_fluid_kind or is_gas_kind
+        show_item_kind = kind_high in ("item", "fluid")
 
-        self.item_kind_label.setVisible(not is_machine_kind)
-        self.item_kind_combo.setVisible(not is_machine_kind)
+        self.item_kind_label.setVisible(show_item_kind)
+        self.item_kind_combo.setVisible(show_item_kind)
 
         # Machine-specific fields depend on KIND, not Item Type
         self.machine_type_label.setVisible(is_machine_kind)
@@ -702,15 +692,15 @@ class _ItemDialogBase(QtWidgets.QDialog):
             self._on_is_container_toggled()
 
         canonical = None
-        if v == ADD_NEW_KIND_LABEL:
+        if v == ADD_NEW_KIND_LABEL and show_item_kind:
             new_name, ok = QtWidgets.QInputDialog.getText(self, "Add Item Kind", "New kind name:")
             if not ok or not new_name.strip():
                 self.item_kind_combo.setCurrentText(NONE_KIND_LABEL)
                 self.item_kind_id = None
                 return
-            canonical = self._ensure_item_kind(new_name)
+            canonical = self._ensure_item_kind(new_name, kind_high)
 
-        if v == ADD_NEW_KIND_LABEL:
+        if v == ADD_NEW_KIND_LABEL and show_item_kind:
             self._reload_item_kinds()
 
         if canonical:
@@ -723,8 +713,10 @@ class _ItemDialogBase(QtWidgets.QDialog):
         v2 = (self.item_kind_combo.currentText() or "").strip()
         if is_machine_kind:
             self.item_kind_id = self.machine_kind_id
-        else:
+        elif show_item_kind:
             self.item_kind_id = self._kind_name_to_id.get(v2) if v2 and v2 != NONE_KIND_LABEL else None
+        else:
+            self.item_kind_id = None
 
     def _on_has_material_toggled(self) -> None:
         checked = self.has_material_check.isChecked()
@@ -786,7 +778,8 @@ class _ItemDialogBase(QtWidgets.QDialog):
     def _on_high_level_kind_changed(self) -> None:
         self._update_item_kind_combo()
         self._on_item_kind_selected()
-        if (self.kind_combo.currentText() or "").strip().lower() == "machine":
+        kind_high = (self.kind_combo.currentText() or "").strip().lower()
+        if kind_high in ("machine", "gas"):
             self.item_kind_combo.setEnabled(False)
         else:
             self.item_kind_combo.setEnabled(True)
@@ -881,7 +874,7 @@ class AddItemDialog(_ItemDialogBase):
 
         # "Machine" is now a top-level Kind
         is_machine = 1 if kind == "machine" else 0
-        item_kind_id = self.item_kind_id
+        item_kind_id = None if kind == "gas" else self.item_kind_id
 
         if self.has_material_check.isVisible() and self.has_material_check.isChecked():
             material_id = self.material_id
@@ -1010,7 +1003,7 @@ class EditItemDialog(_ItemDialogBase):
 
         # "Machine" is now a top-level Kind
         is_machine = 1 if kind == "machine" else 0
-        item_kind_id = self.item_kind_id
+        item_kind_id = None if kind == "gas" else self.item_kind_id
 
         if self.has_material_check.isVisible() and self.has_material_check.isChecked():
             material_id = self.material_id
@@ -1445,6 +1438,8 @@ class _RecipeDialogBase(QtWidgets.QDialog):
 
         form.addWidget(QtWidgets.QLabel("Tier"), 2, 2)
         self.tier_combo = QtWidgets.QComboBox()
+        enabled_tiers = self.app.get_enabled_tiers() if hasattr(self.app, "get_enabled_tiers") else ALL_TIERS
+        self.tier_combo.addItems([NONE_TIER_LABEL] + list(enabled_tiers))
         form.addWidget(self.tier_combo, 2, 3)
 
         form.addWidget(QtWidgets.QLabel("Circuit"), 3, 0)
@@ -1546,6 +1541,16 @@ class _RecipeDialogBase(QtWidgets.QDialog):
         if d.exec() == QtWidgets.QDialog.DialogCode.Accepted and d.result:
             self.machine_item_id = d.result["id"]
             self.machine_edit.setText(d.result["name"])
+            row = self.app.conn.execute(
+                "SELECT machine_tier FROM items WHERE id=?",
+                (self.machine_item_id,),
+            ).fetchone()
+            if row:
+                machine_tier = (row["machine_tier"] or "").strip()
+                if machine_tier:
+                    if self.tier_combo.findText(machine_tier) == -1:
+                        self.tier_combo.addItem(machine_tier)
+                    self.tier_combo.setCurrentText(machine_tier)
 
     def clear_machine(self) -> None:
         self.machine_item_id = None
@@ -1842,11 +1847,7 @@ class _RecipeDialogBase(QtWidgets.QDialog):
 class AddRecipeDialog(_RecipeDialogBase):
     def __init__(self, app, parent=None):
         super().__init__(app, "Add Recipe", parent=parent)
-        
-        # Connect shared buttons from base class
-        self.btn_add_input.clicked.connect(self.add_input)
-        self.btn_add_output.clicked.connect(self.add_output)
-        
+
         # Add Edit/Remove buttons which are not in base layout
         self.btn_edit_input = QtWidgets.QPushButton("Edit")
         self.btn_edit_input.clicked.connect(lambda: self.edit_selected(self.in_list, self.inputs))
@@ -1992,10 +1993,6 @@ class EditRecipeDialog(_RecipeDialogBase):
         self._set_variant_visible(True)
         self.variant_combo.currentIndexChanged.connect(self._on_variant_change)
         self._load_recipe(recipe_id)
-
-        # Connect shared buttons
-        self.btn_add_input.clicked.connect(self.add_input)
-        self.btn_add_output.clicked.connect(self.add_output)
 
         self.btn_edit_input = QtWidgets.QPushButton("Edit")
         self.btn_edit_input.clicked.connect(lambda: self.edit_selected(self.in_list, self.inputs))
@@ -2644,8 +2641,8 @@ class ItemKindManagerDialog(QtWidgets.QDialog):
         layout = QtWidgets.QVBoxLayout(self)
         layout.addWidget(QtWidgets.QLabel("Define item kinds for item classification and grouping."))
 
-        self.table = QtWidgets.QTableWidget(0, 3)
-        self.table.setHorizontalHeaderLabels(["Name", "Sort Order", "Built-in"])
+        self.table = QtWidgets.QTableWidget(0, 4)
+        self.table.setHorizontalHeaderLabels(["Name", "Sort Order", "Applies To", "Built-in"])
         self.table.verticalHeader().setVisible(False)
         self.table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.ResizeMode.Stretch)
@@ -2675,7 +2672,8 @@ class ItemKindManagerDialog(QtWidgets.QDialog):
     def _load_rows(self) -> None:
         self.table.setRowCount(0)
         rows = self.app.conn.execute(
-            "SELECT id, name, sort_order, is_builtin FROM item_kinds ORDER BY sort_order ASC, name COLLATE NOCASE ASC"
+            "SELECT id, name, sort_order, is_builtin, applies_to "
+            "FROM item_kinds ORDER BY sort_order ASC, name COLLATE NOCASE ASC"
         ).fetchall()
         self._existing_ids = {int(row["id"]) for row in rows}
         for row in rows:
@@ -2697,16 +2695,22 @@ class ItemKindManagerDialog(QtWidgets.QDialog):
         sort_item = QtWidgets.QTableWidgetItem(str(row["sort_order"]) if row else "0")
         self.table.setItem(row_idx, 1, sort_item)
 
+        applies_combo = QtWidgets.QComboBox()
+        applies_combo.addItems(["Item", "Fluid"])
+        applies_to = (row["applies_to"] or "item").strip().lower() if row else "item"
+        applies_combo.setCurrentText("Fluid" if applies_to == "fluid" else "Item")
+        self.table.setCellWidget(row_idx, 2, applies_combo)
+
         builtin_item = QtWidgets.QTableWidgetItem("Yes" if row and row["is_builtin"] else "No")
         builtin_item.setFlags(builtin_item.flags() & ~QtCore.Qt.ItemFlag.ItemIsEditable)
         if row and row["is_builtin"]:
             builtin_item.setData(QtCore.Qt.ItemDataRole.UserRole, True)
-        self.table.setItem(row_idx, 2, builtin_item)
+        self.table.setItem(row_idx, 3, builtin_item)
 
     def _remove_selected_rows(self) -> None:
         rows = sorted({idx.row() for idx in self.table.selectionModel().selectedRows()}, reverse=True)
         for row_idx in rows:
-            builtin_item = self.table.item(row_idx, 2)
+            builtin_item = self.table.item(row_idx, 3)
             if builtin_item and builtin_item.data(QtCore.Qt.ItemDataRole.UserRole):
                 QtWidgets.QMessageBox.warning(
                     self, "Cannot remove built-in", "Built-in kinds cannot be removed."
@@ -2735,10 +2739,15 @@ class ItemKindManagerDialog(QtWidgets.QDialog):
             except ValueError:
                 QtWidgets.QMessageBox.warning(self, "Invalid sort order", f"Row {row_idx + 1} needs a number.")
                 return None
+            applies_combo = self.table.cellWidget(row_idx, 2)
+            applies_to = "item"
+            if isinstance(applies_combo, QtWidgets.QComboBox):
+                applies_to_raw = (applies_combo.currentText() or "").strip().lower()
+                applies_to = "fluid" if applies_to_raw == "fluid" else "item"
             kind_id = None
             if name_item is not None:
                 kind_id = name_item.data(QtCore.Qt.ItemDataRole.UserRole)
-            rows.append({"id": kind_id, "name": name, "sort_order": sort_order})
+            rows.append({"id": kind_id, "name": name, "sort_order": sort_order, "applies_to": applies_to})
         return rows
 
     def _save(self) -> None:
@@ -2761,13 +2770,13 @@ class ItemKindManagerDialog(QtWidgets.QDialog):
             for row in rows:
                 if row["id"] is None:
                     self.app.conn.execute(
-                        "INSERT INTO item_kinds(name, sort_order, is_builtin) VALUES(?, ?, 0)",
-                        (row["name"], row["sort_order"]),
+                        "INSERT INTO item_kinds(name, sort_order, is_builtin, applies_to) VALUES(?, ?, 0, ?)",
+                        (row["name"], row["sort_order"], row["applies_to"]),
                     )
                 else:
                     self.app.conn.execute(
-                        "UPDATE item_kinds SET name=?, sort_order=? WHERE id=?",
-                        (row["name"], row["sort_order"], int(row["id"])),
+                        "UPDATE item_kinds SET name=?, sort_order=?, applies_to=? WHERE id=?",
+                        (row["name"], row["sort_order"], row["applies_to"], int(row["id"])),
                     )
             self.app.conn.commit()
         except Exception as exc:

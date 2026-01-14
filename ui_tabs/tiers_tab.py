@@ -39,6 +39,7 @@ class TiersTab(QtWidgets.QWidget):
         self.unlocked_6x6_checkbox = QtWidgets.QCheckBox(
             "6x6 Crafting unlocked (once you've made a crafting table with a crafting grid)"
         )
+        self.unlocked_6x6_checkbox.toggled.connect(lambda _: self._tiers_save_to_db())
         unlocks_layout.addWidget(self.unlocked_6x6_checkbox)
         layout.addWidget(unlocks)
 
@@ -64,7 +65,9 @@ class TiersTab(QtWidgets.QWidget):
             checkbox.setChecked(tier in enabled)
             checkbox.blockSignals(prev)
 
+        prev = self.unlocked_6x6_checkbox.blockSignals(True)
         self.unlocked_6x6_checkbox.setChecked(self.app.is_crafting_6x6_unlocked())
+        self.unlocked_6x6_checkbox.blockSignals(prev)
 
     def _on_tier_toggle(self, tier: str, checked: bool) -> None:
         try:
@@ -78,7 +81,9 @@ class TiersTab(QtWidgets.QWidget):
 
             if "Steam Age" in ALL_TIERS[: tier_index + 1]:
                 if not self.unlocked_6x6_checkbox.isChecked():
+                    prev = self.unlocked_6x6_checkbox.blockSignals(True)
                     self.unlocked_6x6_checkbox.setChecked(True)
+                    self.unlocked_6x6_checkbox.blockSignals(prev)
         else:
             for higher_tier in ALL_TIERS[tier_index + 1 :]:
                 self._set_tier_checked(higher_tier, False)
@@ -86,7 +91,11 @@ class TiersTab(QtWidgets.QWidget):
             steam_checkbox = self.tier_checks.get("Steam Age")
             if steam_checkbox is not None and not steam_checkbox.isChecked():
                 if self.unlocked_6x6_checkbox.isChecked():
+                    prev = self.unlocked_6x6_checkbox.blockSignals(True)
                     self.unlocked_6x6_checkbox.setChecked(False)
+                    self.unlocked_6x6_checkbox.blockSignals(prev)
+
+        self._tiers_save_to_db()
 
     def _tiers_save_to_db(self) -> None:
         enabled = [t for t, checkbox in self.tier_checks.items() if checkbox.isChecked()]

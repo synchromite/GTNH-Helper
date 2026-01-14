@@ -121,7 +121,8 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL UNIQUE,
         sort_order INTEGER NOT NULL DEFAULT 0,
-        is_builtin INTEGER NOT NULL DEFAULT 0
+        is_builtin INTEGER NOT NULL DEFAULT 0,
+        applies_to TEXT NOT NULL DEFAULT 'item' CHECK(applies_to IN ('item','fluid'))
     )
     """
     )
@@ -206,6 +207,8 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
     # Detailed item classification (user-editable list of kinds)
     if not _has_col("items", "item_kind_id"):
         conn.execute("ALTER TABLE items ADD COLUMN item_kind_id INTEGER")
+    if not _has_col("item_kinds", "applies_to"):
+        conn.execute("ALTER TABLE item_kinds ADD COLUMN applies_to TEXT NOT NULL DEFAULT 'item'")
 
     if not _has_col("items", "material_id"):
         conn.execute("ALTER TABLE items ADD COLUMN material_id INTEGER")
@@ -255,7 +258,7 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
             ("Other", 1000),
         ]
         conn.executemany(
-            "INSERT INTO item_kinds(name, sort_order, is_builtin) VALUES(?,?,1)",
+            "INSERT INTO item_kinds(name, sort_order, is_builtin, applies_to) VALUES(?,?,1,'item')",
             defaults,
         )
 
@@ -587,12 +590,14 @@ def merge_db(
         # ---- Kind mapping ----
         dest_kind_map: dict[int, int] = {}
         dest_kind_by_canon: dict[str, list[int]] = {}
-        for row in dest_conn.execute("SELECT id, name FROM item_kinds").fetchall():
+        for row in dest_conn.execute("SELECT id, name, applies_to FROM item_kinds").fetchall():
             canon = _canonical_kind_name(row["name"] or "")
             if not canon:
                 continue
             dest_kind_by_canon.setdefault(canon, []).append(row["id"])
-        src_kinds = src.execute("SELECT id, name, sort_order FROM item_kinds ORDER BY id").fetchall()
+        src_kinds = src.execute(
+            "SELECT id, name, sort_order, applies_to FROM item_kinds ORDER BY id"
+        ).fetchall()
         for k in src_kinds:
             name = (k["name"] or "").strip()
             if not name:
@@ -604,6 +609,9 @@ def merge_db(
             if row:
                 dest_kind_map[k["id"]] = row["id"]
                 continue
+            applies_to = (k["applies_to"] or "item").strip().lower()
+            if applies_to not in ("item", "fluid"):
+                applies_to = "item"
             canonical_name = _canonical_kind_name(name)
             singular_match_id = None
             if canonical_name.endswith("s") and len(canonical_name) > 3:
@@ -615,8 +623,8 @@ def merge_db(
                 dest_kind_map[k["id"]] = singular_match_id
                 continue
             dest_conn.execute(
-                "INSERT INTO item_kinds(name, sort_order, is_builtin) VALUES(?, ?, 0)",
-                (name, int(k["sort_order"] or 0)),
+                "INSERT INTO item_kinds(name, sort_order, is_builtin, applies_to) VALUES(?, ?, 0, ?)",
+                (name, int(k["sort_order"] or 0), applies_to),
             )
             new_id = dest_conn.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
             dest_kind_map[k["id"]] = new_id
