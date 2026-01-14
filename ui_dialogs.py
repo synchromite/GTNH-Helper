@@ -440,6 +440,7 @@ class _ItemDialogBase(QtWidgets.QDialog):
             availability_layout.addWidget(QtWidgets.QLabel("Online"), 1, 0)
             self.online_spin = QtWidgets.QSpinBox()
             self.online_spin.setRange(0, 999)
+            self.online_spin.setMaximum(0)
             availability_layout.addWidget(self.online_spin, 1, 1)
             self.owned_spin.valueChanged.connect(self._on_owned_changed)
             form.addWidget(self.availability_group, 8, 0, 1, 2)
@@ -680,6 +681,8 @@ class _ItemDialogBase(QtWidgets.QDialog):
                     self.owned_spin.setValue(0)
                 if self.online_spin is not None:
                     self.online_spin.setValue(0)
+            else:
+                self._on_owned_changed()
 
         # Material is hidden if Machine Kind OR Fluid/Gas.
         if is_machine_kind or is_fluid_like:
@@ -851,13 +854,14 @@ class AddItemDialog(_ItemDialogBase):
         allowed_kinds: list[str] | None = None,
         default_kind: str | None = None,
     ):
+        allowed_set = set(allowed_kinds or ["item", "fluid", "gas", "machine"])
         super().__init__(
             app,
             title,
             parent=parent,
             allowed_kinds=allowed_kinds,
             default_kind=default_kind,
-            show_availability=True,
+            show_availability="machine" in allowed_set,
         )
 
     def save(self) -> None:
