@@ -12,6 +12,55 @@ GT_VOLTAGES = [
     (8192, "IV"), (32768, "LuV"), (131072, "ZPM"), (524288, "UV"),
     (2147483647, "MAX")
 ]
+TIER_ORDER = {tier: idx for idx, tier in enumerate(ALL_TIERS)}
+
+
+def _tier_rank(tier: str | None) -> int | None:
+    if not tier:
+        return None
+    return TIER_ORDER.get(tier.strip())
+
+
+def _highest_tier(tiers: Iterable[str]) -> str | None:
+    best = None
+    best_rank = -1
+    for tier in tiers:
+        rank = _tier_rank(tier)
+        if rank is None:
+            continue
+        if rank > best_rank:
+            best_rank = rank
+            best = tier
+    return best
+
+
+def apply_overclock(
+    duration_ticks: float | int | None,
+    eu_per_tick: float | int | None,
+    recipe_tier: str | None,
+    machine_tier: str | None,
+) -> tuple[int | None, int | None]:
+    if not machine_tier:
+        return duration_ticks, eu_per_tick
+    recipe_rank = _tier_rank(recipe_tier)
+    machine_rank = _tier_rank(machine_tier)
+    if recipe_rank is None or machine_rank is None or machine_rank <= recipe_rank:
+        return duration_ticks, eu_per_tick
+    diff = machine_rank - recipe_rank
+
+    scaled_duration = duration_ticks
+    if duration_ticks is not None:
+        duration_value = float(duration_ticks)
+        if duration_value > 0:
+            scaled_duration = max(1, int(math.ceil(duration_value / (2**diff))))
+
+    scaled_eu = eu_per_tick
+    if eu_per_tick is not None:
+        eu_value = float(eu_per_tick)
+        if eu_value > 0:
+            scaled_eu = max(0, int(math.ceil(eu_value * (4**diff))))
+
+    return scaled_duration, scaled_eu
 
 def get_calculated_tier(row: sqlite3.Row) -> str:
     """Determine the effective tier of a recipe from its explicit tier OR its voltage."""
@@ -385,6 +434,7 @@ class PlannerService:
             req_tier = get_calculated_tier(row)
             method = (row["method"] or "machine").strip().lower()
             machine_type = (row["machine"] or "").strip().lower()
+            machine_tier = self._pick_machine_tier(row, available_machines)
             
             # --- CRITERIA 1: AVAILABILITY SCORE ---
             # 0 = Owned / Immediate
@@ -413,9 +463,7 @@ class PlannerService:
                 elif method == "machine" and machine_type:
                     if machine_type in available_machines:
                         owned_tiers = available_machines[machine_type]
-                        if req_tier in owned_tiers:
-                            avail_score = 0
-                        elif "Steam Age" in owned_tiers and req_tier == "Steam Age":
+                        if self._tier_available(req_tier, owned_tiers):
                             avail_score = 0
                 
                 if avail_score > 0:
@@ -430,7 +478,13 @@ class PlannerService:
             ratio = input_qty / output_qty if output_qty > 0 else 999.0
 
             # --- CRITERIA 3: SPEED ---
-            duration = float(row["duration_ticks"] or 0)
+            scaled_duration, _scaled_eu = apply_overclock(
+                row["duration_ticks"],
+                row["eu_per_tick"],
+                req_tier,
+                machine_tier,
+            )
+            duration = float(scaled_duration or 0)
             time_per_item = duration / output_qty if output_qty > 0 else duration
 
             # --- CRITERIA 4: TIER RANK ---
@@ -467,6 +521,35 @@ class PlannerService:
             available.setdefault(machine_type, set()).add(tier)
         self._machine_availability_cache = available
         return available
+
+    def _tier_available(self, required_tier: str, owned_tiers: set[str]) -> bool:
+        if required_tier in owned_tiers:
+            return True
+        required_rank = _tier_rank(required_tier)
+        if required_rank is None:
+            return False
+        for owned in owned_tiers:
+            owned_rank = _tier_rank(owned)
+            if owned_rank is not None and owned_rank >= required_rank:
+                return True
+        return False
+
+    def _pick_machine_tier(
+        self,
+        row: sqlite3.Row,
+        available_machines: dict[str, set[str]],
+    ) -> str | None:
+        method = (row["method"] or "machine").strip().lower()
+        if method != "machine":
+            return None
+        machine_type = (row["machine"] or "").strip().lower()
+        if not machine_type:
+            return None
+        tiers = available_machines.get(machine_type)
+        if tiers:
+            return _highest_tier(tiers)
+        machine_item_tier = (row["machine_item_tier"] or "").strip()
+        return machine_item_tier or None
 
     def _recipe_machine_available(self, row: sqlite3.Row, available_machines: dict[str, set[str]]) -> bool:
         # Legacy method kept for safety, but main logic is now in ranking

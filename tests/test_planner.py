@@ -3,7 +3,7 @@ import sqlite3
 import pytest
 
 from services.db import ensure_schema, connect_profile
-from services.planner import PlannerService
+from services.planner import PlannerService, apply_overclock
 
 
 def _setup_conn():
@@ -21,10 +21,10 @@ def _insert_item(conn, *, key, name, kind="item", is_base=0):
     return conn.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
 
 
-def _insert_recipe(conn, *, name, method="crafting"):
+def _insert_recipe(conn, *, name, method="crafting", duration_ticks=None, eu_per_tick=None):
     conn.execute(
-        "INSERT INTO recipes(name, method) VALUES(?, ?)",
-        (name, method),
+        "INSERT INTO recipes(name, method, duration_ticks, eu_per_tick) VALUES(?, ?, ?, ?)",
+        (name, method, duration_ticks, eu_per_tick),
     )
     return conn.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
 
@@ -111,12 +111,12 @@ def test_plan_selects_online_machine_tier_recipe():
     item_input = _insert_item(conn, key="input_item", name="Input Item", is_base=1)
     item_output = _insert_item(conn, key="output_item", name="Output Item")
 
-    recipe_lv = _insert_recipe(conn, name="Make Output LV", method="machine")
+    recipe_lv = _insert_recipe(conn, name="Make Output LV", method="machine", duration_ticks=400)
     _set_recipe_machine(conn, recipe_id=recipe_lv, machine="lathe", tier="LV")
     _insert_line(conn, recipe_id=recipe_lv, direction="out", item_id=item_output, qty_count=1)
     _insert_line(conn, recipe_id=recipe_lv, direction="in", item_id=item_input, qty_count=1)
 
-    recipe_mv = _insert_recipe(conn, name="Make Output MV", method="machine")
+    recipe_mv = _insert_recipe(conn, name="Make Output MV", method="machine", duration_ticks=120)
     _set_recipe_machine(conn, recipe_id=recipe_mv, machine="lathe", tier="MV")
     _insert_line(conn, recipe_id=recipe_mv, direction="out", item_id=item_output, qty_count=1)
     _insert_line(conn, recipe_id=recipe_mv, direction="in", item_id=item_input, qty_count=1)
@@ -164,3 +164,10 @@ def test_plan_falls_back_when_no_machines_online():
 
     assert result.errors == []
     assert [step.recipe_name for step in result.steps] == ["Make Output LV"]
+
+
+def test_apply_overclock_scales_duration_and_power():
+    scaled_duration, scaled_eu = apply_overclock(200, 32, "LV", "MV")
+
+    assert scaled_duration == 100
+    assert scaled_eu == 128
