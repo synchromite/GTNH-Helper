@@ -89,11 +89,6 @@ class MachinesTab(QtWidgets.QWidget):
         )
 
         filters = QtWidgets.QHBoxLayout()
-        filters.addWidget(QtWidgets.QLabel("Tier"))
-        self.filter_tier_combo = QtWidgets.QComboBox()
-        self.filter_tier_combo.currentTextChanged.connect(self._on_tier_filter_changed)
-        filters.addWidget(self.filter_tier_combo)
-        filters.addSpacing(16)
         self.filter_unlocked_cb = QtWidgets.QCheckBox("Unlocked tiers only")
         self.filter_unlocked_cb.setChecked(
             self.app.get_machine_unlocked_only() if hasattr(self.app, "get_machine_unlocked_only") else True
@@ -179,7 +174,6 @@ class MachinesTab(QtWidgets.QWidget):
             """
         ).fetchall()
         self._machines = self._group_machine_rows([dict(row) for row in rows])
-        self._rebuild_tier_filter()
         if not self._preferences_loaded:
             self._load_preferences()
         self._render_rows()
@@ -215,32 +209,10 @@ class MachinesTab(QtWidgets.QWidget):
         ordered = sorted([tier for tier in tiers if tier in tier_order], key=lambda t: tier_order[t])
         return ordered + extras
 
-    def _rebuild_tier_filter(self) -> None:
-        current = self.filter_tier_combo.currentText() if hasattr(self, "filter_tier_combo") else ""
-        tiers = set()
-        for row in self._machines:
-            tiers.update({tier for tier in row.get("tiers", []) if tier})
-        ordered = self._get_tier_list()
-        extras = sorted(tiers - set(ordered))
-        choices = ["All tiers"] + ordered + extras
-        self.filter_tier_combo.blockSignals(True)
-        self.filter_tier_combo.clear()
-        self.filter_tier_combo.addItems(choices)
-        if current in choices:
-            self.filter_tier_combo.setCurrentText(current)
-        self.filter_tier_combo.blockSignals(False)
-
     def _load_preferences(self) -> None:
         self._preferences_loaded = True
         if hasattr(self.app, "get_machine_sort_mode"):
             self._sort_mode = self.app.get_machine_sort_mode()
-        if hasattr(self.app, "get_machine_tier_filter"):
-            tier = self.app.get_machine_tier_filter()
-            if tier:
-                prev = self.filter_tier_combo.blockSignals(True)
-                if tier in [self.filter_tier_combo.itemText(i) for i in range(self.filter_tier_combo.count())]:
-                    self.filter_tier_combo.setCurrentText(tier)
-                self.filter_tier_combo.blockSignals(prev)
         if hasattr(self.app, "get_machine_unlocked_only"):
             prev = self.filter_unlocked_cb.blockSignals(True)
             self.filter_unlocked_cb.setChecked(self.app.get_machine_unlocked_only())
@@ -313,7 +285,6 @@ class MachinesTab(QtWidgets.QWidget):
         self._apply_filters()
 
     def _apply_filters(self) -> None:
-        tier_filter = self.filter_tier_combo.currentText() if hasattr(self, "filter_tier_combo") else "All tiers"
         unlocked_only = bool(self.filter_unlocked_cb.isChecked()) if hasattr(self, "filter_unlocked_cb") else False
         enabled_tiers = set(self.app.get_enabled_tiers())
         search_text = (self.search_edit.text() or "").strip().lower() if hasattr(self, "search_edit") else ""
@@ -326,8 +297,6 @@ class MachinesTab(QtWidgets.QWidget):
             tiers = [tier.strip() for tier in row_state.get("tiers", []) if tier]
             name = (row_state.get("label") or row_state.get("machine_type") or "").lower()
             matches = True
-            if tier_filter and tier_filter != "All tiers":
-                matches = tier_filter in tiers
             if matches and unlocked_only:
                 matches = bool(set(tiers) & enabled_tiers)
             if matches and search_text:
@@ -344,12 +313,6 @@ class MachinesTab(QtWidgets.QWidget):
             self.detail_tier_combo.clear()
             self.detail_tier_combo.setEnabled(False)
             self.details.clear()
-
-    def _on_tier_filter_changed(self, value: str) -> None:
-        if hasattr(self.app, "set_machine_tier_filter"):
-            self.app.set_machine_tier_filter(value)
-        self._apply_filters()
-        self._refresh_detail_tier_selection()
 
     def _on_unlocked_filter_toggled(self, checked: bool) -> None:
         if hasattr(self.app, "set_machine_unlocked_only"):
@@ -404,9 +367,6 @@ class MachinesTab(QtWidgets.QWidget):
     def _pick_detail_tier(self, tiers: list[str]) -> str | None:
         if not tiers:
             return None
-        tier_filter = self.filter_tier_combo.currentText() if hasattr(self, "filter_tier_combo") else "All tiers"
-        if tier_filter and tier_filter != "All tiers" and tier_filter in tiers:
-            return tier_filter
         if self.filter_unlocked_cb.isChecked() if hasattr(self, "filter_unlocked_cb") else False:
             enabled_tiers = set(self.app.get_enabled_tiers())
             for tier in tiers:
