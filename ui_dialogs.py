@@ -333,6 +333,7 @@ class _ItemDialogBase(QtWidgets.QDialog):
         parent=None,
         allowed_kinds: list[str] | None = None,
         default_kind: str | None = None,
+        show_availability: bool = False,
     ):
         super().__init__(parent)
         self.app = app
@@ -354,6 +355,10 @@ class _ItemDialogBase(QtWidgets.QDialog):
         self._fluid_name_to_id: dict[str, int] = {}
         self._allowed_kinds = allowed_kinds
         self._default_kind = default_kind
+        self._show_availability = show_availability
+        self.availability_group = None
+        self.owned_spin = None
+        self.online_spin = None
         
         self.setWindowTitle(title)
         self.setModal(True)
@@ -425,6 +430,20 @@ class _ItemDialogBase(QtWidgets.QDialog):
         self.is_base_check = QtWidgets.QCheckBox("Base resource (planner stops here later)")
         form.addWidget(self.is_base_check, 7, 1)
 
+        if self._show_availability:
+            self.availability_group = QtWidgets.QGroupBox("Availability")
+            availability_layout = QtWidgets.QGridLayout(self.availability_group)
+            availability_layout.addWidget(QtWidgets.QLabel("Owned"), 0, 0)
+            self.owned_spin = QtWidgets.QSpinBox()
+            self.owned_spin.setRange(0, 999)
+            availability_layout.addWidget(self.owned_spin, 0, 1)
+            availability_layout.addWidget(QtWidgets.QLabel("Online"), 1, 0)
+            self.online_spin = QtWidgets.QSpinBox()
+            self.online_spin.setRange(0, 999)
+            availability_layout.addWidget(self.online_spin, 1, 1)
+            self.owned_spin.valueChanged.connect(self._on_owned_changed)
+            form.addWidget(self.availability_group, 8, 0, 1, 2)
+
         buttons = QtWidgets.QDialogButtonBox(
             QtWidgets.QDialogButtonBox.StandardButton.Save
             | QtWidgets.QDialogButtonBox.StandardButton.Cancel
@@ -464,6 +483,12 @@ class _ItemDialogBase(QtWidgets.QDialog):
             self.is_container_check.setChecked(False)
             self.content_fluid_combo.setCurrentText(NONE_FLUID_LABEL)
             self.content_qty_edit.setText("1000")
+            if self._show_availability:
+                if self.owned_spin is not None:
+                    self.owned_spin.setValue(0)
+                if self.online_spin is not None:
+                    self.online_spin.setValue(0)
+                self._on_owned_changed()
             return
 
         self.display_name_edit.setText(self._row["display_name"] or self._row["key"])
@@ -502,6 +527,12 @@ class _ItemDialogBase(QtWidgets.QDialog):
             self.content_qty_edit.setText("1000")
 
         self.is_base_check.setChecked(bool(self._row["is_base"]))
+        if self._show_availability:
+            if self.owned_spin is not None:
+                self.owned_spin.setValue(0)
+            if self.online_spin is not None:
+                self.online_spin.setValue(0)
+            self._on_owned_changed()
 
     def _reload_item_kinds(self) -> None:
         # 1. Fetch all kinds
@@ -642,6 +673,14 @@ class _ItemDialogBase(QtWidgets.QDialog):
         if is_machine_kind:
             self.is_base_check.setChecked(False)
 
+        if self._show_availability and self.availability_group is not None:
+            self.availability_group.setVisible(is_machine_kind)
+            if not is_machine_kind:
+                if self.owned_spin is not None:
+                    self.owned_spin.setValue(0)
+                if self.online_spin is not None:
+                    self.online_spin.setValue(0)
+
         # Material is hidden if Machine Kind OR Fluid/Gas.
         if is_machine_kind or is_fluid_like:
             self.has_material_check.setVisible(False)
@@ -733,6 +772,14 @@ class _ItemDialogBase(QtWidgets.QDialog):
     def _on_machine_type_selected(self) -> None:
         return
 
+    def _on_owned_changed(self) -> None:
+        if not self._show_availability or self.owned_spin is None or self.online_spin is None:
+            return
+        owned = self.owned_spin.value()
+        self.online_spin.setMaximum(owned)
+        if self.online_spin.value() > owned:
+            self.online_spin.setValue(owned)
+
     def _on_high_level_kind_changed(self) -> None:
         self._update_item_kind_combo()
         self._on_item_kind_selected()
@@ -810,6 +857,7 @@ class AddItemDialog(_ItemDialogBase):
             parent=parent,
             allowed_kinds=allowed_kinds,
             default_kind=default_kind,
+            show_availability=True,
         )
 
     def save(self) -> None:
@@ -896,6 +944,29 @@ class AddItemDialog(_ItemDialogBase):
                 f"Could not add item.\n\nDetails: {exc}",
             )
             return
+
+        if is_machine and self._show_availability and self.owned_spin is not None and self.online_spin is not None:
+            owned = int(self.owned_spin.value())
+            online = int(self.online_spin.value())
+            if online > owned:
+                online = owned
+            try:
+                self.app.set_machine_availability(
+                    [
+                        (
+                            machine_type_val or "",
+                            md.get("machine_tier") or "",
+                            owned,
+                            online,
+                        )
+                    ]
+                )
+            except Exception as exc:
+                QtWidgets.QMessageBox.warning(
+                    self,
+                    "Availability save failed",
+                    f"Item added, but availability could not be saved.\n\nDetails: {exc}",
+                )
 
         self._set_status(f"Added item: {display_name}")
         self.accept()
