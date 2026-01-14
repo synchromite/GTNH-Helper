@@ -1003,6 +1003,7 @@ class ItemLineDialog(QtWidgets.QDialog):
         title: str,
         *,
         show_chance: bool = False,
+        show_consumption: bool = False,
         output_slot_choices: list[int] | None = None,
         fixed_output_slot: int | None = None,
         require_chance: bool = False,
@@ -1013,6 +1014,7 @@ class ItemLineDialog(QtWidgets.QDialog):
         self.app = app
         self.setWindowTitle(title)
         self.show_chance = show_chance
+        self.show_consumption = show_consumption
         self.output_slot_choices = output_slot_choices
         self.fixed_output_slot = fixed_output_slot
         self.require_chance = require_chance
@@ -1044,6 +1046,24 @@ class ItemLineDialog(QtWidgets.QDialog):
         layout.addWidget(self.qty_edit, 2, 1)
 
         row = 3
+        if self.show_consumption:
+            layout.addWidget(QtWidgets.QLabel("Consumption Chance (%)"), row, 0)
+            self.consumption_edit = QtWidgets.QLineEdit()
+            self.consumption_edit.setValidator(QtGui.QDoubleValidator(0.0, 100.0, 3))
+            layout.addWidget(self.consumption_edit, row, 1)
+            consumption_btns = QtWidgets.QHBoxLayout()
+            consumption_zero = QtWidgets.QPushButton("0%")
+            consumption_zero.clicked.connect(lambda: self.consumption_edit.setText("0"))
+            consumption_full = QtWidgets.QPushButton("100%")
+            consumption_full.clicked.connect(lambda: self.consumption_edit.setText("100"))
+            consumption_btns.addWidget(consumption_zero)
+            consumption_btns.addWidget(consumption_full)
+            consumption_btn_frame = QtWidgets.QWidget()
+            consumption_btn_layout = QtWidgets.QHBoxLayout(consumption_btn_frame)
+            consumption_btn_layout.setContentsMargins(0, 0, 0, 0)
+            consumption_btn_layout.addLayout(consumption_btns)
+            layout.addWidget(consumption_btn_frame, row, 2)
+            row += 1
         if self.fixed_output_slot is not None or self.output_slot_choices:
             layout.addWidget(QtWidgets.QLabel("Output Slot"), row, 0)
             if self.fixed_output_slot is not None:
@@ -1099,6 +1119,19 @@ class ItemLineDialog(QtWidgets.QDialog):
                     self.chance_edit.setText("")
                 else:
                     self.chance_edit.setText(str(chance))
+            if self.show_consumption:
+                consumption = initial_line.get("consumption_chance")
+                if consumption is None:
+                    self.consumption_edit.setText("")
+                else:
+                    display_percent = self._fraction_to_percent(consumption)
+                    if isinstance(display_percent, (int, float)):
+                        if abs(display_percent - int(display_percent)) < 1e-9:
+                            self.consumption_edit.setText(str(int(display_percent)))
+                        else:
+                            self.consumption_edit.setText(str(display_percent))
+                    else:
+                        self.consumption_edit.setText(str(display_percent))
             if (
                 self.fixed_output_slot is None
                 and self.output_slot_choices is not None
@@ -1115,6 +1148,18 @@ class ItemLineDialog(QtWidgets.QDialog):
             return int(float(value))
         except (TypeError, ValueError):
             return value
+
+    @staticmethod
+    def _fraction_to_percent(value):
+        if value is None:
+            return None
+        try:
+            v = float(value)
+        except (TypeError, ValueError):
+            return value
+        if 0 <= v <= 1:
+            return v * 100
+        return v
 
     def _set_selected(self, sel: dict | None) -> None:
         self._selected = sel
@@ -1169,6 +1214,29 @@ class ItemLineDialog(QtWidgets.QDialog):
             self.result = {"item_id": it["id"], "name": it["name"], "kind": it["kind"], "qty_liters": qty, "qty_count": None}
         else:
             self.result = {"item_id": it["id"], "name": it["name"], "kind": it["kind"], "qty_liters": None, "qty_count": qty}
+
+        if self.show_consumption:
+            cons_s = (self.consumption_edit.text() or "").strip()
+            if cons_s == "":
+                self.result["consumption_chance"] = 1.0
+            else:
+                try:
+                    consumption = float(cons_s)
+                except ValueError:
+                    QtWidgets.QMessageBox.warning(
+                        self,
+                        "Invalid consumption chance",
+                        "Consumption chance must be a number between 0 and 100.",
+                    )
+                    return
+                if consumption < 0 or consumption > 100:
+                    QtWidgets.QMessageBox.warning(
+                        self,
+                        "Invalid consumption chance",
+                        "Consumption chance must be between 0 and 100.",
+                    )
+                    return
+                self.result["consumption_chance"] = consumption / 100.0
 
         if self.show_chance:
             ch_s = (self.chance_edit.text() or "").strip()
@@ -1592,7 +1660,7 @@ class _RecipeDialogBase(QtWidgets.QDialog):
     # --- Shared List Management Methods (Moved from EditRecipeDialog) ---
 
     def add_input(self) -> None:
-        d = ItemLineDialog(self.app, "Add Input", parent=self)
+        d = ItemLineDialog(self.app, "Add Input", parent=self, show_consumption=True)
         if d.exec() == QtWidgets.QDialog.DialogCode.Accepted and d.result:
             if d.result.get("kind") in ("fluid", "gas") and not self._check_tank_limit(direction="in"):
                 return
@@ -1616,6 +1684,8 @@ class _RecipeDialogBase(QtWidgets.QDialog):
         dialog_kwargs = {}
         if is_output:
             dialog_kwargs = self._get_output_dialog_kwargs(current_slot=line.get("output_slot_index"))
+        else:
+            dialog_kwargs = {"show_consumption": True}
         d = ItemLineDialog(
             self.app,
             "Edit Output" if is_output else "Edit Input",
@@ -1771,15 +1841,31 @@ class AddRecipeDialog(_RecipeDialogBase):
             for line in self.inputs:
                 if line["kind"] in ("fluid", "gas"):
                     self.app.conn.execute(
-                        "INSERT INTO recipe_lines(recipe_id, direction, item_id, qty_liters, chance_percent, output_slot_index) "
-                        "VALUES(?,?,?,?,?,?)",
-                        (recipe_id, "in", line["item_id"], line["qty_liters"], None, None),
+                        "INSERT INTO recipe_lines(recipe_id, direction, item_id, qty_liters, chance_percent, consumption_chance, output_slot_index) "
+                        "VALUES(?,?,?,?,?,?,?)",
+                        (
+                            recipe_id,
+                            "in",
+                            line["item_id"],
+                            line["qty_liters"],
+                            None,
+                            line.get("consumption_chance", 1.0),
+                            None,
+                        ),
                     )
                 else:
                     self.app.conn.execute(
-                        "INSERT INTO recipe_lines(recipe_id, direction, item_id, qty_count, chance_percent, output_slot_index) "
-                        "VALUES(?,?,?,?,?,?)",
-                        (recipe_id, "in", line["item_id"], line["qty_count"], None, None),
+                        "INSERT INTO recipe_lines(recipe_id, direction, item_id, qty_count, chance_percent, consumption_chance, output_slot_index) "
+                        "VALUES(?,?,?,?,?,?,?)",
+                        (
+                            recipe_id,
+                            "in",
+                            line["item_id"],
+                            line["qty_count"],
+                            None,
+                            line.get("consumption_chance", 1.0),
+                            None,
+                        ),
                     )
 
             for line in self.outputs:
@@ -1967,7 +2053,7 @@ class EditRecipeDialog(_RecipeDialogBase):
         ins = self.app.conn.execute(
             """
             SELECT rl.id, rl.item_id, COALESCE(i.display_name, i.key) AS name, i.kind,
-                   rl.qty_count, rl.qty_liters, rl.chance_percent, rl.output_slot_index
+                   rl.qty_count, rl.qty_liters, rl.chance_percent, rl.consumption_chance, rl.output_slot_index
             FROM recipe_lines rl
             JOIN items i ON i.id = rl.item_id
             WHERE rl.recipe_id=? AND rl.direction='in'
@@ -1999,6 +2085,7 @@ class EditRecipeDialog(_RecipeDialogBase):
                 "qty_count": qty_count,
                 "qty_liters": qty_liters,
                 "chance_percent": row["chance_percent"],
+                "consumption_chance": row["consumption_chance"],
                 "output_slot_index": row["output_slot_index"],
             }
             self.inputs.append(line)
@@ -2081,15 +2168,31 @@ class EditRecipeDialog(_RecipeDialogBase):
             for line in self.inputs:
                 if line["kind"] in ("fluid", "gas"):
                     self.app.conn.execute(
-                        "INSERT INTO recipe_lines(recipe_id, direction, item_id, qty_liters, chance_percent, output_slot_index) "
-                        "VALUES(?,?,?,?,?,?)",
-                        (self.recipe_id, "in", line["item_id"], line["qty_liters"], None, None),
+                        "INSERT INTO recipe_lines(recipe_id, direction, item_id, qty_liters, chance_percent, consumption_chance, output_slot_index) "
+                        "VALUES(?,?,?,?,?,?,?)",
+                        (
+                            self.recipe_id,
+                            "in",
+                            line["item_id"],
+                            line["qty_liters"],
+                            None,
+                            line.get("consumption_chance", 1.0),
+                            None,
+                        ),
                     )
                 else:
                     self.app.conn.execute(
-                        "INSERT INTO recipe_lines(recipe_id, direction, item_id, qty_count, chance_percent, output_slot_index) "
-                        "VALUES(?,?,?,?,?,?)",
-                        (self.recipe_id, "in", line["item_id"], line["qty_count"], None, None),
+                        "INSERT INTO recipe_lines(recipe_id, direction, item_id, qty_count, chance_percent, consumption_chance, output_slot_index) "
+                        "VALUES(?,?,?,?,?,?,?)",
+                        (
+                            self.recipe_id,
+                            "in",
+                            line["item_id"],
+                            line["qty_count"],
+                            None,
+                            line.get("consumption_chance", 1.0),
+                            None,
+                        ),
                     )
 
             for line in self.outputs:
