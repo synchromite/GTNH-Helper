@@ -5,26 +5,32 @@ A recipe database browser and inventory helper for GregTech New Horizons.
 > **Status:** The app is focused on the GTNH 2.7.4 data set.
 
 ## Features
-- **Browse items & recipes**: with full input/output details.
-- **Inventory tracking**: stored per-profile.
-- **Tier filtering**: (and 6x6 crafting unlock toggle) to narrow the recipe list.
-- **Tab customization**: enable/disable tabs and reorder them from the **Tabs** menu.
-- **Editor mode**: (optional) to add/edit/delete items and recipes.
-- **Recipe Planner**: Plan recipes based on your current inventory. Enter a complex item, and the tool will calculate the full dependency tree until it finds items you already own or base resources (like ores). It then generates a "Shopping List" of raw materials.
-- **Interactive Build Mode**: Click the Build button to see step-by-step instructions. The tool intelligently tracks your inventory and automatically checks off steps as you gather the required resources.
-- **Machine Tab**: Keeps track of what machines you own and have online. Used for planning when picking recipes. Will pick the most efficient.
+- **Browse items, fluids, gases, and recipes** with full input/output details.
+- **Inventory tracking** stored per profile database.
+- **Tier filtering** (plus 6x6 crafting unlock toggle) to narrow recipe lists.
+- **Recipe Planner** that builds a dependency tree from your inventory and generates a shopping list.
+- **Interactive Build Mode** with step-by-step instructions tied to inventory updates.
+- **Machine tracking** for owned/online availability used by planning and machine selection.
+- **Editor mode** (optional) for adding/editing items, recipes, materials, item kinds, and machine metadata.
+- **Tab customization**: enable/disable, reorder, and detach tabs.
+- **Theme toggle**: light/dark theme switching.
+- **DB utilities**: open, export content/profile DBs, and merge content DBs (editor mode only).
 
 ## Modes
 The app runs in **client mode** by default:
 - Content database is opened **read-only**.
 - Editing features are disabled.
+- Creating new DBs and merging DBs are disabled.
 
 To enable **editor mode**, create a file named `.enable_editor` next to `app.py`.
 Remove the file to switch back to client mode.
 
 ## Data storage
-- **Content DB:** `gtnh.db` (items/recipes).
-- **Profile DB:** `profile.db` (tiers, unlocks, inventory).
+- **Content DB:** `gtnh.db` (items, recipes, machine metadata).
+- **Profile DB:** `profile.db` (tiers, unlocks, inventory, machine availability, UI settings).
+
+If you open a non-default content DB, the profile DB is created alongside it as
+`<content_stem>_profile.db`.
 
 Profile data is kept separate so your progress survives content DB updates.
 
@@ -36,7 +42,7 @@ Profile data is kept separate so your progress survives content DB updates.
 - Feature requests are open
 
 ## Requirements
-- Python 3.11+
+- Python 3.10+
 - PySide6 (Qt UI toolkit)
 
 ## Install
