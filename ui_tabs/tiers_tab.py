@@ -10,22 +10,17 @@ class TiersTab(QtWidgets.QWidget):
         super().__init__(parent)
         self.app = app
         self.tier_checks: dict[str, QtWidgets.QCheckBox] = {}
+        self._tier_list: list[str] = []
 
         layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
 
         layout.addWidget(QtWidgets.QLabel("Select tiers you currently have access to."))
 
-        grid = QtWidgets.QGridLayout()
-        layout.addLayout(grid)
+        self.grid = QtWidgets.QGridLayout()
+        layout.addLayout(self.grid)
 
-        cols = 3
-        for i, tier in enumerate(ALL_TIERS):
-            checkbox = QtWidgets.QCheckBox(tier)
-            checkbox.toggled.connect(lambda checked, t=tier: self._on_tier_toggle(t, checked))
-            self.tier_checks[tier] = checkbox
-            row, col = divmod(i, cols)
-            grid.addWidget(checkbox, row, col)
+        self._build_tier_grid(self._get_tier_list())
 
         unlocks = QtWidgets.QGroupBox("Crafting")
         unlocks_layout = QtWidgets.QVBoxLayout(unlocks)
@@ -52,6 +47,9 @@ class TiersTab(QtWidgets.QWidget):
         checkbox.blockSignals(prev)
 
     def load_from_db(self) -> None:
+        tiers = self._get_tier_list()
+        if tiers != self._tier_list:
+            self._build_tier_grid(tiers)
         enabled = set(self.app.get_enabled_tiers())
         for tier, checkbox in self.tier_checks.items():
             prev = checkbox.blockSignals(True)
@@ -63,22 +61,23 @@ class TiersTab(QtWidgets.QWidget):
         self.unlocked_6x6_checkbox.blockSignals(prev)
 
     def _on_tier_toggle(self, tier: str, checked: bool) -> None:
+        tier_list = self._tier_list or self._get_tier_list()
         try:
-            tier_index = ALL_TIERS.index(tier)
+            tier_index = tier_list.index(tier)
         except ValueError:
             return
 
         if checked:
-            for lower_tier in ALL_TIERS[: tier_index + 1]:
+            for lower_tier in tier_list[: tier_index + 1]:
                 self._set_tier_checked(lower_tier, True)
 
-            if "Steam Age" in ALL_TIERS[: tier_index + 1]:
+            if "Steam Age" in tier_list[: tier_index + 1]:
                 if not self.unlocked_6x6_checkbox.isChecked():
                     prev = self.unlocked_6x6_checkbox.blockSignals(True)
                     self.unlocked_6x6_checkbox.setChecked(True)
                     self.unlocked_6x6_checkbox.blockSignals(prev)
         else:
-            for higher_tier in ALL_TIERS[tier_index + 1 :]:
+            for higher_tier in tier_list[tier_index + 1 :]:
                 self._set_tier_checked(higher_tier, False)
 
             steam_checkbox = self.tier_checks.get("Steam Age")
@@ -108,3 +107,25 @@ class TiersTab(QtWidgets.QWidget):
 
         if hasattr(self.app, "status_bar"):
             self.app.status_bar.showMessage(f"Saved tiers: {', '.join(enabled)}")
+
+    def _get_tier_list(self) -> list[str]:
+        if hasattr(self.app, "get_all_tiers"):
+            return list(self.app.get_all_tiers())
+        return list(ALL_TIERS)
+
+    def _build_tier_grid(self, tiers: list[str]) -> None:
+        self._tier_list = list(tiers)
+        self.tier_checks = {}
+        while self.grid.count():
+            item = self.grid.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+
+        cols = 3
+        for i, tier in enumerate(tiers):
+            checkbox = QtWidgets.QCheckBox(tier)
+            checkbox.toggled.connect(lambda checked, t=tier: self._on_tier_toggle(t, checked))
+            self.tier_checks[tier] = checkbox
+            row, col = divmod(i, cols)
+            self.grid.addWidget(checkbox, row, col)

@@ -11,7 +11,7 @@ from services.db_lifecycle import DbLifecycle
 from services.items import fetch_items
 from services.recipes import fetch_recipes
 from services.tab_config import apply_tab_reorder, config_path, load_tab_config, save_tab_config
-from ui_dialogs import ItemKindManagerDialog, ItemMergeConflictDialog, MaterialManagerDialog
+from ui_dialogs import ItemKindManagerDialog, ItemMergeConflictDialog, MaterialManagerDialog, TierManagerDialog
 from ui_tabs.inventory_tab import InventoryTab
 from ui_tabs.items_tab_qt import ItemsTab, FluidsTab, GasesTab
 from ui_tabs.recipes_tab_qt import RecipesTab
@@ -408,6 +408,10 @@ class App(QtWidgets.QMainWindow):
         kinds_action.setEnabled(self.editor_enabled)
         kinds_action.triggered.connect(self.menu_manage_item_kinds)
         tools_menu.addAction(kinds_action)
+        tiers_action = QtGui.QAction("Manage Tiers…", self)
+        tiers_action.setEnabled(self.editor_enabled)
+        tiers_action.triggered.connect(self.menu_manage_tiers)
+        tools_menu.addAction(tiers_action)
 
     def _apply_theme(self, theme: str) -> None:
         app = QtWidgets.QApplication.instance()
@@ -511,6 +515,18 @@ class App(QtWidgets.QMainWindow):
         dlg = ItemKindManagerDialog(self, parent=self)
         dlg.exec()
 
+    def menu_manage_tiers(self) -> None:
+        if not self.editor_enabled:
+            QtWidgets.QMessageBox.information(
+                self,
+                "Editor locked",
+                "This copy is running in client mode.\n\n"
+                "To enable editing, create a file named '.enable_editor' next to the app.",
+            )
+            return
+        dlg = TierManagerDialog(self, parent=self)
+        dlg.exec()
+
     def menu_export_content_db(self) -> None:
         ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         default = f"gtnh_export_{ts}.db"
@@ -609,6 +625,12 @@ class App(QtWidgets.QMainWindow):
 
     def set_enabled_tiers(self, tiers: list[str]) -> None:
         self.db.set_enabled_tiers(tiers)
+
+    def get_all_tiers(self) -> list[str]:
+        return self.db.get_all_tiers()
+
+    def set_all_tiers(self, tiers: list[str]) -> None:
+        self.db.set_all_tiers(tiers)
 
     # ---------- Crafting grid unlocks ----------
     def is_crafting_6x6_unlocked(self) -> bool:

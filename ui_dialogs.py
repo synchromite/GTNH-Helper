@@ -403,7 +403,8 @@ class _ItemDialogBase(QtWidgets.QDialog):
 
         self.tier_label = QtWidgets.QLabel("Tier")
         self.tier_combo = QtWidgets.QComboBox()
-        self.tier_combo.addItems([NONE_TIER_LABEL] + list(ALL_TIERS))
+        tiers = self.app.get_all_tiers() if hasattr(self.app, "get_all_tiers") else list(ALL_TIERS)
+        self.tier_combo.addItems([NONE_TIER_LABEL] + list(tiers))
         form.addWidget(self.tier_label, 5, 0)
         form.addWidget(self.tier_combo, 5, 1)
         self.tier_label.hide()
@@ -2309,51 +2310,98 @@ class EditRecipeDialog(_RecipeDialogBase):
 
 
 class MachineMetadataEditorDialog(QtWidgets.QDialog):
+    _slot_defaults = {
+        "input_slots": 1,
+        "output_slots": 1,
+        "byproduct_slots": 0,
+        "storage_slots": 0,
+        "power_slots": 0,
+        "circuit_slots": 0,
+        "input_tanks": 0,
+        "input_tank_capacity_l": 0,
+        "output_tanks": 0,
+        "output_tank_capacity_l": 0,
+    }
+
     def __init__(self, app, parent=None):
         super().__init__(parent)
         self.app = app
         self.setWindowTitle("Edit Machine Metadata")
         self.setModal(True)
-        self.resize(980, 520)
+        self.resize(960, 520)
+
+        self._metadata: dict[tuple[str, str], dict[str, int]] = {}
+        self._current_key: tuple[str, str] | None = None
+        self._loading = False
 
         layout = QtWidgets.QVBoxLayout(self)
         layout.addWidget(
             QtWidgets.QLabel(
-                "Define per-tier machine slot capabilities. Byproduct slots must be less than output slots."
+                "Define machine tiers and per-tier slot/tank capabilities. "
+                "Byproduct slots must be less than output slots."
             )
         )
 
-        self.table = QtWidgets.QTableWidget(0, 12)
-        self.table.setHorizontalHeaderLabels(
-            [
-                "Machine Type",
-                "Tier",
-                "Input Slots",
-                "Output Slots",
-                "Byproduct Slots",
-                "Storage Slots",
-                "Power Slots",
-                "Circuit Slots",
-                "Input Tanks",
-                "Input Tank Cap (L)",
-                "Output Tanks",
-                "Output Tank Cap (L)",
-            ]
-        )
-        self.table.verticalHeader().setVisible(False)
-        self.table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows)
-        self.table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.ResizeMode.Interactive)
-        layout.addWidget(self.table, stretch=1)
+        header = QtWidgets.QHBoxLayout()
+        header.addWidget(QtWidgets.QLabel("Machine Type"))
+        self.machine_type_combo = QtWidgets.QComboBox()
+        self.machine_type_combo.setEditable(True)
+        self.machine_type_combo.currentTextChanged.connect(self._on_machine_type_changed)
+        header.addWidget(self.machine_type_combo, stretch=1)
+        self.remove_machine_btn = QtWidgets.QPushButton("Remove Type")
+        self.remove_machine_btn.clicked.connect(self._remove_machine_type)
+        header.addWidget(self.remove_machine_btn)
+        layout.addLayout(header)
 
-        controls = QtWidgets.QHBoxLayout()
-        self.add_row_btn = QtWidgets.QPushButton("Add Row")
-        self.add_row_btn.clicked.connect(self._add_row)
-        self.remove_row_btn = QtWidgets.QPushButton("Remove Selected")
-        self.remove_row_btn.clicked.connect(self._remove_selected_rows)
-        controls.addWidget(self.add_row_btn)
-        controls.addWidget(self.remove_row_btn)
-        controls.addStretch(1)
-        layout.addLayout(controls)
+        body = QtWidgets.QHBoxLayout()
+        layout.addLayout(body, stretch=1)
+
+        left = QtWidgets.QVBoxLayout()
+        body.addLayout(left, stretch=0)
+
+        left.addWidget(QtWidgets.QLabel("Tiers"))
+        self.tier_list = QtWidgets.QListWidget()
+        self.tier_list.currentRowChanged.connect(self._on_tier_selected)
+        left.addWidget(self.tier_list, stretch=1)
+
+        tier_controls = QtWidgets.QHBoxLayout()
+        self.tier_combo = QtWidgets.QComboBox()
+        self.tier_combo.setEditable(True)
+        self.tier_combo.addItems(self._get_tier_list())
+        tier_controls.addWidget(self.tier_combo, stretch=1)
+        self.add_tier_btn = QtWidgets.QPushButton("Add Tier")
+        self.add_tier_btn.clicked.connect(self._add_tier)
+        tier_controls.addWidget(self.add_tier_btn)
+        self.remove_tier_btn = QtWidgets.QPushButton("Remove Tier")
+        self.remove_tier_btn.clicked.connect(self._remove_selected_tier)
+        tier_controls.addWidget(self.remove_tier_btn)
+        left.addLayout(tier_controls)
+
+        self.manage_tiers_btn = QtWidgets.QPushButton("Manage Tiers…")
+        self.manage_tiers_btn.clicked.connect(self._open_tier_manager)
+        left.addWidget(self.manage_tiers_btn)
+
+        right = QtWidgets.QVBoxLayout()
+        body.addLayout(right, stretch=1)
+
+        right.addWidget(QtWidgets.QLabel("Metadata"))
+        self.form = QtWidgets.QGridLayout()
+        right.addLayout(self.form)
+
+        self.slot_widgets: dict[str, tuple[QtWidgets.QCheckBox, QtWidgets.QSpinBox]] = {}
+        self.capacity_widgets: dict[str, QtWidgets.QSpinBox] = {}
+        self.capacity_labels: dict[str, QtWidgets.QLabel] = {}
+
+        self._add_slot_row("input_slots", "Input Slots", 1, 64, required=True)
+        self._add_slot_row("output_slots", "Output Slots", 1, 64, required=True)
+        self._add_slot_row("byproduct_slots", "Byproduct Slots", 0, 64)
+        self._add_slot_row("storage_slots", "Storage Slots", 0, 64)
+        self._add_slot_row("power_slots", "Power Slots", 0, 16)
+        self._add_slot_row("circuit_slots", "Circuit Slots", 0, 16)
+        self._add_slot_row("input_tanks", "Input Tanks", 0, 32, with_capacity="input_tank_capacity_l")
+        self._add_slot_row("output_tanks", "Output Tanks", 0, 32, with_capacity="output_tank_capacity_l")
+
+        right.addStretch(1)
 
         buttons = QtWidgets.QDialogButtonBox(
             QtWidgets.QDialogButtonBox.StandardButton.Save
@@ -2363,130 +2411,270 @@ class MachineMetadataEditorDialog(QtWidgets.QDialog):
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
 
-        self._load_rows()
+        self._load_metadata()
 
-    def _load_rows(self) -> None:
-        self.table.setRowCount(0)
-        for row in fetch_machine_metadata(self.app.conn):
-            self._add_row(row)
-        if self.table.rowCount() == 0:
-            self._add_row()
+    def _get_tier_list(self) -> list[str]:
+        if hasattr(self.app, "get_all_tiers"):
+            return list(self.app.get_all_tiers())
+        return list(ALL_TIERS)
 
-    def _make_spin(self, minimum: int, maximum: int, value: int) -> QtWidgets.QSpinBox:
+    def _load_metadata(self) -> None:
+        self._metadata = {}
+        rows = fetch_machine_metadata(self.app.conn, tiers=self._get_tier_list())
+        for row in rows:
+            machine_type = (row["machine_type"] or "").strip()
+            tier = (row["tier"] or "").strip()
+            if not machine_type or not tier:
+                continue
+            self._metadata[(machine_type, tier)] = {
+                "input_slots": int(row["input_slots"] or 1),
+                "output_slots": int(row["output_slots"] or 1),
+                "byproduct_slots": int(row["byproduct_slots"] or 0),
+                "storage_slots": int(row["storage_slots"] or 0),
+                "power_slots": int(row["power_slots"] or 0),
+                "circuit_slots": int(row["circuit_slots"] or 0),
+                "input_tanks": int(row["input_tanks"] or 0),
+                "input_tank_capacity_l": int(row["input_tank_capacity_l"] or 0),
+                "output_tanks": int(row["output_tanks"] or 0),
+                "output_tank_capacity_l": int(row["output_tank_capacity_l"] or 0),
+            }
+        self._refresh_machine_types()
+
+    def _refresh_machine_types(self) -> None:
+        machine_types = sorted({machine for machine, _ in self._metadata.keys()}, key=str.casefold)
+        current = self.machine_type_combo.currentText().strip()
+        self.machine_type_combo.blockSignals(True)
+        self.machine_type_combo.clear()
+        self.machine_type_combo.addItems([""] + machine_types)
+        if current:
+            self.machine_type_combo.setCurrentText(current)
+        self.machine_type_combo.blockSignals(False)
+        self._on_machine_type_changed(self.machine_type_combo.currentText())
+
+    def _sorted_tiers(self, tiers: list[str]) -> list[str]:
+        tier_list = self._get_tier_list()
+        order = {tier: idx for idx, tier in enumerate(tier_list)}
+        extras = sorted([tier for tier in tiers if tier not in order])
+        ordered = sorted([tier for tier in tiers if tier in order], key=lambda t: order[t])
+        return ordered + extras
+
+    def _on_machine_type_changed(self, machine_type: str) -> None:
+        self._update_current_metadata()
+        machine_type = (machine_type or "").strip()
+        tiers = [tier for (m_type, tier) in self._metadata.keys() if m_type == machine_type]
+        self._loading = True
+        self.tier_list.clear()
+        for tier in self._sorted_tiers(tiers):
+            self.tier_list.addItem(tier)
+        self._loading = False
+        if self.tier_list.count() > 0:
+            self.tier_list.setCurrentRow(0)
+        else:
+            self._current_key = None
+            self._set_form_enabled(False)
+
+    def _on_tier_selected(self, row: int) -> None:
+        if self._loading:
+            return
+        self._update_current_metadata()
+        machine_type = (self.machine_type_combo.currentText() or "").strip()
+        tier = self.tier_list.item(row).text() if 0 <= row < self.tier_list.count() else ""
+        if not machine_type or not tier:
+            self._current_key = None
+            self._set_form_enabled(False)
+            return
+        self._current_key = (machine_type, tier)
+        self._load_form_values(self._metadata.get(self._current_key, {}))
+
+    def _set_form_enabled(self, enabled: bool) -> None:
+        for checkbox, spin in self.slot_widgets.values():
+            checkbox.setEnabled(enabled)
+            spin.setEnabled(enabled)
+        for spin in self.capacity_widgets.values():
+            spin.setEnabled(enabled)
+        for label in self.capacity_labels.values():
+            label.setEnabled(enabled)
+
+    def _add_slot_row(
+        self,
+        key: str,
+        label: str,
+        minimum: int,
+        maximum: int,
+        *,
+        required: bool = False,
+        with_capacity: str | None = None,
+    ) -> None:
+        row = self.form.rowCount()
+        checkbox = QtWidgets.QCheckBox(label)
         spin = QtWidgets.QSpinBox()
         spin.setRange(minimum, maximum)
-        spin.setValue(value)
-        return spin
+        spin.setValue(self._slot_defaults.get(key, 0))
+        spin.valueChanged.connect(lambda _=0, k=key: self._on_value_changed(k))
+        checkbox.toggled.connect(lambda checked, k=key: self._on_slot_toggled(k, checked))
+        self.form.addWidget(checkbox, row, 0)
+        self.form.addWidget(spin, row, 1)
+        if required:
+            checkbox.setChecked(True)
+            checkbox.setEnabled(False)
+        self.slot_widgets[key] = (checkbox, spin)
 
-    def _add_row(self, row=None) -> None:
-        if isinstance(row, bool):
-            row = None
-        def _as_int(value, default=0):
-            try:
-                return int(value)
-            except Exception:
-                return default
+        if with_capacity:
+            cap_row = self.form.rowCount()
+            cap_label = QtWidgets.QLabel("Capacity (L)")
+            cap_spin = QtWidgets.QSpinBox()
+            cap_spin.setRange(0, 10**9)
+            cap_spin.setValue(self._slot_defaults.get(with_capacity, 0))
+            cap_spin.valueChanged.connect(lambda _=0, k=with_capacity: self._on_value_changed(k))
+            self.form.addWidget(cap_label, cap_row, 0)
+            self.form.addWidget(cap_spin, cap_row, 1)
+            self.capacity_labels[with_capacity] = cap_label
+            self.capacity_widgets[with_capacity] = cap_spin
 
-        row_idx = self.table.rowCount()
-        self.table.insertRow(row_idx)
+    def _on_slot_toggled(self, key: str, checked: bool) -> None:
+        if self._loading:
+            return
+        checkbox, spin = self.slot_widgets[key]
+        if checked and spin.value() == 0 and spin.minimum() > 0:
+            spin.setValue(spin.minimum())
+        spin.setVisible(checked)
+        if key == "input_tanks":
+            self._toggle_capacity("input_tank_capacity_l", checked)
+        elif key == "output_tanks":
+            self._toggle_capacity("output_tank_capacity_l", checked)
+        self._on_value_changed(key)
 
-        machine_edit = QtWidgets.QLineEdit()
-        if row is not None:
-            machine_edit.setText((row["machine_type"] or "").strip())
-        self.table.setCellWidget(row_idx, 0, machine_edit)
+    def _toggle_capacity(self, key: str, visible: bool) -> None:
+        label = self.capacity_labels.get(key)
+        spin = self.capacity_widgets.get(key)
+        if label:
+            label.setVisible(visible)
+        if spin:
+            spin.setVisible(visible)
 
-        tier_combo = QtWidgets.QComboBox()
-        tier_combo.setEditable(True)
-        tier_combo.addItems(ALL_TIERS)
-        if row is not None:
-            tier_val = (row["tier"] or "").strip()
-            if tier_val:
-                if tier_val not in ALL_TIERS:
-                    tier_combo.addItem(tier_val)
-                tier_combo.setCurrentText(tier_val)
-        self.table.setCellWidget(row_idx, 1, tier_combo)
+    def _on_value_changed(self, _key: str) -> None:
+        if self._loading:
+            return
+        self._update_current_metadata()
 
-        input_slots = _as_int(row["input_slots"], default=1) if row is not None else 1
-        output_slots = _as_int(row["output_slots"], default=1) if row is not None else 1
-        byproduct_slots = _as_int(row["byproduct_slots"]) if row is not None else 0
-        storage_slots = _as_int(row["storage_slots"]) if row is not None else 0
-        power_slots = _as_int(row["power_slots"]) if row is not None else 0
-        circuit_slots = _as_int(row["circuit_slots"]) if row is not None else 0
-        input_tanks = _as_int(row["input_tanks"]) if row is not None else 0
-        input_tank_cap = _as_int(row["input_tank_capacity_l"]) if row is not None else 0
-        output_tanks = _as_int(row["output_tanks"]) if row is not None else 0
-        output_tank_cap = _as_int(row["output_tank_capacity_l"]) if row is not None else 0
+    def _load_form_values(self, values: dict[str, int]) -> None:
+        self._loading = True
+        for key, (checkbox, spin) in self.slot_widgets.items():
+            value = int(values.get(key, self._slot_defaults.get(key, 0)))
+            if checkbox.isEnabled():
+                checkbox.setChecked(value > 0)
+                spin.setVisible(value > 0)
+            spin.setValue(max(spin.minimum(), value))
+        for key, spin in self.capacity_widgets.items():
+            value = int(values.get(key, self._slot_defaults.get(key, 0)))
+            spin.setValue(max(spin.minimum(), value))
+        self._loading = False
 
-        self.table.setCellWidget(row_idx, 2, self._make_spin(1, 64, max(1, input_slots)))
-        self.table.setCellWidget(row_idx, 3, self._make_spin(1, 64, max(1, output_slots)))
-        self.table.setCellWidget(row_idx, 4, self._make_spin(0, 64, max(0, byproduct_slots)))
-        self.table.setCellWidget(row_idx, 5, self._make_spin(0, 64, max(0, storage_slots)))
-        self.table.setCellWidget(row_idx, 6, self._make_spin(0, 16, max(0, power_slots)))
-        self.table.setCellWidget(row_idx, 7, self._make_spin(0, 16, max(0, circuit_slots)))
-        self.table.setCellWidget(row_idx, 8, self._make_spin(0, 32, max(0, input_tanks)))
-        self.table.setCellWidget(row_idx, 9, self._make_spin(0, 10**9, max(0, input_tank_cap)))
-        self.table.setCellWidget(row_idx, 10, self._make_spin(0, 32, max(0, output_tanks)))
-        self.table.setCellWidget(row_idx, 11, self._make_spin(0, 10**9, max(0, output_tank_cap)))
+        input_checked = self.slot_widgets["input_tanks"][0].isChecked()
+        output_checked = self.slot_widgets["output_tanks"][0].isChecked()
+        self._toggle_capacity("input_tank_capacity_l", input_checked)
+        self._toggle_capacity("output_tank_capacity_l", output_checked)
+        self._set_form_enabled(True)
 
-    def _remove_selected_rows(self) -> None:
-        rows = sorted({idx.row() for idx in self.table.selectionModel().selectedRows()}, reverse=True)
-        for row_idx in rows:
-            self.table.removeRow(row_idx)
+    def _update_current_metadata(self) -> None:
+        if self._current_key is None:
+            return
+        values: dict[str, int] = {}
+        for key, (checkbox, spin) in self.slot_widgets.items():
+            if checkbox.isEnabled() and not checkbox.isChecked():
+                values[key] = 0
+            else:
+                values[key] = int(spin.value())
+        for key, spin in self.capacity_widgets.items():
+            tank_key = "input_tanks" if "input" in key else "output_tanks"
+            tank_checkbox = self.slot_widgets[tank_key][0]
+            values[key] = int(spin.value()) if tank_checkbox.isChecked() else 0
+        self._metadata[self._current_key] = values
+
+    def _add_tier(self) -> None:
+        machine_type = (self.machine_type_combo.currentText() or "").strip()
+        if not machine_type:
+            QtWidgets.QMessageBox.warning(self, "Missing machine type", "Enter a machine type first.")
+            return
+        tier = (self.tier_combo.currentText() or "").strip()
+        if not tier:
+            QtWidgets.QMessageBox.warning(self, "Missing tier", "Select a tier to add.")
+            return
+        key = (machine_type, tier)
+        if key in self._metadata:
+            QtWidgets.QMessageBox.information(self, "Tier exists", f"{machine_type} already has tier '{tier}'.")
+            return
+        self._metadata[key] = dict(self._slot_defaults)
+        self._refresh_machine_types()
+        self._select_tier(machine_type, tier)
+
+    def _select_tier(self, machine_type: str, tier: str) -> None:
+        self.machine_type_combo.setCurrentText(machine_type)
+        for idx in range(self.tier_list.count()):
+            if self.tier_list.item(idx).text() == tier:
+                self.tier_list.setCurrentRow(idx)
+                return
+
+    def _remove_selected_tier(self) -> None:
+        if self._current_key is None:
+            return
+        machine_type, tier = self._current_key
+        confirm = QtWidgets.QMessageBox.question(
+            self,
+            "Remove tier?",
+            f"Remove tier '{tier}' from {machine_type}?",
+        )
+        if confirm != QtWidgets.QMessageBox.StandardButton.Yes:
+            return
+        self._metadata.pop(self._current_key, None)
+        self._current_key = None
+        self._refresh_machine_types()
+
+    def _remove_machine_type(self) -> None:
+        machine_type = (self.machine_type_combo.currentText() or "").strip()
+        if not machine_type:
+            return
+        confirm = QtWidgets.QMessageBox.question(
+            self,
+            "Remove machine type?",
+            f"Remove all tiers for '{machine_type}'?",
+        )
+        if confirm != QtWidgets.QMessageBox.StandardButton.Yes:
+            return
+        for key in list(self._metadata.keys()):
+            if key[0] == machine_type:
+                self._metadata.pop(key, None)
+        self._current_key = None
+        self._refresh_machine_types()
+
+    def _open_tier_manager(self) -> None:
+        if not hasattr(self.app, "editor_enabled") or not self.app.editor_enabled:
+            QtWidgets.QMessageBox.information(
+                self,
+                "Editor locked",
+                "Editing tiers is only available in editor mode.",
+            )
+            return
+        dlg = TierManagerDialog(self.app, parent=self)
+        if dlg.exec() == QtWidgets.QDialog.DialogCode.Accepted:
+            self.tier_combo.clear()
+            self.tier_combo.addItems(self._get_tier_list())
 
     def _validate_rows(self) -> list[tuple] | None:
         rows: list[tuple] = []
-        seen: set[tuple[str, str]] = set()
-        for row_idx in range(self.table.rowCount()):
-            machine_edit = self.table.cellWidget(row_idx, 0)
-            tier_combo = self.table.cellWidget(row_idx, 1)
-            if machine_edit is None or tier_combo is None:
+        for (machine_type, tier), values in sorted(self._metadata.items()):
+            if not machine_type or not tier:
                 continue
-            machine_type = (machine_edit.text() or "").strip()
-            tier = (tier_combo.currentText() or "").strip()
-            if not machine_type:
-                QtWidgets.QMessageBox.warning(self, "Missing machine type", f"Row {row_idx + 1} needs a machine type.")
-                return None
-            if not tier:
-                QtWidgets.QMessageBox.warning(self, "Missing tier", f"Row {row_idx + 1} needs a tier.")
-                return None
-            key = (machine_type.lower(), tier)
-            if key in seen:
-                QtWidgets.QMessageBox.warning(
-                    self, "Duplicate row", f"Row {row_idx + 1} duplicates machine/tier '{machine_type} / {tier}'."
-                )
-                return None
-            seen.add(key)
-
-            def _spin_value(col: int) -> int:
-                widget = self.table.cellWidget(row_idx, col)
-                return int(widget.value()) if isinstance(widget, QtWidgets.QSpinBox) else 0
-
-            input_slots = _spin_value(2)
-            output_slots = _spin_value(3)
-            byproduct_slots = _spin_value(4)
-            storage_slots = _spin_value(5)
-            power_slots = _spin_value(6)
-            circuit_slots = _spin_value(7)
-            input_tanks = _spin_value(8)
-            input_tank_cap = _spin_value(9)
-            output_tanks = _spin_value(10)
-            output_tank_cap = _spin_value(11)
-
-            if input_slots < 1 or output_slots < 1:
-                QtWidgets.QMessageBox.warning(
-                    self,
-                    "Invalid slots",
-                    f"Row {row_idx + 1} requires at least 1 input and 1 output slot.",
-                )
-                return None
+            input_slots = max(1, int(values.get("input_slots", 1)))
+            output_slots = max(1, int(values.get("output_slots", 1)))
+            byproduct_slots = int(values.get("byproduct_slots", 0))
             if byproduct_slots > max(output_slots - 1, 0):
                 QtWidgets.QMessageBox.warning(
                     self,
                     "Invalid byproducts",
-                    f"Row {row_idx + 1} has {byproduct_slots} byproduct slots but only {output_slots} output slots.",
+                    f"{machine_type} {tier} has {byproduct_slots} byproduct slots but only {output_slots} output slots.",
                 )
                 return None
-
             rows.append(
                 (
                     machine_type,
@@ -2494,18 +2682,19 @@ class MachineMetadataEditorDialog(QtWidgets.QDialog):
                     input_slots,
                     output_slots,
                     byproduct_slots,
-                    storage_slots,
-                    power_slots,
-                    circuit_slots,
-                    input_tanks,
-                    input_tank_cap,
-                    output_tanks,
-                    output_tank_cap,
+                    int(values.get("storage_slots", 0)),
+                    int(values.get("power_slots", 0)),
+                    int(values.get("circuit_slots", 0)),
+                    int(values.get("input_tanks", 0)),
+                    int(values.get("input_tank_capacity_l", 0)),
+                    int(values.get("output_tanks", 0)),
+                    int(values.get("output_tank_capacity_l", 0)),
                 )
             )
         return rows
 
     def _save(self) -> None:
+        self._update_current_metadata()
         rows = self._validate_rows()
         if rows is None:
             return
@@ -2627,6 +2816,122 @@ class MaterialManagerDialog(QtWidgets.QDialog):
 
         if hasattr(self.app, "refresh_items"):
             self.app.refresh_items()
+        self.accept()
+
+
+class TierManagerDialog(QtWidgets.QDialog):
+    def __init__(self, app, parent=None):
+        super().__init__(parent)
+        self.app = app
+        self.setWindowTitle("Manage Tiers")
+        self.setModal(True)
+        self.resize(520, 420)
+
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.addWidget(QtWidgets.QLabel("Define the tier list used across dropdowns and filters."))
+
+        self.table = QtWidgets.QTableWidget(0, 2)
+        self.table.setHorizontalHeaderLabels(["Tier Name", "Sort Order"])
+        self.table.verticalHeader().setVisible(False)
+        self.table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.ResizeMode.Stretch)
+        layout.addWidget(self.table, stretch=1)
+
+        controls = QtWidgets.QHBoxLayout()
+        self.add_row_btn = QtWidgets.QPushButton("Add Row")
+        self.add_row_btn.clicked.connect(self._add_row)
+        self.remove_row_btn = QtWidgets.QPushButton("Remove Selected")
+        self.remove_row_btn.clicked.connect(self._remove_selected_rows)
+        controls.addWidget(self.add_row_btn)
+        controls.addWidget(self.remove_row_btn)
+        controls.addStretch(1)
+        layout.addLayout(controls)
+
+        buttons = QtWidgets.QDialogButtonBox(
+            QtWidgets.QDialogButtonBox.StandardButton.Save
+            | QtWidgets.QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self._save)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+        self._load_rows()
+
+    def _load_rows(self) -> None:
+        self.table.setRowCount(0)
+        tiers = self.app.get_all_tiers() if hasattr(self.app, "get_all_tiers") else list(ALL_TIERS)
+        for idx, tier in enumerate(tiers):
+            self._add_row({"name": tier, "order": idx + 1})
+        if self.table.rowCount() == 0:
+            self._add_row()
+
+    def _add_row(self, row=None) -> None:
+        if isinstance(row, bool):
+            row = None
+        row_idx = self.table.rowCount()
+        self.table.insertRow(row_idx)
+
+        name_item = QtWidgets.QTableWidgetItem((row["name"] or "").strip() if row else "")
+        self.table.setItem(row_idx, 0, name_item)
+
+        order_val = str(row["order"]) if row and row.get("order") else str(row_idx + 1)
+        order_item = QtWidgets.QTableWidgetItem(order_val)
+        self.table.setItem(row_idx, 1, order_item)
+
+    def _remove_selected_rows(self) -> None:
+        rows = sorted({idx.row() for idx in self.table.selectionModel().selectedRows()}, reverse=True)
+        for row_idx in rows:
+            self.table.removeRow(row_idx)
+
+    def _validate_rows(self) -> list[str] | None:
+        rows: list[tuple[int, str]] = []
+        seen: set[str] = set()
+        for row_idx in range(self.table.rowCount()):
+            name_item = self.table.item(row_idx, 0)
+            name = (name_item.text() if name_item else "").strip()
+            if not name:
+                QtWidgets.QMessageBox.warning(self, "Missing name", f"Row {row_idx + 1} needs a tier name.")
+                return None
+            canon = name.casefold()
+            if canon in seen:
+                QtWidgets.QMessageBox.warning(self, "Duplicate name", f"Tier '{name}' is listed twice.")
+                return None
+            seen.add(canon)
+
+            order_item = self.table.item(row_idx, 1)
+            order_text = (order_item.text() if order_item else "").strip()
+            try:
+                order = int(order_text or row_idx + 1)
+            except ValueError:
+                QtWidgets.QMessageBox.warning(self, "Invalid order", f"Row {row_idx + 1} has an invalid sort order.")
+                return None
+            rows.append((order, name))
+        if not rows:
+            QtWidgets.QMessageBox.warning(self, "Missing tiers", "Define at least one tier.")
+            return None
+        rows.sort(key=lambda item: item[0])
+        return [name for _, name in rows]
+
+    def _save(self) -> None:
+        tiers = self._validate_rows()
+        if tiers is None:
+            return
+        if hasattr(self.app, "set_all_tiers"):
+            self.app.set_all_tiers(tiers)
+        enabled = [tier for tier in self.app.get_enabled_tiers() if tier in tiers]
+        if not enabled:
+            enabled = [tiers[0]]
+        self.app.set_enabled_tiers(enabled)
+        self.app.set_crafting_6x6_unlocked(self.app.is_crafting_6x6_unlocked())
+
+        if hasattr(self.app, "_tiers_load_from_db"):
+            self.app._tiers_load_from_db()
+        if hasattr(self.app, "refresh_recipes"):
+            self.app.refresh_recipes()
+        if hasattr(self.app, "_machines_load_from_db"):
+            self.app._machines_load_from_db()
+        if hasattr(self.app, "status_bar"):
+            self.app.status_bar.showMessage("Updated tier list.")
         self.accept()
 
 

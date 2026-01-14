@@ -15,6 +15,12 @@ GT_VOLTAGES = [
 TIER_ORDER = {tier: idx for idx, tier in enumerate(ALL_TIERS)}
 
 
+def set_tier_order(tiers: Iterable[str]) -> None:
+    TIER_ORDER.clear()
+    for idx, tier in enumerate(tiers):
+        TIER_ORDER[str(tier)] = idx
+
+
 def _tier_rank(tier: str | None) -> int | None:
     if not tier:
         return None

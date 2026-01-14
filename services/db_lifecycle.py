@@ -8,11 +8,13 @@ from pathlib import Path
 
 from services.db import (
     DEFAULT_DB_PATH,
+    ALL_TIERS,
     connect,
     connect_profile,
     export_db,
     get_setting,
     merge_database,
+    set_all_tiers,
     set_setting,
 )
 from ui_constants import (
@@ -22,6 +24,7 @@ from ui_constants import (
     SETTINGS_MACHINE_SORT_MODE,
     SETTINGS_MACHINE_TIER_FILTER,
     SETTINGS_MACHINE_UNLOCKED_ONLY,
+    SETTINGS_TIER_LIST,
     SETTINGS_THEME,
 )
 
@@ -41,6 +44,7 @@ class DbLifecycle:
         self.profile_db_path = self._profile_path_for_content(self.db_path)
         self.profile_conn = connect_profile(self.profile_db_path)
         self._migrate_profile_settings_if_needed()
+        self._apply_tier_list()
 
     def close(self) -> None:
         try:
@@ -68,6 +72,7 @@ class DbLifecycle:
         self.profile_db_path = self._profile_path_for_content(self.db_path)
         self.profile_conn = connect_profile(self.profile_db_path)
         self._migrate_profile_settings_if_needed()
+        self._apply_tier_list()
 
     def export_content_db(self, target: Path) -> None:
         export_db(self.conn, target)
@@ -87,6 +92,16 @@ class DbLifecycle:
 
     def set_enabled_tiers(self, tiers: list[str]) -> None:
         set_setting(self.profile_conn, SETTINGS_ENABLED_TIERS, ",".join(tiers))
+
+    def get_all_tiers(self) -> list[str]:
+        raw = get_setting(self.profile_conn, SETTINGS_TIER_LIST, "")
+        tiers = [t.strip() for t in raw.split(",") if t.strip()] if raw else list(ALL_TIERS)
+        return tiers if tiers else list(ALL_TIERS)
+
+    def set_all_tiers(self, tiers: list[str]) -> None:
+        set_setting(self.profile_conn, SETTINGS_TIER_LIST, ",".join(tiers))
+        set_all_tiers(tiers)
+        self._sync_planner_tier_order(tiers)
 
     def is_crafting_6x6_unlocked(self) -> bool:
         raw = (get_setting(self.profile_conn, SETTINGS_CRAFT_6X6_UNLOCKED, "0") or "0").strip()
@@ -182,6 +197,19 @@ class DbLifecycle:
             legacy_value = get_setting(self.conn, key, None)
             if legacy_value is not None:
                 set_setting(self.profile_conn, key, legacy_value)
+
+    def _apply_tier_list(self) -> None:
+        tiers = self.get_all_tiers()
+        set_all_tiers(tiers)
+        self._sync_planner_tier_order(tiers)
+
+    @staticmethod
+    def _sync_planner_tier_order(tiers: list[str]) -> None:
+        try:
+            from services import planner
+        except Exception:
+            return
+        planner.set_tier_order(tiers)
 
     def _open_content_db(self, path: Path) -> sqlite3.Connection:
         try:

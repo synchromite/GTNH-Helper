@@ -6,6 +6,7 @@ from ui_constants import (
     SETTINGS_MACHINE_SORT_MODE,
     SETTINGS_MACHINE_TIER_FILTER,
     SETTINGS_MACHINE_UNLOCKED_ONLY,
+    SETTINGS_TIER_LIST,
     SETTINGS_THEME,
 )
 
@@ -18,6 +19,7 @@ def test_ui_settings_keys_are_preserved():
     assert SETTINGS_MACHINE_UNLOCKED_ONLY == "machine_unlocked_only"
     assert SETTINGS_MACHINE_SORT_MODE == "machine_sort_mode"
     assert SETTINGS_MACHINE_SEARCH == "machine_search"
+    assert SETTINGS_TIER_LIST == "tier_list"
 
 
 def test_qt_ui_uses_settings_keys(tmp_path):
@@ -55,6 +57,10 @@ def test_qt_ui_uses_settings_keys(tmp_path):
             "INSERT INTO app_settings(key, value) VALUES (?, ?)",
             (SETTINGS_MACHINE_SEARCH, "assembler"),
         )
+        profile_conn.execute(
+            "INSERT INTO app_settings(key, value) VALUES (?, ?)",
+            (SETTINGS_TIER_LIST, "Stone Age,LV,HV"),
+        )
         profile_conn.commit()
 
         assert lifecycle.get_enabled_tiers() == ["Stone Age", "LV"]
@@ -64,6 +70,7 @@ def test_qt_ui_uses_settings_keys(tmp_path):
         assert lifecycle.get_machine_unlocked_only() is False
         assert lifecycle.get_machine_sort_mode() == "Tier (progression)"
         assert lifecycle.get_machine_search() == "assembler"
+        assert lifecycle.get_all_tiers() == ["Stone Age", "LV", "HV"]
 
         lifecycle.set_enabled_tiers(["MV"])
         lifecycle.set_crafting_6x6_unlocked(False)
@@ -72,6 +79,7 @@ def test_qt_ui_uses_settings_keys(tmp_path):
         lifecycle.set_machine_unlocked_only(True)
         lifecycle.set_machine_sort_mode("Machine (Z→A)")
         lifecycle.set_machine_search("")
+        lifecycle.set_all_tiers(["ULV", "LV"])
 
         row = profile_conn.execute(
             "SELECT value FROM app_settings WHERE key=?",
@@ -114,5 +122,11 @@ def test_qt_ui_uses_settings_keys(tmp_path):
             (SETTINGS_MACHINE_SEARCH,),
         ).fetchone()
         assert row["value"] == ""
+
+        row = profile_conn.execute(
+            "SELECT value FROM app_settings WHERE key=?",
+            (SETTINGS_TIER_LIST,),
+        ).fetchone()
+        assert row["value"] == "ULV,LV"
     finally:
         lifecycle.close()

@@ -209,7 +209,8 @@ class MachinesTab(QtWidgets.QWidget):
         return list(grouped.values())
 
     def _sorted_tiers(self, tiers: list[str]) -> list[str]:
-        tier_order = {tier: idx for idx, tier in enumerate(ALL_TIERS)}
+        tier_list = self._get_tier_list()
+        tier_order = {tier: idx for idx, tier in enumerate(tier_list)}
         extras = sorted([tier for tier in tiers if tier not in tier_order])
         ordered = sorted([tier for tier in tiers if tier in tier_order], key=lambda t: tier_order[t])
         return ordered + extras
@@ -219,8 +220,8 @@ class MachinesTab(QtWidgets.QWidget):
         tiers = set()
         for row in self._machines:
             tiers.update({tier for tier in row.get("tiers", []) if tier})
-        ordered = list(ALL_TIERS)
-        extras = sorted(tiers - set(ALL_TIERS))
+        ordered = self._get_tier_list()
+        extras = sorted(tiers - set(ordered))
         choices = ["All tiers"] + ordered + extras
         self.filter_tier_combo.blockSignals(True)
         self.filter_tier_combo.clear()
@@ -252,16 +253,17 @@ class MachinesTab(QtWidgets.QWidget):
     def _sorted_metadata_rows(self) -> list[dict[str, object]]:
         rows = list(self._machines)
         mode = getattr(self, "_sort_mode", "Machine (A→Z)")
-        tier_order = {tier: idx for idx, tier in enumerate(ALL_TIERS)}
+        tier_list = self._get_tier_list()
+        tier_order = {tier: idx for idx, tier in enumerate(tier_list)}
 
         def tier_key(value: str) -> tuple[int, str]:
             val = (value or "").strip()
-            return (tier_order.get(val, len(ALL_TIERS)), val.lower())
+            return (tier_order.get(val, len(tier_list)), val.lower())
 
         def group_tier_key(machine: dict[str, object], *, reverse: bool = False) -> tuple[int, str]:
             tiers = self._sorted_tiers(list(machine.get("tiers", [])))
             if not tiers:
-                return (len(ALL_TIERS), "")
+                return (len(tier_list), "")
             tier = tiers[-1] if reverse else tiers[0]
             return tier_key(tier)
 
@@ -508,3 +510,8 @@ class MachinesTab(QtWidgets.QWidget):
             self.load_from_db()
             if hasattr(self.app, "status_bar"):
                 self.app.status_bar.showMessage("Updated machine metadata.")
+
+    def _get_tier_list(self) -> list[str]:
+        if hasattr(self.app, "get_all_tiers"):
+            return list(self.app.get_all_tiers())
+        return list(ALL_TIERS)

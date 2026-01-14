@@ -5,7 +5,7 @@ import sqlite3
 from services.db import ALL_TIERS
 
 
-def fetch_machine_metadata(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+def fetch_machine_metadata(conn: sqlite3.Connection, *, tiers: list[str] | None = None) -> list[sqlite3.Row]:
     rows = conn.execute(
         """
         SELECT machine_type,
@@ -23,12 +23,13 @@ def fetch_machine_metadata(conn: sqlite3.Connection) -> list[sqlite3.Row]:
         FROM machine_metadata
         """
     ).fetchall()
-    tier_order = {tier: idx for idx, tier in enumerate(ALL_TIERS)}
+    tier_list = tiers or list(ALL_TIERS)
+    tier_order = {tier: idx for idx, tier in enumerate(tier_list)}
 
     def sort_key(row: sqlite3.Row) -> tuple[str, int]:
         machine_type = (row["machine_type"] or "").strip().lower()
         tier = (row["tier"] or "").strip()
-        return (machine_type, tier_order.get(tier, len(ALL_TIERS)))
+        return (machine_type, tier_order.get(tier, len(tier_list)))
 
     return sorted(rows, key=sort_key)
 

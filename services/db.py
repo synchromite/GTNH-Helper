@@ -27,6 +27,10 @@ ALL_TIERS = [
     "MAX",
 ]
 
+def set_all_tiers(tiers: list[str]) -> None:
+    ALL_TIERS.clear()
+    ALL_TIERS.extend(tiers)
+
 
 def connect_profile(db_path: Path | str) -> sqlite3.Connection:
     """Connect to a per-user profile DB.
