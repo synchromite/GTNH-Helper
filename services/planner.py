@@ -203,6 +203,18 @@ class PlannerService:
                 errors.append("Unknown item selected.")
                 continue
 
+            if use_inventory and qty_needed > 0 and item["kind"] in ("fluid", "gas"):
+                qty_needed, emptying_steps = self._empty_containers_for_fluid(
+                    fluid_item=item,
+                    qty_needed=qty_needed,
+                    inventory=inventory,
+                    items=items,
+                )
+                if emptying_steps:
+                    steps.extend(emptying_steps)
+                if qty_needed <= 0:
+                    continue
+
             if item["is_base"]:
                 shopping_needed[item_id] = shopping_needed.get(item_id, 0) + qty_needed
                 continue
@@ -344,6 +356,8 @@ class PlannerService:
                 i.is_machine, 
                 i.machine_tier, 
                 i.machine_type,
+                i.content_fluid_id,
+                i.content_qty_liters,
                 COALESCE(mm.input_slots, 1) AS machine_input_slots,
                 COALESCE(mm.output_slots, 1) AS machine_output_slots,
                 COALESCE(mm.storage_slots, 0) AS machine_storage_slots,
@@ -380,6 +394,76 @@ class PlannerService:
 
     def load_inventory(self) -> dict[int, int]:
         return self._load_inventory()
+
+    def _empty_containers_for_fluid(
+        self,
+        *,
+        fluid_item: dict,
+        qty_needed: int,
+        inventory: dict[int, int],
+        items: dict[int, dict],
+    ) -> tuple[int, list[PlanStep]]:
+        if qty_needed <= 0:
+            return 0, []
+        fluid_id = fluid_item["id"]
+        containers = [
+            item
+            for item in items.values()
+            if item["content_fluid_id"] == fluid_id
+        ]
+        if not containers:
+            return qty_needed, []
+        containers.sort(key=lambda row: (row["name"] or "").lower())
+        steps: list[PlanStep] = []
+        remaining = qty_needed
+        for container in containers:
+            available = inventory.get(container["id"], 0)
+            if available <= 0:
+                continue
+            try:
+                per_container = int(container["content_qty_liters"] or 0)
+            except (TypeError, ValueError):
+                per_container = 0
+            if per_container <= 0:
+                continue
+            needed_containers = math.ceil(remaining / per_container)
+            use_containers = min(available, needed_containers)
+            if use_containers <= 0:
+                continue
+            provided_qty = per_container * use_containers
+            remaining = max(remaining - provided_qty, 0)
+            inventory[container["id"]] = available - use_containers
+            steps.append(
+                PlanStep(
+                    recipe_id=0,
+                    recipe_name="Emptying",
+                    method="emptying",
+                    machine=None,
+                    machine_item_id=None,
+                    machine_item_name="",
+                    grid_size=None,
+                    station_item_id=None,
+                    station_item_name="",
+                    circuit=None,
+                    output_item_id=fluid_id,
+                    output_item_name=fluid_item["name"],
+                    output_qty=per_container,
+                    output_unit=self._unit_for_kind(fluid_item["kind"]),
+                    multiplier=use_containers,
+                    inputs=[
+                        (
+                            container["id"],
+                            container["name"],
+                            use_containers,
+                            self._unit_for_kind(container["kind"]),
+                        )
+                    ],
+                    byproducts=[],
+                )
+            )
+            if remaining <= 0:
+                break
+        return remaining, steps
 
     # ---------- Recipe helpers ----------
     def _pick_recipe_for_item(
@@ -637,4 +721,4 @@ class PlannerService:
         return self._qty_from_row(line, kind)
 
     def _unit_for_kind(self, kind: str) -> str:
-        return "L" if (kind or "").strip().lower() == "fluid" else "count"
+        return "L" if (kind or "").strip().lower() in ("fluid", "gas") else "count"

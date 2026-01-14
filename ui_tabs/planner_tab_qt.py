@@ -349,7 +349,9 @@ class PlannerTab(QtWidgets.QWidget):
         input_lines = [f"{name} × {qty} {unit}" for _item_id, name, qty, unit in step.inputs]
         inputs_text = ", ".join(input_lines) if input_lines else "(none)"
         method = (step.method or "machine").strip().lower()
-        if method == "crafting":
+        if method == "emptying":
+            machine_line = "Emptying container"
+        elif method == "crafting":
             station = step.station_item_name or "(none)"
             grid = step.grid_size or ""
             grid_label = f" ({grid})" if grid else ""

@@ -13,10 +13,20 @@ def _setup_conn():
     return conn
 
 
-def _insert_item(conn, *, key, name, kind="item", is_base=0):
+def _insert_item(
+    conn,
+    *,
+    key,
+    name,
+    kind="item",
+    is_base=0,
+    content_fluid_id=None,
+    content_qty_liters=None,
+):
     conn.execute(
-        "INSERT INTO items(key, display_name, kind, is_base) VALUES(?,?,?,?)",
-        (key, name, kind, is_base),
+        "INSERT INTO items(key, display_name, kind, is_base, content_fluid_id, content_qty_liters) "
+        "VALUES(?,?,?,?,?,?)",
+        (key, name, kind, is_base, content_fluid_id, content_qty_liters),
     )
     return conn.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
 
@@ -81,6 +91,41 @@ def test_plan_simple_chain_with_inventory_override():
     assert result.missing_recipes == []
     assert result.shopping_list == [("Item A", 1, "count")]
     assert [step.output_item_name for step in result.steps] == ["Item B", "Item C"]
+
+
+def test_plan_inserts_emptying_step_for_fluid_container():
+    conn = _setup_conn()
+    profile_conn = connect_profile(":memory:")
+
+    water = _insert_item(conn, key="water", name="Water", kind="fluid")
+    water_cell = _insert_item(
+        conn,
+        key="water_cell",
+        name="Water Cell",
+        kind="item",
+        content_fluid_id=water,
+        content_qty_liters=1,
+    )
+    output = _insert_item(conn, key="output_item", name="Output Item")
+
+    recipe = _insert_recipe(conn, name="Make Output")
+    _insert_line(conn, recipe_id=recipe, direction="out", item_id=output, qty_count=1)
+    _insert_line(conn, recipe_id=recipe, direction="in", item_id=water, qty_liters=2)
+
+    planner = PlannerService(conn, profile_conn)
+    result = planner.plan(
+        output,
+        1,
+        use_inventory=True,
+        enabled_tiers=[],
+        crafting_6x6_unlocked=True,
+        inventory_override={water_cell: 2},
+    )
+
+    assert result.errors == []
+    assert result.missing_recipes == []
+    assert result.shopping_list == []
+    assert [step.recipe_name for step in result.steps] == ["Emptying", "Make Output"]
 
 
 def test_plan_missing_recipe_reports_error():
