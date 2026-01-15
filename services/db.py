@@ -532,6 +532,33 @@ def find_item_merge_conflicts(dest_conn: sqlite3.Connection, src_path: Path | st
         src.close()
 
 
+def find_missing_attributes(conn: sqlite3.Connection) -> dict[str, int]:
+    missing = {}
+    missing["item_kind"] = conn.execute(
+        "SELECT COUNT(1) AS c FROM items WHERE kind='item' AND item_kind_id IS NULL"
+    ).fetchone()["c"]
+    missing["material"] = conn.execute(
+        "SELECT COUNT(1) AS c FROM items WHERE kind='item' AND material_id IS NULL"
+    ).fetchone()["c"]
+    missing["machine_type"] = conn.execute(
+        """
+        SELECT COUNT(1) AS c
+        FROM items
+        WHERE (kind='machine' OR is_machine=1)
+          AND (machine_type IS NULL OR TRIM(machine_type)='')
+        """
+    ).fetchone()["c"]
+    missing["machine_tier"] = conn.execute(
+        """
+        SELECT COUNT(1) AS c
+        FROM items
+        WHERE (kind='machine' OR is_machine=1)
+          AND (machine_tier IS NULL OR TRIM(machine_tier)='')
+        """
+    ).fetchone()["c"]
+    return {key: int(value or 0) for key, value in missing.items()}
+
+
 def merge_db(
     dest_conn: sqlite3.Connection,
     src_path: Path | str,
