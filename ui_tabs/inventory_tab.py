@@ -222,6 +222,8 @@ class InventoryTab(QtWidgets.QWidget):
         selected_id = self._selected_item_id()
         for tree in self.inventory_trees.values():
             self._render_tree(tree, selected_id)
+        current = self._current_tree().currentItem()
+        self.on_inventory_select(current, None)
 
     def _on_tab_changed(self, _index: int) -> None:
         tree = self._current_tree()
