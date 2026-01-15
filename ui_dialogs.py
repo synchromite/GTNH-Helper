@@ -967,6 +967,8 @@ class AddItemDialog(_ItemDialogBase):
                 )
 
         self._set_status(f"Added item: {display_name}")
+        if hasattr(self.app, "_machines_load_from_db"):
+            self.app._machines_load_from_db()
         self.accept()
 
 
@@ -1063,6 +1065,8 @@ class EditItemDialog(_ItemDialogBase):
             return
 
         self._set_status(f"Updated item: {display_name}")
+        if hasattr(self.app, "_machines_load_from_db"):
+            self.app._machines_load_from_db()
         self.accept()
 
 class ItemLineDialog(QtWidgets.QDialog):
