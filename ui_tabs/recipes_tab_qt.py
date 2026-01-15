@@ -66,7 +66,22 @@ class RecipesTab(QtWidgets.QWidget):
         self.recipes = list(recipes)
         self.recipe_list.clear()
 
-        normal = [r for r in self.recipes if r["duplicate_of_recipe_id"] is None]
+        canonical_names = {
+            self._canonical_name(recipe["name"])
+            for recipe in self.recipes
+            if recipe["duplicate_of_recipe_id"] is None and recipe["name"]
+        }
+
+        normal = []
+        for recipe in self.recipes:
+            if recipe["duplicate_of_recipe_id"] is None:
+                normal.append(recipe)
+                continue
+            name = (recipe["name"] or "").strip()
+            if not name:
+                continue
+            if self._canonical_name(name) not in canonical_names:
+                normal.append(recipe)
 
         self.recipe_entries = []
         for recipe in normal:
@@ -109,8 +124,12 @@ class RecipesTab(QtWidgets.QWidget):
     def _recipe_details_set(self, txt: str) -> None:
         self.recipe_details.setPlainText(txt)
 
+    @staticmethod
+    def _canonical_name(name: str) -> str:
+        return " ".join((name or "").split()).strip().casefold()
+
     def _resolve_recipe_item_id(self, recipe: dict) -> int | None:
-        name = (recipe.get("name") or "").strip()
+        name = (recipe["name"] or "").strip()
         if name:
             row = self.app.conn.execute(
                 "SELECT id FROM items WHERE COALESCE(display_name, key)=?",

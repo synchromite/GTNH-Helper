@@ -1872,7 +1872,14 @@ class _RecipeDialogBase(QtWidgets.QDialog):
             name = self._fetch_item_name(item_id) or (line.get("name") or "")
             if not name:
                 continue
-            desired[self._canonical_name(name)] = {"name": name, "item_id": int(item_id)}
+            canon = self._canonical_name(name)
+            has_canonical = self.app.conn.execute(
+                "SELECT 1 FROM recipes WHERE duplicate_of_recipe_id IS NULL AND LOWER(name)=LOWER(?) LIMIT 1",
+                (name,),
+            ).fetchone()
+            if has_canonical:
+                continue
+            desired[canon] = {"name": name, "item_id": int(item_id)}
 
         existing_rows = self.app.conn.execute(
             "SELECT id, name FROM recipes WHERE duplicate_of_recipe_id=?",
