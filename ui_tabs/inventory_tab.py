@@ -9,6 +9,8 @@ class InventoryTab(QtWidgets.QWidget):
         self.app = app
         self.items: list = []
         self.items_by_id: dict[int, dict] = {}
+        self._machine_availability_target: dict[str, str] | None = None
+        self.machine_availability_checks: list[QtWidgets.QCheckBox] = []
 
         root_layout = QtWidgets.QHBoxLayout(self)
         root_layout.setContentsMargins(8, 8, 8, 8)
@@ -85,6 +87,21 @@ class InventoryTab(QtWidgets.QWidget):
         btns.addWidget(self.btn_clear)
         btns.addStretch(1)
 
+        self.machine_availability_group = QtWidgets.QGroupBox("Machine Availability")
+        availability_layout = QtWidgets.QVBoxLayout(self.machine_availability_group)
+        self.machine_availability_status = QtWidgets.QLabel("")
+        self.machine_availability_status.setStyleSheet("color: #666;")
+        availability_layout.addWidget(self.machine_availability_status)
+        self.machine_availability_container = QtWidgets.QWidget()
+        self.machine_availability_list = QtWidgets.QVBoxLayout(self.machine_availability_container)
+        self.machine_availability_list.setContentsMargins(0, 0, 0, 0)
+        availability_scroll = QtWidgets.QScrollArea()
+        availability_scroll.setWidgetResizable(True)
+        availability_scroll.setWidget(self.machine_availability_container)
+        availability_layout.addWidget(availability_scroll)
+        self.machine_availability_group.setVisible(False)
+        right.addWidget(self.machine_availability_group)
+
         tip = QtWidgets.QLabel("Tip: items use counts; fluids and gases use liters (L).")
         tip.setStyleSheet("color: #666;")
         right.addWidget(tip)
@@ -141,18 +158,21 @@ class InventoryTab(QtWidgets.QWidget):
             self.inventory_item_name.setText("")
             self.inventory_unit_label.setText("")
             self.inventory_qty_entry.setText("")
+            self._set_machine_availability_target(None)
             return
         item_id = current.data(0, QtCore.Qt.UserRole)
         if item_id is None:
             self.inventory_item_name.setText("")
             self.inventory_unit_label.setText("")
             self.inventory_qty_entry.setText("")
+            self._set_machine_availability_target(None)
             return
         item = self.items_by_id.get(int(item_id))
         if item is None:
             self.inventory_item_name.setText("")
             self.inventory_unit_label.setText("")
             self.inventory_qty_entry.setText("")
+            self._set_machine_availability_target(None)
             return
         self.inventory_item_name.setText(item["name"])
         unit = self._inventory_unit_for_item(item)
@@ -167,6 +187,7 @@ class InventoryTab(QtWidgets.QWidget):
         else:
             qty = db_row["qty_count"] if db_row else None
         self.inventory_qty_entry.setText("" if qty is None else self._format_inventory_qty(qty))
+        self._sync_machine_availability(item, qty)
 
     def _format_inventory_qty(self, qty: float | int) -> str:
         try:
@@ -187,6 +208,8 @@ class InventoryTab(QtWidgets.QWidget):
             self.app.profile_conn.commit()
             self.app.status_bar.showMessage(f"Cleared inventory for: {item['name']}")
             self.app.notify_inventory_change()
+            if self._is_machine_item(item):
+                self._save_machine_availability(item, owned=0, online=0)
             return
 
         try:
@@ -213,6 +236,10 @@ class InventoryTab(QtWidgets.QWidget):
         self.inventory_qty_entry.setText(str(qty))
         self.app.status_bar.showMessage(f"Saved inventory for: {item['name']}")
         self.app.notify_inventory_change()
+        if self._is_machine_item(item):
+            online = min(self._current_online_count(), qty)
+            self._save_machine_availability(item, owned=qty, online=online)
+            self._render_machine_availability(item, qty, online)
 
     def clear_inventory_item(self) -> None:
         self.inventory_qty_entry.setText("")
@@ -229,6 +256,94 @@ class InventoryTab(QtWidgets.QWidget):
         tree = self._current_tree()
         current = tree.currentItem()
         self.on_inventory_select(current, None)
+
+    def _is_machine_item(self, item: dict) -> bool:
+        kind_val = (self._item_value(item, "kind") or "").strip().lower()
+        item_kind_val = (self._item_value(item, "item_kind_name") or "").strip().lower()
+        is_machine_flag = bool(self._item_value(item, "is_machine"))
+        return kind_val == "machine" or item_kind_val == "machine" or is_machine_flag
+
+    def _set_machine_availability_target(self, target: dict[str, str] | None) -> None:
+        self._machine_availability_target = target
+        if target is None:
+            self.machine_availability_group.setVisible(False)
+            self._clear_machine_availability_checks()
+
+    def _clear_machine_availability_checks(self) -> None:
+        self.machine_availability_checks = []
+        while self.machine_availability_list.count():
+            item = self.machine_availability_list.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+
+    def _sync_machine_availability(self, item: dict, qty) -> None:
+        if not self._is_machine_item(item):
+            self._set_machine_availability_target(None)
+            return
+        machine_type = (self._item_value(item, "machine_type") or "").strip()
+        machine_tier = (self._item_value(item, "machine_tier") or "").strip()
+        if not machine_type or not machine_tier:
+            self._set_machine_availability_target(None)
+            return
+        owned = int(qty or 0)
+        availability = (
+            self.app.get_machine_availability(machine_type, machine_tier)
+            if hasattr(self.app, "get_machine_availability")
+            else {"owned": 0, "online": 0}
+        )
+        online = min(int(availability.get("online", 0)), owned)
+        self._set_machine_availability_target({"machine_type": machine_type, "machine_tier": machine_tier})
+        self._render_machine_availability(item, owned, online)
+
+    def _render_machine_availability(self, item: dict, owned: int, online: int) -> None:
+        self._clear_machine_availability_checks()
+        if not self._is_machine_item(item):
+            self._set_machine_availability_target(None)
+            return
+        self.machine_availability_group.setVisible(True)
+        if owned <= 0:
+            self.machine_availability_status.setText("Set a quantity to track which machines are online.")
+            return
+        self.machine_availability_status.setText(f"Online: {online} of {owned}")
+        for idx in range(owned):
+            checkbox = QtWidgets.QCheckBox(f"Machine {idx + 1}")
+            checkbox.setChecked(idx < online)
+            checkbox.toggled.connect(self._on_machine_online_changed)
+            self.machine_availability_list.addWidget(checkbox)
+            self.machine_availability_checks.append(checkbox)
+        self.machine_availability_list.addStretch(1)
+
+    def _current_online_count(self) -> int:
+        return sum(1 for checkbox in self.machine_availability_checks if checkbox.isChecked())
+
+    def _save_machine_availability(self, item: dict, *, owned: int, online: int) -> None:
+        machine_type = (self._item_value(item, "machine_type") or "").strip()
+        machine_tier = (self._item_value(item, "machine_tier") or "").strip()
+        if not machine_type or not machine_tier:
+            return
+        if online > owned:
+            online = owned
+        if hasattr(self.app, "set_machine_availability"):
+            self.app.set_machine_availability([(machine_type, machine_tier, owned, online)])
+
+    def _on_machine_online_changed(self, _checked: bool) -> None:
+        if not self._machine_availability_target:
+            return
+        owned = len(self.machine_availability_checks)
+        online = min(self._current_online_count(), owned)
+        self.machine_availability_status.setText(f"Online: {online} of {owned}")
+        if hasattr(self.app, "set_machine_availability"):
+            self.app.set_machine_availability(
+                [
+                    (
+                        self._machine_availability_target["machine_type"],
+                        self._machine_availability_target["machine_tier"],
+                        owned,
+                        online,
+                    )
+                ]
+            )
 
     def _filtered_items(self, kind_filter: str | None) -> list[dict]:
         query = self.search_entry.text().strip().lower()

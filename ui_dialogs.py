@@ -848,14 +848,13 @@ class AddItemDialog(_ItemDialogBase):
         allowed_kinds: list[str] | None = None,
         default_kind: str | None = None,
     ):
-        allowed_set = set(allowed_kinds or ["item", "fluid", "gas", "machine"])
         super().__init__(
             app,
             title,
             parent=parent,
             allowed_kinds=allowed_kinds,
             default_kind=default_kind,
-            show_availability="machine" in allowed_set,
+            show_availability=False,
         )
 
     def save(self) -> None:
