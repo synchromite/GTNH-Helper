@@ -398,6 +398,7 @@ class InventoryTab(QtWidgets.QWidget):
                 if (kind_val or "").strip().lower() == "machine":
                     machine_type_val = self._item_value(it, "machine_type")
                     item_kind_label = _label(machine_type_val, "(Machine type)")
+                use_item_kind_grouping = self._use_item_kind_grouping(kind_val)
 
                 raw_mat_name = self._item_value(it, "material_name")
                 has_material = raw_mat_name and raw_mat_name.strip()
@@ -410,16 +411,19 @@ class InventoryTab(QtWidgets.QWidget):
                     tree.addTopLevelItem(kind_item)
                     kind_nodes[kind_label] = kind_item
 
-                item_kind_key = (kind_label, item_kind_label)
-                item_kind_item = item_kind_nodes.get(item_kind_key)
-                if item_kind_item is None:
-                    item_kind_item = QtWidgets.QTreeWidgetItem([item_kind_label])
-                    kind_item.addChild(item_kind_item)
-                    item_kind_nodes[item_kind_key] = item_kind_item
+                if use_item_kind_grouping:
+                    item_kind_key = (kind_label, item_kind_label)
+                    item_kind_item = item_kind_nodes.get(item_kind_key)
+                    if item_kind_item is None:
+                        item_kind_item = QtWidgets.QTreeWidgetItem([item_kind_label])
+                        kind_item.addChild(item_kind_item)
+                        item_kind_nodes[item_kind_key] = item_kind_item
+                else:
+                    item_kind_item = kind_item
 
                 if has_material:
                     material_label = raw_mat_name.strip()
-                    material_key = (kind_label, item_kind_label, material_label)
+                    material_key = (kind_label, item_kind_label if use_item_kind_grouping else None, material_label)
                     material_item = material_nodes.get(material_key)
                     if material_item is None:
                         material_item = QtWidgets.QTreeWidgetItem([material_label])
@@ -438,6 +442,10 @@ class InventoryTab(QtWidgets.QWidget):
                 tree.setCurrentItem(id_nodes[selected_id])
         finally:
             tree.blockSignals(False)
+
+    @staticmethod
+    def _use_item_kind_grouping(kind_val: str | None) -> bool:
+        return (kind_val or "").strip().lower() != "gas"
 
     @staticmethod
     def _item_value(item, key: str):
