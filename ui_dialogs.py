@@ -241,6 +241,8 @@ class ItemPickerDialog(QtWidgets.QDialog):
             # Helper to get/create generic kind group nodes
             def _get_kind_parent(p_root, default_label):
                 if p_root is None: return None
+                if row["kind"] == "gas":
+                    return p_root
                 try:
                     k_name = (row["item_kind_name"] or "").strip()
                 except Exception:
