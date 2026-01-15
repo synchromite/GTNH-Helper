@@ -1366,6 +1366,7 @@ class _RecipeDialogBase(QtWidgets.QDialog):
         self.inputs: list[dict] = []
         self.outputs: list[dict] = []
         self.name_item_id: int | None = None
+        self.duplicate_of_recipe_id: int | None = None
 
         layout = QtWidgets.QVBoxLayout(self)
         form = QtWidgets.QGridLayout()
@@ -1740,6 +1741,199 @@ class _RecipeDialogBase(QtWidgets.QDialog):
             raise ValueError("Must be zero or greater.")
         return v
 
+    @staticmethod
+    def _canonical_name(name: str) -> str:
+        return " ".join((name or "").split()).strip().casefold()
+
+    def _fetch_item_name(self, item_id: int) -> str:
+        row = self.app.conn.execute(
+            "SELECT COALESCE(display_name, key) AS name FROM items WHERE id=?",
+            (item_id,),
+        ).fetchone()
+        return row["name"] if row else ""
+
+    def _insert_recipe(
+        self,
+        name: str,
+        method_db: str,
+        machine: str | None,
+        machine_item_id: int | None,
+        grid_size: str | None,
+        station_item_id: int | None,
+        circuit: int | None,
+        tier: str | None,
+        duration_ticks: int | None,
+        eut: int | None,
+        notes: str | None,
+        duplicate_of_recipe_id: int | None = None,
+    ) -> int:
+        cur = self.app.conn.execute(
+            """INSERT INTO recipes(
+                   name, method, machine, machine_item_id, grid_size, station_item_id,
+                   circuit, tier, duration_ticks, eu_per_tick, notes, duplicate_of_recipe_id
+               )
+               VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                name,
+                method_db,
+                machine,
+                machine_item_id,
+                grid_size,
+                station_item_id,
+                circuit,
+                tier,
+                duration_ticks,
+                eut,
+                notes,
+                duplicate_of_recipe_id,
+            ),
+        )
+        return int(cur.lastrowid)
+
+    def _insert_recipe_lines(self, recipe_id: int) -> None:
+        for line in self.inputs:
+            if line["kind"] in ("fluid", "gas"):
+                self.app.conn.execute(
+                    "INSERT INTO recipe_lines(recipe_id, direction, item_id, qty_liters, chance_percent, consumption_chance, output_slot_index) "
+                    "VALUES(?,?,?,?,?,?,?)",
+                    (
+                        recipe_id,
+                        "in",
+                        line["item_id"],
+                        line["qty_liters"],
+                        None,
+                        line.get("consumption_chance", 1.0),
+                        None,
+                    ),
+                )
+            else:
+                self.app.conn.execute(
+                    "INSERT INTO recipe_lines(recipe_id, direction, item_id, qty_count, chance_percent, consumption_chance, output_slot_index) "
+                    "VALUES(?,?,?,?,?,?,?)",
+                    (
+                        recipe_id,
+                        "in",
+                        line["item_id"],
+                        line["qty_count"],
+                        None,
+                        line.get("consumption_chance", 1.0),
+                        None,
+                    ),
+                )
+
+        for line in self.outputs:
+            if line["kind"] in ("fluid", "gas"):
+                self.app.conn.execute(
+                    "INSERT INTO recipe_lines(recipe_id, direction, item_id, qty_liters, chance_percent, output_slot_index) "
+                    "VALUES(?,?,?,?,?,?)",
+                    (
+                        recipe_id,
+                        "out",
+                        line["item_id"],
+                        line["qty_liters"],
+                        line.get("chance_percent", 100.0),
+                        line.get("output_slot_index"),
+                    ),
+                )
+            else:
+                self.app.conn.execute(
+                    "INSERT INTO recipe_lines(recipe_id, direction, item_id, qty_count, chance_percent, output_slot_index) "
+                    "VALUES(?,?,?,?,?,?)",
+                    (
+                        recipe_id,
+                        "out",
+                        line["item_id"],
+                        line["qty_count"],
+                        line.get("chance_percent", 100.0),
+                        line.get("output_slot_index"),
+                    ),
+                )
+
+    def _sync_output_duplicates(
+        self,
+        base_recipe_id: int,
+        base_name_item_id: int,
+        method_db: str,
+        machine: str | None,
+        machine_item_id: int | None,
+        grid_size: str | None,
+        station_item_id: int | None,
+        circuit: int | None,
+        tier: str | None,
+        duration_ticks: int | None,
+        eut: int | None,
+        notes: str | None,
+    ) -> None:
+        desired: dict[str, dict[str, str | int]] = {}
+        for line in self.outputs:
+            item_id = line.get("item_id")
+            if item_id is None or item_id == base_name_item_id:
+                continue
+            name = self._fetch_item_name(item_id) or (line.get("name") or "")
+            if not name:
+                continue
+            desired[self._canonical_name(name)] = {"name": name, "item_id": int(item_id)}
+
+        existing_rows = self.app.conn.execute(
+            "SELECT id, name FROM recipes WHERE duplicate_of_recipe_id=?",
+            (base_recipe_id,),
+        ).fetchall()
+        existing = {
+            self._canonical_name(row["name"]): row
+            for row in existing_rows
+            if row["name"]
+        }
+
+        for canon, row in existing.items():
+            if canon not in desired:
+                self.app.conn.execute("DELETE FROM recipe_lines WHERE recipe_id=?", (row["id"],))
+                self.app.conn.execute("DELETE FROM recipes WHERE id=?", (row["id"],))
+
+        for canon, meta in desired.items():
+            name = str(meta["name"])
+            row = existing.get(canon)
+            if row:
+                self.app.conn.execute(
+                    """UPDATE recipes SET
+                       name=?, method=?, machine=?, machine_item_id=?, grid_size=?, station_item_id=?,
+                       circuit=?, tier=?, duration_ticks=?, eu_per_tick=?, notes=?, duplicate_of_recipe_id=?
+                       WHERE id=?""",
+                    (
+                        name,
+                        method_db,
+                        machine,
+                        machine_item_id,
+                        grid_size,
+                        station_item_id,
+                        circuit,
+                        tier,
+                        duration_ticks,
+                        eut,
+                        notes,
+                        base_recipe_id,
+                        row["id"],
+                    ),
+                )
+                self.app.conn.execute("DELETE FROM recipe_lines WHERE recipe_id=?", (row["id"],))
+                self._insert_recipe_lines(int(row["id"]))
+                continue
+
+            new_id = self._insert_recipe(
+                name,
+                method_db,
+                machine,
+                machine_item_id,
+                grid_size,
+                station_item_id,
+                circuit,
+                tier,
+                duration_ticks,
+                eut,
+                notes,
+                duplicate_of_recipe_id=base_recipe_id,
+            )
+            self._insert_recipe_lines(new_id)
+
     def save(self) -> None:
         raise NotImplementedError
 
@@ -1912,71 +2106,36 @@ class AddRecipeDialog(_RecipeDialogBase):
 
         try:
             self.app.conn.execute("BEGIN")
-            cur = self.app.conn.execute(
-                """INSERT INTO recipes(name, method, machine, machine_item_id, grid_size, station_item_id, circuit, tier, duration_ticks, eu_per_tick, notes)
-                   VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
-                (name, method_db, machine, machine_item_id, grid_size, station_item_id, circuit, tier, duration_ticks, eut, notes),
+            recipe_id = self._insert_recipe(
+                name,
+                method_db,
+                machine,
+                machine_item_id,
+                grid_size,
+                station_item_id,
+                circuit,
+                tier,
+                duration_ticks,
+                eut,
+                notes,
             )
-            recipe_id = cur.lastrowid
             self.app.recipe_focus_id = int(recipe_id)
 
-            for line in self.inputs:
-                if line["kind"] in ("fluid", "gas"):
-                    self.app.conn.execute(
-                        "INSERT INTO recipe_lines(recipe_id, direction, item_id, qty_liters, chance_percent, consumption_chance, output_slot_index) "
-                        "VALUES(?,?,?,?,?,?,?)",
-                        (
-                            recipe_id,
-                            "in",
-                            line["item_id"],
-                            line["qty_liters"],
-                            None,
-                            line.get("consumption_chance", 1.0),
-                            None,
-                        ),
-                    )
-                else:
-                    self.app.conn.execute(
-                        "INSERT INTO recipe_lines(recipe_id, direction, item_id, qty_count, chance_percent, consumption_chance, output_slot_index) "
-                        "VALUES(?,?,?,?,?,?,?)",
-                        (
-                            recipe_id,
-                            "in",
-                            line["item_id"],
-                            line["qty_count"],
-                            None,
-                            line.get("consumption_chance", 1.0),
-                            None,
-                        ),
-                    )
-
-            for line in self.outputs:
-                if line["kind"] in ("fluid", "gas"):
-                    self.app.conn.execute(
-                        "INSERT INTO recipe_lines(recipe_id, direction, item_id, qty_liters, chance_percent, output_slot_index) "
-                        "VALUES(?,?,?,?,?,?)",
-                        (
-                            recipe_id,
-                            "out",
-                            line["item_id"],
-                            line["qty_liters"],
-                            line.get("chance_percent", 100.0),
-                            line.get("output_slot_index"),
-                        ),
-                    )
-                else:
-                    self.app.conn.execute(
-                        "INSERT INTO recipe_lines(recipe_id, direction, item_id, qty_count, chance_percent, output_slot_index) "
-                        "VALUES(?,?,?,?,?,?)",
-                        (
-                            recipe_id,
-                            "out",
-                            line["item_id"],
-                            line["qty_count"],
-                            line.get("chance_percent", 100.0),
-                            line.get("output_slot_index"),
-                        ),
-                    )
+            self._insert_recipe_lines(recipe_id)
+            self._sync_output_duplicates(
+                int(recipe_id),
+                name_item_id,
+                method_db,
+                machine,
+                machine_item_id,
+                grid_size,
+                station_item_id,
+                circuit,
+                tier,
+                duration_ticks,
+                eut,
+                notes,
+            )
 
             self.app.conn.commit()
         except Exception as exc:
@@ -2022,6 +2181,7 @@ class EditRecipeDialog(_RecipeDialogBase):
             return
 
         self.recipe_id = recipe_id
+        self.duplicate_of_recipe_id = r["duplicate_of_recipe_id"]
         self.name_edit.setText(r["name"])
         self.name_item_id = self._resolve_name_item_id(warn=False)
         initial_method = (r["method"] or "machine").strip().lower()
@@ -2243,63 +2403,22 @@ class EditRecipeDialog(_RecipeDialogBase):
             self.app.conn.execute("DELETE FROM recipe_lines WHERE recipe_id=?", (self.recipe_id,))
 
             # Re-insert lines
-            for line in self.inputs:
-                if line["kind"] in ("fluid", "gas"):
-                    self.app.conn.execute(
-                        "INSERT INTO recipe_lines(recipe_id, direction, item_id, qty_liters, chance_percent, consumption_chance, output_slot_index) "
-                        "VALUES(?,?,?,?,?,?,?)",
-                        (
-                            self.recipe_id,
-                            "in",
-                            line["item_id"],
-                            line["qty_liters"],
-                            None,
-                            line.get("consumption_chance", 1.0),
-                            None,
-                        ),
-                    )
-                else:
-                    self.app.conn.execute(
-                        "INSERT INTO recipe_lines(recipe_id, direction, item_id, qty_count, chance_percent, consumption_chance, output_slot_index) "
-                        "VALUES(?,?,?,?,?,?,?)",
-                        (
-                            self.recipe_id,
-                            "in",
-                            line["item_id"],
-                            line["qty_count"],
-                            None,
-                            line.get("consumption_chance", 1.0),
-                            None,
-                        ),
-                    )
-
-            for line in self.outputs:
-                if line["kind"] in ("fluid", "gas"):
-                    self.app.conn.execute(
-                        "INSERT INTO recipe_lines(recipe_id, direction, item_id, qty_liters, chance_percent, output_slot_index) "
-                        "VALUES(?,?,?,?,?,?)",
-                        (
-                            self.recipe_id,
-                            "out",
-                            line["item_id"],
-                            line["qty_liters"],
-                            line.get("chance_percent", 100.0),
-                            line.get("output_slot_index"),
-                        ),
-                    )
-                else:
-                    self.app.conn.execute(
-                        "INSERT INTO recipe_lines(recipe_id, direction, item_id, qty_count, chance_percent, output_slot_index) "
-                        "VALUES(?,?,?,?,?,?)",
-                        (
-                            self.recipe_id,
-                            "out",
-                            line["item_id"],
-                            line["qty_count"],
-                            line.get("chance_percent", 100.0),
-                            line.get("output_slot_index"),
-                        ),
-                    )
+            self._insert_recipe_lines(self.recipe_id)
+            if self.duplicate_of_recipe_id is None:
+                self._sync_output_duplicates(
+                    self.recipe_id,
+                    name_item_id,
+                    method_db,
+                    machine,
+                    machine_item_id,
+                    grid_size,
+                    station_item_id,
+                    circuit,
+                    tier,
+                    duration_ticks,
+                    eut,
+                    notes,
+                )
 
             self.app.conn.commit()
         except Exception as exc:
