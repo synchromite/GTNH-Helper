@@ -36,6 +36,7 @@ def test_ensure_schema_creates_tables_and_defaults():
         "machine_type",
         "content_fluid_id",
         "content_qty_liters",
+        "needs_review",
     ):
         assert column in item_columns
 

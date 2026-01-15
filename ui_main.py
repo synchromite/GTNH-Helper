@@ -361,7 +361,6 @@ class App(QtWidgets.QMainWindow):
         file_menu.addAction("Open DB…", self.menu_open_db)
         if self.editor_enabled:
             file_menu.addAction("New DB…", self.menu_new_db)
-            file_menu.addAction("Import DB…", self.menu_import_db)
             file_menu.addSeparator()
             file_menu.addAction("Export Content DB…", self.menu_export_content_db)
             file_menu.addAction("Export Profile DB…", self.menu_export_profile_db)
@@ -507,61 +506,6 @@ class App(QtWidgets.QMainWindow):
             return
         message = "Some imported items are missing new attributes:\n\n" + "\n".join(lines)
         QtWidgets.QMessageBox.warning(self, "Missing attributes", message)
-
-    def menu_import_db(self) -> None:
-        if not self.editor_enabled:
-            QtWidgets.QMessageBox.information(self, "Editor locked", "Importing is only available in editor mode.")
-            return
-        source_path, _ = QtWidgets.QFileDialog.getOpenFileName(
-            self,
-            "Import from existing DB",
-            str(self.db_path),
-            "SQLite DB (*.db);;All files (*)",
-        )
-        if not source_path:
-            return
-        dest_path, _ = QtWidgets.QFileDialog.getSaveFileName(
-            self,
-            "Create new DB for import",
-            "gtnh_import.db",
-            "SQLite DB (*.db);;All files (*)",
-        )
-        if not dest_path:
-            return
-        dest = Path(dest_path)
-        if dest.exists():
-            ok = QtWidgets.QMessageBox.question(
-                self,
-                "Overwrite DB?",
-                f"{dest.name} already exists.\n\nOverwrite it?",
-            )
-            if ok != QtWidgets.QMessageBox.StandardButton.Yes:
-                return
-            dest.unlink()
-
-        old_path = self.db_path
-        try:
-            self._switch_db(dest)
-            stats = self.db.merge_db(Path(source_path))
-        except Exception as exc:
-            QtWidgets.QMessageBox.critical(self, "Import failed", f"Could not import DB.\n\nDetails: {exc}")
-            self._switch_db(old_path)
-            return
-
-        self.refresh_items()
-        self.refresh_recipes()
-
-        msg = (
-            f"Import complete from {Path(source_path).name}:\n\n"
-            f"Item kinds added: {stats.get('kinds_added', 0)}\n"
-            f"Items added: {stats.get('items_added', 0)}\n"
-            f"Items updated (filled blanks): {stats.get('items_updated', 0)}\n"
-            f"Recipes added: {stats.get('recipes_added', 0)}\n"
-            f"Recipe lines added: {stats.get('lines_added', 0)}"
-        )
-        self.status_bar.showMessage("Import complete")
-        QtWidgets.QMessageBox.information(self, "Import complete", msg)
-        self._warn_missing_attributes()
 
     def menu_manage_materials(self) -> None:
         if not self.editor_enabled:

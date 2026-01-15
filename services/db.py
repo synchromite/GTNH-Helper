@@ -216,6 +216,8 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
 
     if not _has_col("items", "material_id"):
         conn.execute("ALTER TABLE items ADD COLUMN material_id INTEGER")
+    if not _has_col("items", "needs_review"):
+        conn.execute("ALTER TABLE items ADD COLUMN needs_review INTEGER NOT NULL DEFAULT 0")
 
     # Per-machine IO slot typing (each machine slot can accept item or fluid)
     conn.execute(
@@ -675,6 +677,26 @@ def merge_db(
         ).fetchall()
 
         item_key_to_dest_id: dict[str, int] = {}
+        def _needs_review_for_item(
+            *,
+            kind: str,
+            item_kind_id: int | None,
+            material_id: int | None,
+            is_machine: int,
+            machine_type: str | None,
+            machine_tier: str | None,
+        ) -> bool:
+            kind = (kind or "").strip().lower()
+            if kind == "item":
+                if item_kind_id is None or material_id is None:
+                    return True
+            if kind == "machine" or int(is_machine or 0):
+                if not (machine_type or "").strip():
+                    return True
+                if not (machine_tier or "").strip():
+                    return True
+            return False
+
         for it in src_items:
             key = (it["key"] or "").strip()
             if not key:
@@ -682,6 +704,23 @@ def merge_db(
             if item_conflicts and it["id"] in item_conflicts:
                 dest_id = item_conflicts[it["id"]]
                 item_key_to_dest_id[key] = dest_id
+                dest_row = dest_conn.execute(
+                    "SELECT kind, item_kind_id, material_id, is_machine, machine_type, machine_tier FROM items WHERE id=?",
+                    (dest_id,),
+                ).fetchone()
+                if dest_row:
+                    needs_review = _needs_review_for_item(
+                        kind=dest_row["kind"],
+                        item_kind_id=dest_row["item_kind_id"],
+                        material_id=dest_row["material_id"],
+                        is_machine=int(dest_row["is_machine"] or 0),
+                        machine_type=dest_row["machine_type"],
+                        machine_tier=dest_row["machine_tier"],
+                    )
+                    dest_conn.execute(
+                        "UPDATE items SET needs_review=? WHERE id=?",
+                        (1 if needs_review else 0, dest_id),
+                    )
                 continue
 
             dest_row = dest_conn.execute(
@@ -702,8 +741,16 @@ def merge_db(
             if not dest_row:
                 insert_sql = (
                     "INSERT INTO items(key, display_name, kind, is_base, is_machine, machine_tier, machine_type, "
-                    "item_kind_id, material_id) "
-                    "VALUES(?,?,?,?,?,?,?,?,?)"
+                    "item_kind_id, material_id, needs_review) "
+                    "VALUES(?,?,?,?,?,?,?,?,?,?)"
+                )
+                needs_review = _needs_review_for_item(
+                    kind=it["kind"],
+                    item_kind_id=mapped_kind_id,
+                    material_id=mapped_material_id,
+                    is_machine=int(it["is_machine"] or 0),
+                    machine_type=it["machine_type"],
+                    machine_tier=it["machine_tier"],
                 )
                 insert_values = (
                     key,
@@ -715,6 +762,7 @@ def merge_db(
                     it["machine_type"],
                     mapped_kind_id,
                     mapped_material_id,
+                    1 if needs_review else 0,
                 )
                 dest_conn.execute(insert_sql, insert_values)
                 new_id = dest_conn.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
@@ -751,6 +799,19 @@ def merge_db(
                 stats["items_updated"] += 1
 
             item_key_to_dest_id[key] = dest_row["id"]
+            final_values = {
+                "kind": dest_row["kind"],
+                "item_kind_id": updates.get("item_kind_id", dest_row["item_kind_id"]),
+                "material_id": updates.get("material_id", dest_row["material_id"]),
+                "is_machine": int(updates.get("is_machine", dest_row["is_machine"]) or 0),
+                "machine_type": updates.get("machine_type", dest_row["machine_type"]),
+                "machine_tier": updates.get("machine_tier", dest_row["machine_tier"]),
+            }
+            needs_review = _needs_review_for_item(**final_values)
+            dest_conn.execute(
+                "UPDATE items SET needs_review=? WHERE id=?",
+                (1 if needs_review else 0, dest_row["id"]),
+            )
 
         # ---- Machine IO Slots ----
         src_slots = src.execute(
@@ -803,6 +864,9 @@ def merge_db(
             r["id"]: _recipe_signature(r, dest_line_map.get(r["id"], []))
             for r in dest_recipes
         }
+        dest_signature_ids: dict[tuple, list[int]] = {}
+        for recipe_id, signature in dest_signatures.items():
+            dest_signature_ids.setdefault(signature, []).append(recipe_id)
 
         def _unique_recipe_name(base: str) -> str:
             base = (base or "").strip() or "Recipe"
@@ -854,8 +918,11 @@ def merge_db(
         for r in src_recipes:
             close_match_id = _closest_recipe_id(r["name"])
             src_signature = _recipe_signature(r, src_line_map.get(r["id"], []))
+            if src_signature in dest_signature_ids:
+                recipe_id_map[int(r["id"])] = None
+                continue
             if close_match_id is not None and dest_signatures.get(close_match_id) == src_signature:
-                recipe_id_map[int(r["id"])] = int(close_match_id)
+                recipe_id_map[int(r["id"])] = None
                 continue
 
             new_name = _unique_recipe_name(r["name"])
