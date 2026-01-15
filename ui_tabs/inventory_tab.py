@@ -13,11 +13,21 @@ class InventoryTab(QtWidgets.QWidget):
         root_layout = QtWidgets.QHBoxLayout(self)
         root_layout.setContentsMargins(8, 8, 8, 8)
 
-        left = QtWidgets.QVBoxLayout()
-        root_layout.addLayout(left, stretch=0)
+        splitter = QtWidgets.QSplitter(QtCore.Qt.Orientation.Horizontal)
+        root_layout.addWidget(splitter)
 
-        right = QtWidgets.QVBoxLayout()
-        root_layout.addLayout(right, stretch=1)
+        left_widget = QtWidgets.QWidget()
+        left = QtWidgets.QVBoxLayout(left_widget)
+        left.setContentsMargins(0, 0, 0, 0)
+        splitter.addWidget(left_widget)
+
+        right_widget = QtWidgets.QWidget()
+        right = QtWidgets.QVBoxLayout(right_widget)
+        right.setContentsMargins(0, 0, 0, 0)
+        splitter.addWidget(right_widget)
+
+        splitter.setStretchFactor(0, 0)
+        splitter.setStretchFactor(1, 1)
 
         self.search_entry = QtWidgets.QLineEdit()
         self.search_entry.setPlaceholderText("Search inventory items...")
