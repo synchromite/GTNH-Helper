@@ -222,15 +222,19 @@ class InventoryTab(QtWidgets.QWidget):
         query = self.search_entry.text().strip().lower()
         items = self.items
         if kind_filter:
-            items = [it for it in items if (it.get("kind") or "").strip().lower() == kind_filter]
+            items = [
+                it
+                for it in items
+                if (self._item_value(it, "kind") or "").strip().lower() == kind_filter
+            ]
         if not query:
             return items
         return [
             it
             for it in items
-            if query in (it.get("name") or "").lower()
-            or query in (it.get("item_kind_name") or "").lower()
-            or query in (it.get("material_name") or "").lower()
+            if query in (self._item_value(it, "name") or "").lower()
+            or query in (self._item_value(it, "item_kind_name") or "").lower()
+            or query in (self._item_value(it, "material_name") or "").lower()
         ]
 
     def _render_tree(self, tree: QtWidgets.QTreeWidget, selected_id: int | None) -> None:
