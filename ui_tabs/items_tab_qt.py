@@ -311,9 +311,9 @@ class FluidsTab(BaseItemTab):
         return "Search fluids..."
 
     def should_display_item(self, item: dict) -> bool:
-        # Liters: Only Fluids and Gases
+        # Liters: Only Fluids
         kind = (self._get_value(item, "kind") or "").strip().lower()
-        return kind in ("fluid", "gas")
+        return kind == "fluid"
 
     def open_add_item_dialog(self) -> None:
         if not self.app.editor_enabled:
