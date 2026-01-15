@@ -17,6 +17,7 @@ class BaseItemTab(QtWidgets.QWidget):
         super().__init__(parent)
         self.app = app
         self.items: list = []
+        self.all_items: list = []
         self.items_by_id: dict[int, dict] = {}
         root_layout = QtWidgets.QHBoxLayout(self)
         root_layout.setContentsMargins(8, 8, 8, 8)
@@ -26,6 +27,11 @@ class BaseItemTab(QtWidgets.QWidget):
 
         right = QtWidgets.QVBoxLayout()
         root_layout.addLayout(right, stretch=1)
+
+        self.search_edit = QtWidgets.QLineEdit()
+        self.search_edit.setPlaceholderText(self.search_placeholder())
+        self.search_edit.textChanged.connect(self._on_search_changed)
+        left.addWidget(self.search_edit)
 
         self.item_tree = QtWidgets.QTreeWidget()
         self.item_tree.setHeaderHidden(True)
@@ -61,13 +67,32 @@ class BaseItemTab(QtWidgets.QWidget):
         """Determine if this item should be displayed in this tab."""
         return True
 
+    def search_placeholder(self) -> str:
+        return "Search items..."
+
+    def use_item_kind_grouping(self, kind_value: str | None) -> bool:
+        return True
+
+    def _matches_search(self, item: dict, search_text: str) -> bool:
+        if not search_text:
+            return True
+        values = [
+            self._get_value(item, "name") or "",
+            self._get_value(item, "material_name") or "",
+            self._get_value(item, "item_kind_name") or "",
+            self._get_value(item, "kind") or "",
+        ]
+        return any(search_text in str(value).strip().lower() for value in values)
+
     def render_items(self, items: list) -> None:
         selected_id = None
         current_item = self.item_tree.currentItem()
         if current_item is not None:
             selected_id = current_item.data(0, QtCore.Qt.UserRole)
 
-        self.items = list(items)
+        self.all_items = list(items)
+        search_text = (self.search_edit.text() or "").strip().lower()
+        self.items = [it for it in self.all_items if self._matches_search(it, search_text)]
         self.items_by_id = {it["id"]: it for it in self.items}
         self.item_tree.clear()
 
@@ -104,6 +129,7 @@ class BaseItemTab(QtWidgets.QWidget):
             if (kind_val or "").strip().lower() == "machine":
                 machine_type_val = self._get_value(it, "machine_type")
                 item_kind_label = _label(machine_type_val, "(Machine type)")
+            use_item_kind_grouping = self.use_item_kind_grouping(kind_val)
 
             # Check if Material exists
             raw_mat_name = self._get_value(it, "material_name")
@@ -118,17 +144,20 @@ class BaseItemTab(QtWidgets.QWidget):
                 self.item_tree.addTopLevelItem(kind_item)
                 kind_nodes[kind_label] = kind_item
 
-            item_kind_key = (kind_label, item_kind_label)
-            item_kind_item = item_kind_nodes.get(item_kind_key)
-            if item_kind_item is None:
-                item_kind_item = QtWidgets.QTreeWidgetItem([item_kind_label])
-                kind_item.addChild(item_kind_item)
-                item_kind_nodes[item_kind_key] = item_kind_item
+            if use_item_kind_grouping:
+                item_kind_key = (kind_label, item_kind_label)
+                item_kind_item = item_kind_nodes.get(item_kind_key)
+                if item_kind_item is None:
+                    item_kind_item = QtWidgets.QTreeWidgetItem([item_kind_label])
+                    kind_item.addChild(item_kind_item)
+                    item_kind_nodes[item_kind_key] = item_kind_item
+            else:
+                item_kind_item = kind_item
 
             # Determine Parent: Material Node OR Item Kind Node
             if has_material:
                 material_label = raw_mat_name.strip()
-                material_key = (kind_label, item_kind_label, material_label)
+                material_key = (kind_label, item_kind_label if use_item_kind_grouping else None, material_label)
                 material_item = material_nodes.get(material_key)
                 if material_item is None:
                     material_item = QtWidgets.QTreeWidgetItem([material_label])
@@ -146,6 +175,9 @@ class BaseItemTab(QtWidgets.QWidget):
 
         if selected_id is not None and selected_id in id_nodes:
             self.item_tree.setCurrentItem(id_nodes[selected_id])
+
+    def _on_search_changed(self, _value: str) -> None:
+        self.render_items(self.all_items)
 
     def on_item_select(self, current: QtWidgets.QTreeWidgetItem | None, _previous=None) -> None:
         if current is None:
@@ -275,6 +307,9 @@ class FluidsTab(BaseItemTab):
         super().__init__(app, parent=parent)
         self.btn_add_item.setText("Add Fluid")
 
+    def search_placeholder(self) -> str:
+        return "Search fluids..."
+
     def should_display_item(self, item: dict) -> bool:
         # Liters: Only Fluids and Gases
         kind = (self._get_value(item, "kind") or "").strip().lower()
@@ -304,6 +339,14 @@ class GasesTab(BaseItemTab):
     def __init__(self, app, parent=None):
         super().__init__(app, parent=parent)
         self.btn_add_item.setText("Add Gas")
+
+    def search_placeholder(self) -> str:
+        return "Search gases..."
+
+    def use_item_kind_grouping(self, kind_value: str | None) -> bool:
+        if (kind_value or "").strip().lower() == "gas":
+            return False
+        return True
 
     def should_display_item(self, item: dict) -> bool:
         kind = (self._get_value(item, "kind") or "").strip().lower()
