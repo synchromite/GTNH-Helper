@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from PySide6 import QtCore, QtWidgets
+from PySide6 import QtWidgets
 
 from services.recipes import fetch_item_name, fetch_machine_output_slots, fetch_recipe_lines
 from ui_dialogs import AddRecipeDialog, EditRecipeDialog
@@ -66,31 +66,12 @@ class RecipesTab(QtWidgets.QWidget):
         self.recipes = list(recipes)
         self.recipe_list.clear()
 
-        recipe_by_id = {r["id"]: r for r in self.recipes}
         normal = [r for r in self.recipes if r["duplicate_of_recipe_id"] is None]
-        duplicates = [r for r in self.recipes if r["duplicate_of_recipe_id"] is not None]
 
         self.recipe_entries = []
         for recipe in normal:
             self.recipe_list.addItem(recipe["name"])
             self.recipe_entries.append(recipe)
-
-        if duplicates:
-            header = QtWidgets.QListWidgetItem("Duplicates")
-            header.setFlags(QtCore.Qt.ItemFlag.ItemIsEnabled)
-            header.setForeground(QtCore.Qt.GlobalColor.darkGray)
-            self.recipe_list.addItem(header)
-            self.recipe_entries.append(None)
-
-            for recipe in duplicates:
-                base_name = recipe["name"]
-                canonical = recipe_by_id.get(recipe["duplicate_of_recipe_id"])
-                if canonical is not None:
-                    label = f"{base_name} (dup of {canonical['name']})"
-                else:
-                    label = f"{base_name} (dup)"
-                self.recipe_list.addItem(label)
-                self.recipe_entries.append(recipe)
 
         if selected_id is not None:
             for idx, entry in enumerate(self.recipe_entries):
@@ -114,6 +95,59 @@ class RecipesTab(QtWidgets.QWidget):
             self._recipe_details_set("")
             return
         recipe = entry
+        item_id = self._resolve_recipe_item_id(recipe)
+        if item_id is None:
+            self._recipe_details_set("Item not found for selected recipe.")
+            return
+        item_name = fetch_item_name(self.app.conn, item_id)
+        recipes = self._fetch_recipes_for_item(item_id)
+        details = [f"Item: {item_name}\n"]
+        for idx, recipe_row in enumerate(recipes, start=1):
+            details.append(self._format_recipe_details(recipe_row, index=idx))
+        self._recipe_details_set("\n\n".join(details))
+
+    def _recipe_details_set(self, txt: str) -> None:
+        self.recipe_details.setPlainText(txt)
+
+    def _resolve_recipe_item_id(self, recipe: dict) -> int | None:
+        name = (recipe.get("name") or "").strip()
+        if name:
+            row = self.app.conn.execute(
+                "SELECT id FROM items WHERE COALESCE(display_name, key)=?",
+                (name,),
+            ).fetchone()
+            if row:
+                return int(row["id"])
+
+        rows = self.app.conn.execute(
+            """
+            SELECT rl.item_id, COALESCE(i.display_name, i.key) AS name
+            FROM recipe_lines rl
+            JOIN items i ON i.id = rl.item_id
+            WHERE rl.recipe_id=? AND rl.direction='out'
+            ORDER BY rl.id
+            """,
+            (recipe["id"],),
+        ).fetchall()
+        if not rows:
+            return None
+        return int(rows[0]["item_id"])
+
+    def _fetch_recipes_for_item(self, item_id: int) -> list:
+        return self.app.conn.execute(
+            """
+            SELECT r.id, r.name, r.method, r.machine, r.machine_item_id, r.grid_size,
+                   r.station_item_id, r.tier, r.circuit, r.duration_ticks, r.eu_per_tick
+            FROM recipes r
+            JOIN recipe_lines rl ON rl.recipe_id = r.id
+            WHERE rl.direction='out' AND rl.item_id=?
+            GROUP BY r.id
+            ORDER BY r.name, r.method, r.machine, r.tier, r.id
+            """,
+            (item_id,),
+        ).fetchall()
+
+    def _format_recipe_details(self, recipe: dict, *, index: int) -> str:
         lines = fetch_recipe_lines(self.app.conn, recipe["id"])
 
         ins: list[str] = []
@@ -174,7 +208,8 @@ class RecipesTab(QtWidgets.QWidget):
                     machine_line = f"{machine_line} (output slots: {mos})"
             method_lines.append(machine_line)
 
-        txt = (
+        return (
+            f"Recipe {index}:\n"
             f"Name: {recipe['name']}\n"
             + "\n".join(method_lines)
             + "\n"
@@ -189,10 +224,6 @@ class RecipesTab(QtWidgets.QWidget):
             + ("\n  ".join(outs) if outs else "(none)")
             + "\n"
         )
-        self._recipe_details_set(txt)
-
-    def _recipe_details_set(self, txt: str) -> None:
-        self.recipe_details.setPlainText(txt)
 
     def open_add_recipe_dialog(self) -> None:
         if not self.app.editor_enabled:
