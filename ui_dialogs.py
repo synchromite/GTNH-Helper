@@ -2083,6 +2083,7 @@ class AddRecipeDialog(_RecipeDialogBase):
         if method == "crafting":
             method_db = "crafting"
             machine = None
+            machine_item_id = None
             self.machine_item_id = None
             grid_size = (self.grid_combo.currentText() or "4x4").strip()
             station_item_id = self.station_item_id
