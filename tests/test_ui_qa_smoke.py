@@ -71,7 +71,13 @@ def _add_item(app: _DummyApp, name: str, *, kind: str = "item") -> int:
     return int(row["id"])
 
 
-def test_qa_recipe_flow_smoke() -> None:
+def test_qa_recipe_flow_smoke(monkeypatch: pytest.MonkeyPatch) -> None:
+    def _unexpected_dialog(*_args, **_kwargs):
+        raise AssertionError("Unexpected modal dialog in QA smoke test.")
+
+    monkeypatch.setattr(QtWidgets.QMessageBox, "warning", _unexpected_dialog)
+    monkeypatch.setattr(QtWidgets.QMessageBox, "critical", _unexpected_dialog)
+    monkeypatch.setattr(QtWidgets.QMessageBox, "question", lambda *_args, **_kwargs: QtWidgets.QMessageBox.StandardButton.Yes)
     _get_app()
     conn = sqlite3.connect(":memory:")
     conn.row_factory = sqlite3.Row
