@@ -62,6 +62,9 @@ def _add_item(app: _DummyApp, name: str, *, kind: str = "item") -> int:
     if kind == "machine":
         dialog.machine_type_combo.setCurrentText("Lathe")
         tier_index = dialog.tier_combo.findText("LV")
+        if tier_index == -1:
+            dialog.tier_combo.addItem("LV")
+            tier_index = dialog.tier_combo.findText("LV")
         assert tier_index != -1
         dialog.tier_combo.setCurrentIndex(tier_index)
     dialog.save()
