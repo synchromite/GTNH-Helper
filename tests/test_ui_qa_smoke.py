@@ -55,7 +55,10 @@ def _insert_machine_metadata(conn: sqlite3.Connection) -> None:
 
 
 def _add_item(app: _DummyApp, name: str, *, kind: str = "item") -> int:
+    qt_app = _get_app()
     dialog = AddItemDialog(app)
+    dialog.show()
+    qt_app.processEvents()
     dialog.display_name_edit.setText(name)
     dialog.kind_combo.setCurrentText(kind)
     dialog._on_high_level_kind_changed()
@@ -67,6 +70,7 @@ def _add_item(app: _DummyApp, name: str, *, kind: str = "item") -> int:
             tier_index = dialog.tier_combo.findText("LV")
         assert tier_index != -1
         dialog.tier_combo.setCurrentIndex(tier_index)
+    qt_app.processEvents()
     dialog.save()
     row = app.conn.execute(
         "SELECT id FROM items WHERE COALESCE(display_name, key)=?",
