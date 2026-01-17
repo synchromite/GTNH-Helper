@@ -39,12 +39,23 @@ def test_render_items_handles_sqlite_rows_and_preserves_selection() -> None:
     tab = ItemsTab(DummyApp())
     row = _make_item_row()
     tab.render_items([row])
-    tab.item_list.setCurrentRow(0)
+    iterator = QtWidgets.QTreeWidgetItemIterator(tab.item_tree)
+    selected = None
+    while iterator.value():
+        item = iterator.value()
+        if item.childCount() == 0:
+            selected = item
+            break
+        iterator += 1
+    assert selected is not None
+    tab.item_tree.setCurrentItem(selected)
     app.processEvents()
     tab.render_items([row])
     app.processEvents()
 
-    assert tab.item_list.currentRow() == 0
+    current = tab.item_tree.currentItem()
+    assert current is not None
+    assert current.data(0, QtCore.Qt.UserRole) == row["id"]
     assert "Test Item" in tab.item_details.toPlainText()
 
     tab.deleteLater()

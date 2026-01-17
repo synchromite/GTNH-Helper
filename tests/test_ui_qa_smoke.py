@@ -58,6 +58,7 @@ def _add_item(app: _DummyApp, name: str, *, kind: str = "item") -> int:
     dialog = AddItemDialog(app)
     dialog.display_name_edit.setText(name)
     dialog.kind_combo.setCurrentText(kind)
+    dialog._on_high_level_kind_changed()
     if kind == "machine":
         dialog.machine_type_combo.setCurrentText("Lathe")
         dialog.tier_combo.setCurrentText("LV")
