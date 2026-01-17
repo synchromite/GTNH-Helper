@@ -61,7 +61,9 @@ def _add_item(app: _DummyApp, name: str, *, kind: str = "item") -> int:
     dialog._on_high_level_kind_changed()
     if kind == "machine":
         dialog.machine_type_combo.setCurrentText("Lathe")
-        dialog.tier_combo.setCurrentText("LV")
+        tier_index = dialog.tier_combo.findText("LV")
+        assert tier_index != -1
+        dialog.tier_combo.setCurrentIndex(tier_index)
     dialog.save()
     row = app.conn.execute(
         "SELECT id FROM items WHERE COALESCE(display_name, key)=?",
