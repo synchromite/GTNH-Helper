@@ -113,9 +113,12 @@ class DbLifecycle:
 
     def get_crafting_grids(self) -> list[str]:
         raw = get_setting(self.profile_conn, SETTINGS_CRAFTING_GRIDS, "") or ""
-        grids = [g.strip() for g in raw.split(",") if g.strip()]
-        if "4x4" not in grids:
-            grids.insert(0, "4x4")
+        if raw.strip():
+            grids = [g.strip() for g in raw.split(",") if g.strip()]
+        else:
+            grids = ["2x2", "3x3"]
+        if "2x2" not in grids:
+            grids.insert(0, "2x2")
         return grids
 
     def set_crafting_grids(self, grids: list[str]) -> None:
@@ -127,8 +130,8 @@ class DbLifecycle:
                 continue
             seen.add(g)
             deduped.append(g)
-        if "4x4" not in seen:
-            deduped.insert(0, "4x4")
+        if "2x2" not in seen:
+            deduped.insert(0, "2x2")
         set_setting(self.profile_conn, SETTINGS_CRAFTING_GRIDS, ",".join(deduped))
 
     def get_theme(self) -> str:

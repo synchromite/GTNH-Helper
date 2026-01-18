@@ -1597,10 +1597,10 @@ class _RecipeDialogBase(QtWidgets.QDialog):
         if hasattr(self.app, "get_crafting_grids"):
             grid_values = list(self.app.get_crafting_grids())
         else:
-            grid_values = ["4x4"]
+            grid_values = ["2x2", "3x3"]
         grid_values = [g for g in grid_values if g]
-        if "4x4" not in grid_values:
-            grid_values.insert(0, "4x4")
+        if "2x2" not in grid_values:
+            grid_values.insert(0, "2x2")
         if hasattr(self.app, "is_crafting_6x6_unlocked"):
             if self.app.is_crafting_6x6_unlocked():
                 if "6x6" not in grid_values:
@@ -2275,7 +2275,7 @@ class AddRecipeDialog(_RecipeDialogBase):
             machine = None
             self.machine_item_id = None
             machine_item_id = None
-            grid_size = (self.grid_combo.currentText() or "4x4").strip()
+            grid_size = (self.grid_combo.currentText() or "2x2").strip()
             station_item_id = self.station_item_id
             if not self._validate_crafting_inputs(grid_size):
                 return
@@ -2564,7 +2564,7 @@ class EditRecipeDialog(_RecipeDialogBase):
             method_db = "crafting"
             machine = None
             self.machine_item_id = None
-            grid_size = (self.grid_combo.currentText() or "4x4").strip()
+            grid_size = (self.grid_combo.currentText() or "2x2").strip()
             station_item_id = self.station_item_id
             if not self._validate_crafting_inputs(grid_size):
                 return

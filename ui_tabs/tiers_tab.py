@@ -147,7 +147,7 @@ class TiersTab(QtWidgets.QWidget):
 
     def _reload_grid_sizes(self) -> None:
         self.grid_sizes_list.clear()
-        grid_values = self.app.get_crafting_grids() if hasattr(self.app, "get_crafting_grids") else ["4x4"]
+        grid_values = self.app.get_crafting_grids() if hasattr(self.app, "get_crafting_grids") else ["2x2", "3x3"]
         for grid in grid_values:
             self.grid_sizes_list.addItem(grid)
 
@@ -181,7 +181,7 @@ class TiersTab(QtWidgets.QWidget):
             return
         dims = self._parse_grid_size(value)
         if not dims:
-            QtWidgets.QMessageBox.warning(self, "Invalid grid size", "Enter a grid size like 4x4 or 5x3.")
+            QtWidgets.QMessageBox.warning(self, "Invalid grid size", "Enter a grid size like 2x2 or 3x3.")
             return
         rows, cols = dims
         label = f"{rows}x{cols}"
@@ -199,8 +199,8 @@ class TiersTab(QtWidgets.QWidget):
         item = self.grid_sizes_list.item(row)
         if not item:
             return
-        if item.text().strip() == "4x4":
-            QtWidgets.QMessageBox.warning(self, "Cannot remove", "The 4x4 grid is required.")
+        if item.text().strip() == "2x2":
+            QtWidgets.QMessageBox.warning(self, "Cannot remove", "The 2x2 grid is required.")
             return
         self.grid_sizes_list.takeItem(row)
         self._tiers_save_to_db()
