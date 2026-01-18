@@ -207,7 +207,7 @@ class BaseItemTab(QtWidgets.QWidget):
             return
         txt = (
             f"Name: {it['name']}\n"
-            f"Kind: {it['kind']}\n"
+            f"Kind: {str(it['kind']).replace('_', ' ').title()}\n"
             f"Item Type: {it['item_kind_name'] or ''}\n"
             f"Material: {it['material_name'] or ''}\n"
             f"Base: {'Yes' if it['is_base'] else 'No'}\n"
