@@ -369,6 +369,14 @@ class ItemMergeConflictDialog(QtWidgets.QDialog):
 
 
 class _ItemDialogBase(QtWidgets.QDialog):
+    KIND_OPTIONS = [
+        ("item", "Item"),
+        ("fluid", "Fluid"),
+        ("gas", "Gas"),
+        ("machine", "Machine"),
+        ("crafting_grid", "Crafting Grid"),
+    ]
+
     def __init__(
         self,
         app,
@@ -420,8 +428,11 @@ class _ItemDialogBase(QtWidgets.QDialog):
 
         form.addWidget(QtWidgets.QLabel("Kind"), 1, 0)
         self.kind_combo = QtWidgets.QComboBox()
-        kind_values = allowed_kinds or ["item", "fluid", "gas", "machine", "crafting_grid"]
-        self.kind_combo.addItems(kind_values)
+        kind_values = allowed_kinds or [value for value, _label in self.KIND_OPTIONS]
+        for value, label in self.KIND_OPTIONS:
+            if value not in kind_values:
+                continue
+            self.kind_combo.addItem(label, value)
         form.addWidget(self.kind_combo, 1, 1)
 
         self.item_kind_label = QtWidgets.QLabel("Item Type")
@@ -531,9 +542,9 @@ class _ItemDialogBase(QtWidgets.QDialog):
         if not self._row:
             self.display_name_edit.setText("")
             if self._default_kind:
-                self.kind_combo.setCurrentText(self._default_kind)
+                self._set_kind_value(self._default_kind)
             else:
-                self.kind_combo.setCurrentText(self.kind_combo.itemText(0))
+                self.kind_combo.setCurrentIndex(0)
             self.item_kind_combo.setCurrentText(NONE_KIND_LABEL)
             self.material_combo.setCurrentText(NONE_MATERIAL_LABEL)
             if self.crafting_grid_combo.count() > 0:
@@ -552,7 +563,7 @@ class _ItemDialogBase(QtWidgets.QDialog):
             return
 
         self.display_name_edit.setText(self._row["display_name"] or self._row["key"])
-        self.kind_combo.setCurrentText(self._row["kind"])
+        self._set_kind_value(self._row["kind"])
         item_kind_name = (self._row["item_kind_name"] or "") or NONE_KIND_LABEL
         self.item_kind_combo.setCurrentText(item_kind_name)
         if _row_get(self._row, "crafting_grid_size"):
@@ -609,7 +620,7 @@ class _ItemDialogBase(QtWidgets.QDialog):
         self._update_item_kind_combo()
 
     def _update_item_kind_combo(self) -> None:
-        current_kind_super = (self.kind_combo.currentText() or "").strip().lower()
+        current_kind_super = self._current_kind_value()
         if not current_kind_super:
             current_kind_super = "item"
 
@@ -719,7 +730,7 @@ class _ItemDialogBase(QtWidgets.QDialog):
 
     def _on_item_kind_selected(self) -> None:
         v = (self.item_kind_combo.currentText() or "").strip()
-        kind_high = (self.kind_combo.currentText() or "").strip().lower()
+        kind_high = self._current_kind_value()
 
         # "Machine" is now a top-level Kind
         is_machine_kind = kind_high == "machine"
@@ -871,11 +882,26 @@ class _ItemDialogBase(QtWidgets.QDialog):
     def _on_high_level_kind_changed(self) -> None:
         self._update_item_kind_combo()
         self._on_item_kind_selected()
-        kind_high = (self.kind_combo.currentText() or "").strip().lower()
+        kind_high = self._current_kind_value()
         if kind_high in ("machine", "gas", "crafting_grid"):
             self.item_kind_combo.setEnabled(False)
         else:
             self.item_kind_combo.setEnabled(True)
+
+    def _current_kind_value(self) -> str:
+        data = self.kind_combo.currentData()
+        if isinstance(data, str) and data:
+            return data.strip().lower()
+        return (self.kind_combo.currentText() or "").strip().lower().replace(" ", "_")
+
+    def _set_kind_value(self, value: str | None) -> None:
+        if not value:
+            return
+        target = value.strip().lower()
+        for idx in range(self.kind_combo.count()):
+            if (self.kind_combo.itemData(idx) or "").strip().lower() == target:
+                self.kind_combo.setCurrentIndex(idx)
+                return
 
     def _clear_layout(self, layout: QtWidgets.QGridLayout) -> None:
         while layout.count():
@@ -957,7 +983,7 @@ class AddItemDialog(_ItemDialogBase):
 
         key = self._slugify(display_name)
 
-        kind = (self.kind_combo.currentText() or "").strip().lower()
+        kind = self._current_kind_value()
         if kind not in ("item", "fluid", "gas", "machine", "crafting_grid"):
             QtWidgets.QMessageBox.warning(
                 self,
@@ -1104,7 +1130,7 @@ class EditItemDialog(_ItemDialogBase):
             QtWidgets.QMessageBox.warning(self, "Missing name", "Display Name is required.")
             return
 
-        kind = (self.kind_combo.currentText() or "").strip().lower()
+        kind = self._current_kind_value()
         if kind not in ("item", "fluid", "gas", "machine", "crafting_grid"):
             QtWidgets.QMessageBox.warning(
                 self,
