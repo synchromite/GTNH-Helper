@@ -1,5 +1,6 @@
 SETTINGS_ENABLED_TIERS = "enabled_tiers"
 SETTINGS_CRAFT_6X6_UNLOCKED = "crafting_6x6_unlocked"
+SETTINGS_CRAFTING_GRIDS = "crafting_grids"
 SETTINGS_THEME = "theme"
 SETTINGS_TIER_LIST = "tier_list"
 SETTINGS_MACHINE_TIER_FILTER = "machine_tier_filter"

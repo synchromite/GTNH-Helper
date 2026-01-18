@@ -80,7 +80,8 @@ def fetch_recipes(
 def fetch_recipe_lines(conn: sqlite3.Connection, recipe_id: int) -> list[sqlite3.Row]:
     return conn.execute(
         """
-        SELECT rl.direction, COALESCE(i.display_name, i.key) AS name, rl.qty_count, rl.qty_liters, rl.chance_percent, rl.consumption_chance, rl.output_slot_index
+        SELECT rl.direction, COALESCE(i.display_name, i.key) AS name, rl.qty_count, rl.qty_liters,
+               rl.chance_percent, rl.consumption_chance, rl.output_slot_index, rl.input_slot_index
         FROM recipe_lines rl
         JOIN items i ON i.id = rl.item_id
         WHERE rl.recipe_id=?

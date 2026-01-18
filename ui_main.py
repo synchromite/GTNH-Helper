@@ -656,6 +656,12 @@ class App(QtWidgets.QMainWindow):
     def set_crafting_6x6_unlocked(self, unlocked: bool) -> None:
         self.db.set_crafting_6x6_unlocked(unlocked)
 
+    def get_crafting_grids(self) -> list[str]:
+        return self.db.get_crafting_grids()
+
+    def set_crafting_grids(self, grids: list[str]) -> None:
+        self.db.set_crafting_grids(grids)
+
     # ---------- Machines tab UI preferences ----------
     def get_machine_sort_mode(self) -> str:
         return self.db.get_machine_sort_mode()

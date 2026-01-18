@@ -1078,6 +1078,9 @@ class ItemLineDialog(QtWidgets.QDialog):
         *,
         show_chance: bool = False,
         show_consumption: bool = False,
+        input_slot_choices: list[int] | None = None,
+        fixed_input_slot: int | None = None,
+        require_input_slot: bool = False,
         output_slot_choices: list[int] | None = None,
         fixed_output_slot: int | None = None,
         require_chance: bool = False,
@@ -1089,6 +1092,9 @@ class ItemLineDialog(QtWidgets.QDialog):
         self.setWindowTitle(title)
         self.show_chance = show_chance
         self.show_consumption = show_consumption
+        self.input_slot_choices = input_slot_choices
+        self.fixed_input_slot = fixed_input_slot
+        self.require_input_slot = require_input_slot
         self.output_slot_choices = output_slot_choices
         self.fixed_output_slot = fixed_output_slot
         self.require_chance = require_chance
@@ -1137,6 +1143,19 @@ class ItemLineDialog(QtWidgets.QDialog):
             consumption_btn_layout.setContentsMargins(0, 0, 0, 0)
             consumption_btn_layout.addLayout(consumption_btns)
             layout.addWidget(consumption_btn_frame, row, 2)
+            row += 1
+        if self.fixed_input_slot is not None or self.input_slot_choices:
+            layout.addWidget(QtWidgets.QLabel("Grid Slot"), row, 0)
+            if self.fixed_input_slot is not None:
+                self.input_slot_label = QtWidgets.QLabel(str(self.fixed_input_slot))
+                layout.addWidget(self.input_slot_label, row, 1)
+            else:
+                values = [str(v) for v in (self.input_slot_choices or [])]
+                self.input_slot_combo = QtWidgets.QComboBox()
+                self.input_slot_combo.addItems(values)
+                if values:
+                    self.input_slot_combo.setCurrentIndex(0)
+                layout.addWidget(self.input_slot_combo, row, 1)
             row += 1
         if self.fixed_output_slot is not None or self.output_slot_choices:
             layout.addWidget(QtWidgets.QLabel("Output Slot"), row, 0)
@@ -1212,6 +1231,12 @@ class ItemLineDialog(QtWidgets.QDialog):
                 and initial_line.get("output_slot_index") is not None
             ):
                 self.output_slot_combo.setCurrentText(str(initial_line["output_slot_index"]))
+            if (
+                self.fixed_input_slot is None
+                and self.input_slot_choices is not None
+                and initial_line.get("input_slot_index") is not None
+            ):
+                self.input_slot_combo.setCurrentText(str(initial_line["input_slot_index"]))
         self.update_kind_ui()
 
     @staticmethod
@@ -1343,6 +1368,20 @@ class ItemLineDialog(QtWidgets.QDialog):
                     return
                 self.result["chance_percent"] = chance
 
+        if self.fixed_input_slot is not None or self.input_slot_choices:
+            try:
+                if self.fixed_input_slot is not None:
+                    slot_val = self.fixed_input_slot
+                else:
+                    slot_val = int(self.input_slot_combo.currentText())
+                self.result["input_slot_index"] = slot_val
+            except Exception:
+                QtWidgets.QMessageBox.warning(self, "Invalid grid slot", "Select a valid grid slot.")
+                return
+            if self.require_input_slot and self.result.get("input_slot_index") is None:
+                QtWidgets.QMessageBox.warning(self, "Missing grid slot", "Select a grid slot.")
+                return
+
         if self.fixed_output_slot is not None or self.output_slot_choices:
             try:
                 if self.fixed_output_slot is not None:
@@ -1429,14 +1468,22 @@ class _RecipeDialogBase(QtWidgets.QDialog):
         machine_layout.addLayout(machine_btns)
 
         self.grid_combo = QtWidgets.QComboBox()
-        grid_values = ["4x4"]
-        if hasattr(self.app, "is_crafting_6x6_unlocked") and self.app.is_crafting_6x6_unlocked():
-            grid_values.append("6x6")
-        self.grid_combo.addItems(grid_values)
+        self.grid_combo.addItems(self._get_available_grid_sizes())
         grid_frame = QtWidgets.QWidget()
-        grid_layout = QtWidgets.QHBoxLayout(grid_frame)
+        grid_layout = QtWidgets.QVBoxLayout(grid_frame)
         grid_layout.setContentsMargins(0, 0, 0, 0)
-        grid_layout.addWidget(self.grid_combo)
+        grid_select_row = QtWidgets.QHBoxLayout()
+        grid_select_row.addWidget(self.grid_combo)
+        grid_select_row.addStretch(1)
+        grid_layout.addLayout(grid_select_row)
+        self.grid_preview = QtWidgets.QWidget()
+        self.grid_preview_layout = QtWidgets.QGridLayout(self.grid_preview)
+        self.grid_preview_layout.setContentsMargins(0, 0, 0, 0)
+        self.grid_preview_layout.setSpacing(4)
+        grid_layout.addWidget(self.grid_preview)
+        self.grid_note_label = QtWidgets.QLabel("Grid slots are numbered left → right, top → bottom.")
+        self.grid_note_label.setStyleSheet("color: #888;")
+        grid_layout.addWidget(self.grid_note_label)
 
         self.method_field_stack = QtWidgets.QStackedWidget()
         self.method_field_stack.addWidget(machine_frame)
@@ -1527,6 +1574,7 @@ class _RecipeDialogBase(QtWidgets.QDialog):
         layout.addLayout(bottom)
 
         self.method_combo.currentTextChanged.connect(self._toggle_method_fields)
+        self.grid_combo.currentTextChanged.connect(self._refresh_crafting_grid)
         self._toggle_method_fields()
 
     def _set_variant_visible(self, visible: bool) -> None:
@@ -1542,6 +1590,61 @@ class _RecipeDialogBase(QtWidgets.QDialog):
 
         self.station_label.setVisible(is_crafting)
         self.station_frame.setVisible(is_crafting)
+        if is_crafting:
+            self._refresh_crafting_grid()
+
+    def _get_available_grid_sizes(self) -> list[str]:
+        if hasattr(self.app, "get_crafting_grids"):
+            grid_values = list(self.app.get_crafting_grids())
+        else:
+            grid_values = ["4x4"]
+        grid_values = [g for g in grid_values if g]
+        if "4x4" not in grid_values:
+            grid_values.insert(0, "4x4")
+        if hasattr(self.app, "is_crafting_6x6_unlocked"):
+            if self.app.is_crafting_6x6_unlocked():
+                if "6x6" not in grid_values:
+                    grid_values.append("6x6")
+            else:
+                grid_values = [g for g in grid_values if g.strip().lower() != "6x6"]
+        return grid_values
+
+    @staticmethod
+    def _parse_grid_size(value: str) -> tuple[int, int] | None:
+        raw = (value or "").strip().lower().replace("×", "x")
+        if "x" not in raw:
+            return None
+        parts = [p.strip() for p in raw.split("x", 1)]
+        if len(parts) != 2:
+            return None
+        if not parts[0].isdigit() or not parts[1].isdigit():
+            return None
+        rows = int(parts[0])
+        cols = int(parts[1])
+        if rows <= 0 or cols <= 0:
+            return None
+        return rows, cols
+
+    def _refresh_crafting_grid(self) -> None:
+        while self.grid_preview_layout.count():
+            item = self.grid_preview_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+
+        dims = self._parse_grid_size(self.grid_combo.currentText())
+        if not dims:
+            return
+        rows, cols = dims
+        slot = 1
+        for r in range(rows):
+            for c in range(cols):
+                label = QtWidgets.QLabel(str(slot))
+                label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+                label.setMinimumSize(26, 26)
+                label.setStyleSheet("border: 1px solid #3a3c40; border-radius: 3px;")
+                self.grid_preview_layout.addWidget(label, r, c)
+                slot += 1
 
     def pick_machine(self) -> None:
         d = ItemPickerDialog(self.app, title="Pick Machine", machines_only=True, parent=self)
@@ -1642,6 +1745,10 @@ class _RecipeDialogBase(QtWidgets.QDialog):
         slot_txt = ""
         if is_output:
             slot_idx = line.get("output_slot_index")
+            if slot_idx is not None:
+                slot_txt = f" (Slot {slot_idx})"
+        else:
+            slot_idx = line.get("input_slot_index")
             if slot_idx is not None:
                 slot_txt = f" (Slot {slot_idx})"
         if line["kind"] in ("fluid", "gas"):
@@ -1794,8 +1901,8 @@ class _RecipeDialogBase(QtWidgets.QDialog):
         for line in self.inputs:
             if line["kind"] in ("fluid", "gas"):
                 self.app.conn.execute(
-                    "INSERT INTO recipe_lines(recipe_id, direction, item_id, qty_liters, chance_percent, consumption_chance, output_slot_index) "
-                    "VALUES(?,?,?,?,?,?,?)",
+                    "INSERT INTO recipe_lines(recipe_id, direction, item_id, qty_liters, chance_percent, consumption_chance, output_slot_index, input_slot_index) "
+                    "VALUES(?,?,?,?,?,?,?,?)",
                     (
                         recipe_id,
                         "in",
@@ -1804,12 +1911,13 @@ class _RecipeDialogBase(QtWidgets.QDialog):
                         None,
                         line.get("consumption_chance", 1.0),
                         None,
+                        line.get("input_slot_index"),
                     ),
                 )
             else:
                 self.app.conn.execute(
-                    "INSERT INTO recipe_lines(recipe_id, direction, item_id, qty_count, chance_percent, consumption_chance, output_slot_index) "
-                    "VALUES(?,?,?,?,?,?,?)",
+                    "INSERT INTO recipe_lines(recipe_id, direction, item_id, qty_count, chance_percent, consumption_chance, output_slot_index, input_slot_index) "
+                    "VALUES(?,?,?,?,?,?,?,?)",
                     (
                         recipe_id,
                         "in",
@@ -1818,14 +1926,15 @@ class _RecipeDialogBase(QtWidgets.QDialog):
                         None,
                         line.get("consumption_chance", 1.0),
                         None,
+                        line.get("input_slot_index"),
                     ),
                 )
 
         for line in self.outputs:
             if line["kind"] in ("fluid", "gas"):
                 self.app.conn.execute(
-                    "INSERT INTO recipe_lines(recipe_id, direction, item_id, qty_liters, chance_percent, output_slot_index) "
-                    "VALUES(?,?,?,?,?,?)",
+                    "INSERT INTO recipe_lines(recipe_id, direction, item_id, qty_liters, chance_percent, output_slot_index, input_slot_index) "
+                    "VALUES(?,?,?,?,?,?,?)",
                     (
                         recipe_id,
                         "out",
@@ -1833,12 +1942,13 @@ class _RecipeDialogBase(QtWidgets.QDialog):
                         line["qty_liters"],
                         line.get("chance_percent", 100.0),
                         line.get("output_slot_index"),
+                        None,
                     ),
                 )
             else:
                 self.app.conn.execute(
-                    "INSERT INTO recipe_lines(recipe_id, direction, item_id, qty_count, chance_percent, output_slot_index) "
-                    "VALUES(?,?,?,?,?,?)",
+                    "INSERT INTO recipe_lines(recipe_id, direction, item_id, qty_count, chance_percent, output_slot_index, input_slot_index) "
+                    "VALUES(?,?,?,?,?,?,?)",
                     (
                         recipe_id,
                         "out",
@@ -1846,6 +1956,7 @@ class _RecipeDialogBase(QtWidgets.QDialog):
                         line["qty_count"],
                         line.get("chance_percent", 100.0),
                         line.get("output_slot_index"),
+                        None,
                     ),
                 )
 
@@ -1947,7 +2058,10 @@ class _RecipeDialogBase(QtWidgets.QDialog):
     # --- Shared List Management Methods (Moved from EditRecipeDialog) ---
 
     def add_input(self) -> None:
-        d = ItemLineDialog(self.app, "Add Input", parent=self, show_consumption=True)
+        dialog_kwargs = self._get_input_dialog_kwargs()
+        if dialog_kwargs is None:
+            return
+        d = ItemLineDialog(self.app, "Add Input", parent=self, **dialog_kwargs)
         if d.exec() == QtWidgets.QDialog.DialogCode.Accepted and d.result:
             if d.result.get("kind") in ("fluid", "gas") and not self._check_tank_limit(direction="in"):
                 return
@@ -1972,7 +2086,9 @@ class _RecipeDialogBase(QtWidgets.QDialog):
         if is_output:
             dialog_kwargs = self._get_output_dialog_kwargs(current_slot=line.get("output_slot_index"))
         else:
-            dialog_kwargs = {"show_consumption": True}
+            dialog_kwargs = self._get_input_dialog_kwargs(current_slot=line.get("input_slot_index"))
+        if dialog_kwargs is None:
+            return
         d = ItemLineDialog(
             self.app,
             "Edit Output" if is_output else "Edit Input",
@@ -2034,6 +2150,80 @@ class _RecipeDialogBase(QtWidgets.QDialog):
                 used.add(slot_val)
         return used
 
+    def _get_used_input_slots(self, *, exclude_slot: int | None = None) -> set[int]:
+        used = set()
+        for line in self.inputs:
+            slot_idx = line.get("input_slot_index")
+            if slot_idx is not None:
+                slot_val = int(slot_idx)
+                if exclude_slot is not None and slot_val == exclude_slot:
+                    continue
+                used.add(slot_val)
+        return used
+
+    def _get_crafting_grid_slots(self) -> list[int]:
+        dims = self._parse_grid_size(self.grid_combo.currentText())
+        if not dims:
+            return []
+        rows, cols = dims
+        return list(range(1, rows * cols + 1))
+
+    def _get_input_dialog_kwargs(self, *, current_slot: int | None = None) -> dict | None:
+        method = (self.method_combo.currentText() or "Machine").strip().lower()
+        dialog_kwargs = {"show_consumption": True}
+        if method != "crafting":
+            return dialog_kwargs
+        slots = self._get_crafting_grid_slots()
+        if not slots:
+            QtWidgets.QMessageBox.warning(self, "Invalid grid", "Select a valid crafting grid size first.")
+            return None
+        used_slots = self._get_used_input_slots(exclude_slot=current_slot)
+        available = [slot for slot in slots if slot not in used_slots]
+        if current_slot is not None and current_slot not in available:
+            available.append(current_slot)
+        available.sort()
+        dialog_kwargs.update(
+            {
+                "input_slot_choices": available,
+                "require_input_slot": True,
+            }
+        )
+        return dialog_kwargs
+
+    def _validate_crafting_inputs(self, grid_size: str) -> bool:
+        dims = self._parse_grid_size(grid_size)
+        if not dims:
+            QtWidgets.QMessageBox.warning(self, "Invalid grid", "Select a valid crafting grid size.")
+            return False
+        rows, cols = dims
+        max_slot = rows * cols
+        seen = set()
+        for line in self.inputs:
+            slot = line.get("input_slot_index")
+            if slot is None:
+                QtWidgets.QMessageBox.warning(
+                    self,
+                    "Missing grid slot",
+                    "Each crafting input must be assigned to a grid slot.",
+                )
+                return False
+            if slot < 1 or slot > max_slot:
+                QtWidgets.QMessageBox.warning(
+                    self,
+                    "Invalid grid slot",
+                    f"Slot {slot} is outside the {grid_size} grid.",
+                )
+                return False
+            if slot in seen:
+                QtWidgets.QMessageBox.warning(
+                    self,
+                    "Duplicate grid slot",
+                    f"Slot {slot} is already used by another input.",
+                )
+                return False
+            seen.add(slot)
+        return True
+
     def _get_output_dialog_kwargs(self, *, current_slot: int | None = None) -> dict:
         method = (self.method_combo.currentText() or "Machine").strip().lower()
         if method == "machine" and self.machine_item_id is not None:
@@ -2087,12 +2277,16 @@ class AddRecipeDialog(_RecipeDialogBase):
             machine_item_id = None
             grid_size = (self.grid_combo.currentText() or "4x4").strip()
             station_item_id = self.station_item_id
+            if not self._validate_crafting_inputs(grid_size):
+                return
         else:
             method_db = "machine"
             machine = self.machine_edit.text().strip() or None
             machine_item_id = None if machine is None else self.machine_item_id
             grid_size = None
             station_item_id = None
+            for line in self.inputs:
+                line["input_slot_index"] = None
         tier_raw = (self.tier_combo.currentText() or "").strip()
         tier = None if (tier_raw == "" or tier_raw == NONE_TIER_LABEL) else tier_raw
         notes = self.notes_edit.toPlainText().strip() or None
@@ -2299,7 +2493,8 @@ class EditRecipeDialog(_RecipeDialogBase):
         ins = self.app.conn.execute(
             """
             SELECT rl.id, rl.item_id, COALESCE(i.display_name, i.key) AS name, i.kind,
-                   rl.qty_count, rl.qty_liters, rl.chance_percent, rl.consumption_chance, rl.output_slot_index
+                   rl.qty_count, rl.qty_liters, rl.chance_percent, rl.consumption_chance,
+                   rl.output_slot_index, rl.input_slot_index
             FROM recipe_lines rl
             JOIN items i ON i.id = rl.item_id
             WHERE rl.recipe_id=? AND rl.direction='in'
@@ -2311,7 +2506,7 @@ class EditRecipeDialog(_RecipeDialogBase):
         outs = self.app.conn.execute(
             """
             SELECT rl.id, rl.item_id, COALESCE(i.display_name, i.key) AS name, i.kind,
-                   rl.qty_count, rl.qty_liters, rl.chance_percent, rl.output_slot_index
+                   rl.qty_count, rl.qty_liters, rl.chance_percent, rl.output_slot_index, rl.input_slot_index
             FROM recipe_lines rl
             JOIN items i ON i.id = rl.item_id
             WHERE rl.recipe_id=? AND rl.direction='out'
@@ -2333,6 +2528,7 @@ class EditRecipeDialog(_RecipeDialogBase):
                 "chance_percent": row["chance_percent"],
                 "consumption_chance": row["consumption_chance"],
                 "output_slot_index": row["output_slot_index"],
+                "input_slot_index": row["input_slot_index"],
             }
             self.inputs.append(line)
             self.in_list.addItem(self._fmt_line(line))
@@ -2349,6 +2545,7 @@ class EditRecipeDialog(_RecipeDialogBase):
                 "qty_liters": qty_liters,
                 "chance_percent": row["chance_percent"],
                 "output_slot_index": row["output_slot_index"],
+                "input_slot_index": row["input_slot_index"],
             }
             self.outputs.append(line)
             self.out_list.addItem(self._fmt_line(line, is_output=True))
@@ -2369,12 +2566,16 @@ class EditRecipeDialog(_RecipeDialogBase):
             self.machine_item_id = None
             grid_size = (self.grid_combo.currentText() or "4x4").strip()
             station_item_id = self.station_item_id
+            if not self._validate_crafting_inputs(grid_size):
+                return
         else:
             method_db = "machine"
             machine = self.machine_edit.text().strip() or None
             machine_item_id = None if machine is None else self.machine_item_id
             grid_size = None
             station_item_id = None
+            for line in self.inputs:
+                line["input_slot_index"] = None
         tier_raw = (self.tier_combo.currentText() or "").strip()
         tier = None if (tier_raw == "" or tier_raw == NONE_TIER_LABEL) else tier_raw
         notes = self.notes_edit.toPlainText().strip() or None

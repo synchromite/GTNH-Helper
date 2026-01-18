@@ -19,6 +19,7 @@ from services.db import (
 )
 from ui_constants import (
     SETTINGS_CRAFT_6X6_UNLOCKED,
+    SETTINGS_CRAFTING_GRIDS,
     SETTINGS_ENABLED_TIERS,
     SETTINGS_MACHINE_SEARCH,
     SETTINGS_MACHINE_SORT_MODE,
@@ -109,6 +110,26 @@ class DbLifecycle:
 
     def set_crafting_6x6_unlocked(self, unlocked: bool) -> None:
         set_setting(self.profile_conn, SETTINGS_CRAFT_6X6_UNLOCKED, "1" if unlocked else "0")
+
+    def get_crafting_grids(self) -> list[str]:
+        raw = get_setting(self.profile_conn, SETTINGS_CRAFTING_GRIDS, "") or ""
+        grids = [g.strip() for g in raw.split(",") if g.strip()]
+        if "4x4" not in grids:
+            grids.insert(0, "4x4")
+        return grids
+
+    def set_crafting_grids(self, grids: list[str]) -> None:
+        deduped = []
+        seen = set()
+        for grid in grids:
+            g = (grid or "").strip()
+            if not g or g in seen:
+                continue
+            seen.add(g)
+            deduped.append(g)
+        if "4x4" not in seen:
+            deduped.insert(0, "4x4")
+        set_setting(self.profile_conn, SETTINGS_CRAFTING_GRIDS, ",".join(deduped))
 
     def get_theme(self) -> str:
         raw = (get_setting(self.profile_conn, SETTINGS_THEME, "dark") or "dark").strip().lower()

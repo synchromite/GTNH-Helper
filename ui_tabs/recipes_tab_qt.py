@@ -200,6 +200,10 @@ class RecipesTab(QtWidgets.QWidget):
                         chance_val = 100.0
                     if chance_val < 99.999:
                         label = f"{label} ({chance_val:g}%)"
+            elif line["direction"] == "in":
+                slot_idx = line["input_slot_index"]
+                if slot_idx is not None:
+                    label = f"{label} (Slot {slot_idx})"
 
             (ins if line["direction"] == "in" else outs).append(label)
 

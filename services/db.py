@@ -339,6 +339,7 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
         chance_percent REAL,
         consumption_chance REAL DEFAULT 1.0,
         output_slot_index INTEGER,
+        input_slot_index INTEGER,
         FOREIGN KEY(recipe_id) REFERENCES recipes(id) ON DELETE CASCADE,
         FOREIGN KEY(item_id) REFERENCES items(id) ON DELETE RESTRICT
     )
@@ -349,6 +350,8 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE recipe_lines ADD COLUMN chance_percent REAL")
     if not _has_col("recipe_lines", "output_slot_index"):
         conn.execute("ALTER TABLE recipe_lines ADD COLUMN output_slot_index INTEGER")
+    if not _has_col("recipe_lines", "input_slot_index"):
+        conn.execute("ALTER TABLE recipe_lines ADD COLUMN input_slot_index INTEGER")
     if not _has_col("recipe_lines", "consumption_chance"):
         conn.execute("ALTER TABLE recipe_lines ADD COLUMN consumption_chance REAL DEFAULT 1.0")
     def _get_user_version() -> int:
@@ -467,6 +470,7 @@ def _recipe_line_signature(line: dict[str, Any] | sqlite3.Row) -> tuple:
         line["chance_percent"],
         consumption_chance,
         line["output_slot_index"],
+        line["input_slot_index"],
     )
 
 
@@ -852,7 +856,7 @@ def merge_db(
         dest_lines_rows = dest_conn.execute(
             """
             SELECT rl.recipe_id, rl.direction, i.key AS item_key, rl.qty_count, rl.qty_liters,
-                   rl.chance_percent, rl.consumption_chance, rl.output_slot_index
+                   rl.chance_percent, rl.consumption_chance, rl.output_slot_index, rl.input_slot_index
             FROM recipe_lines rl
             JOIN items i ON i.id = rl.item_id
             """
@@ -901,7 +905,7 @@ def merge_db(
         src_lines_rows = src.execute(
             """
             SELECT rl.recipe_id, rl.item_id, rl.direction, i.key AS item_key, rl.qty_count, rl.qty_liters,
-                   rl.chance_percent, rl.consumption_chance, rl.output_slot_index
+                   rl.chance_percent, rl.consumption_chance, rl.output_slot_index, rl.input_slot_index
             FROM recipe_lines rl
             JOIN items i ON i.id = rl.item_id
             """
@@ -962,7 +966,7 @@ def merge_db(
 
         # ---- Recipe lines ----
         src_lines = src.execute(
-            "SELECT recipe_id, direction, item_id, qty_count, qty_liters, chance_percent, consumption_chance, output_slot_index "
+            "SELECT recipe_id, direction, item_id, qty_count, qty_liters, chance_percent, consumption_chance, output_slot_index, input_slot_index "
             "FROM recipe_lines ORDER BY id"
         ).fetchall()
 
@@ -978,8 +982,8 @@ def merge_db(
                 continue
 
             dest_conn.execute(
-                "INSERT INTO recipe_lines(recipe_id, direction, item_id, qty_count, qty_liters, chance_percent, consumption_chance, output_slot_index) "
-                "VALUES(?,?,?,?,?,?,?,?)",
+                "INSERT INTO recipe_lines(recipe_id, direction, item_id, qty_count, qty_liters, chance_percent, consumption_chance, output_slot_index, input_slot_index) "
+                "VALUES(?,?,?,?,?,?,?,?,?)",
                 (
                     new_recipe_id,
                     ln["direction"],
@@ -989,6 +993,7 @@ def merge_db(
                     ln["chance_percent"],
                     ln["consumption_chance"] if "consumption_chance" in ln.keys() else 1.0,
                     ln["output_slot_index"],
+                    ln["input_slot_index"],
                 ),
             )
             stats["lines_added"] += 1
