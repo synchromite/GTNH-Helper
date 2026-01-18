@@ -1490,13 +1490,15 @@ class _RecipeDialogBase(QtWidgets.QDialog):
         self.method_field_stack.addWidget(grid_frame)
         form.addWidget(self.method_field_stack, 2, 1)
 
-        form.addWidget(QtWidgets.QLabel("Tier"), 2, 2)
+        self.tier_label = QtWidgets.QLabel("Tier")
+        form.addWidget(self.tier_label, 2, 2)
         self.tier_combo = QtWidgets.QComboBox()
         enabled_tiers = self.app.get_enabled_tiers() if hasattr(self.app, "get_enabled_tiers") else ALL_TIERS
         self.tier_combo.addItems([NONE_TIER_LABEL] + list(enabled_tiers))
         form.addWidget(self.tier_combo, 2, 3)
 
-        form.addWidget(QtWidgets.QLabel("Circuit"), 3, 0)
+        self.circuit_label = QtWidgets.QLabel("Circuit")
+        form.addWidget(self.circuit_label, 3, 0)
         self.circuit_edit = QtWidgets.QLineEdit()
         self.circuit_edit.setValidator(QtGui.QIntValidator(0, 10**9))
         form.addWidget(self.circuit_edit, 3, 1)
@@ -1520,22 +1522,32 @@ class _RecipeDialogBase(QtWidgets.QDialog):
         form.addWidget(self.station_label, 3, 2)
         form.addWidget(self.station_frame, 3, 3)
 
-        form.addWidget(QtWidgets.QLabel("Duration (seconds)"), 4, 0)
+        self.duration_label = QtWidgets.QLabel("Duration (seconds)")
+        form.addWidget(self.duration_label, 4, 0)
         self.duration_edit = QtWidgets.QLineEdit()
         self.duration_edit.setValidator(QtGui.QDoubleValidator(0.0, 10**9, 3))
         form.addWidget(self.duration_edit, 4, 1)
 
-        form.addWidget(QtWidgets.QLabel("EU/t"), 4, 2)
+        self.eut_label = QtWidgets.QLabel("EU/t")
+        form.addWidget(self.eut_label, 4, 2)
         self.eut_edit = QtWidgets.QLineEdit()
         self.eut_edit.setValidator(QtGui.QIntValidator(0, 10**9))
         form.addWidget(self.eut_edit, 4, 3)
 
-        form.addWidget(QtWidgets.QLabel("Notes"), 5, 0, QtCore.Qt.AlignmentFlag.AlignTop)
-        self.notes_edit = QtWidgets.QTextEdit()
-        form.addWidget(self.notes_edit, 5, 1, 1, 3)
+        splitter = QtWidgets.QSplitter(QtCore.Qt.Orientation.Vertical)
+        layout.addWidget(splitter, stretch=1)
 
-        lists_layout = QtWidgets.QHBoxLayout()
-        layout.addLayout(lists_layout, stretch=1)
+        notes_widget = QtWidgets.QWidget()
+        notes_layout = QtWidgets.QVBoxLayout(notes_widget)
+        notes_layout.setContentsMargins(0, 0, 0, 0)
+        notes_layout.addWidget(QtWidgets.QLabel("Notes"))
+        self.notes_edit = QtWidgets.QTextEdit()
+        notes_layout.addWidget(self.notes_edit)
+        splitter.addWidget(notes_widget)
+
+        lists_widget = QtWidgets.QWidget()
+        lists_layout = QtWidgets.QHBoxLayout(lists_widget)
+        lists_layout.setContentsMargins(0, 0, 0, 0)
 
         in_col = QtWidgets.QVBoxLayout()
         lists_layout.addLayout(in_col)
@@ -1560,6 +1572,10 @@ class _RecipeDialogBase(QtWidgets.QDialog):
         out_btns.addWidget(self.btn_add_output)
         out_col.addLayout(out_btns)
         self.out_btns_layout = out_btns
+
+        splitter.addWidget(lists_widget)
+        splitter.setStretchFactor(0, 0)
+        splitter.setStretchFactor(1, 1)
 
         bottom = QtWidgets.QHBoxLayout()
         bottom.addWidget(QtWidgets.QLabel("Tip: Close window or Cancel to discard. No partial saves."))
@@ -2357,8 +2373,16 @@ class EditRecipeDialog(_RecipeDialogBase):
         self.recipe_id = recipe_id
         self._variant_change_block = False
         super().__init__(app, "Edit Recipe", parent=parent)
-        self._set_variant_visible(True)
+        self._set_variant_visible(False)
         self.variant_combo.currentIndexChanged.connect(self._on_variant_change)
+        self.tier_label.setVisible(False)
+        self.tier_combo.setVisible(False)
+        self.circuit_label.setVisible(False)
+        self.circuit_edit.setVisible(False)
+        self.duration_label.setVisible(False)
+        self.duration_edit.setVisible(False)
+        self.eut_label.setVisible(False)
+        self.eut_edit.setVisible(False)
         self._load_recipe(recipe_id)
 
         self.btn_edit_input = QtWidgets.QPushButton("Edit")
