@@ -15,6 +15,7 @@ def fetch_items(conn: sqlite3.Connection) -> list[sqlite3.Row]:
             i.is_machine, 
             i.machine_tier, 
             i.machine_type,
+            i.crafting_grid_size,
             -- For machine stats, prefer the Item override, fallback to Machine Metadata
             COALESCE(mm.input_slots, 1) AS machine_input_slots,
             COALESCE(mm.output_slots, 1) AS machine_output_slots,

@@ -198,6 +198,9 @@ class BaseItemTab(QtWidgets.QWidget):
             f"Material: {it['material_name'] or ''}\n"
             f"Base: {'Yes' if it['is_base'] else 'No'}\n"
         )
+        crafting_grid_size = (self._get_value(it, "crafting_grid_size") or "").strip()
+        if crafting_grid_size:
+            txt += f"Crafting Grid: {crafting_grid_size}\n"
         is_machine_kind = ((it["item_kind_name"] or "").strip().lower() == "machine") or bool(it["is_machine"])
         if is_machine_kind:
             txt += f"Machine Tier: {it['machine_tier'] or ''}\n"

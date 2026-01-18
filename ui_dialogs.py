@@ -42,10 +42,20 @@ class ItemPickerDialog(QtWidgets.QDialog):
     Returns: self.result = {"id": int, "name": str, "kind": "item"|"fluid"}
     """
 
-    def __init__(self, app, title: str = "Pick Item", machines_only: bool = False, kinds: list[str] | None = None, parent=None):
+    def __init__(
+        self,
+        app,
+        title: str = "Pick Item",
+        machines_only: bool = False,
+        kinds: list[str] | None = None,
+        *,
+        crafting_grids_only: bool = False,
+        parent=None,
+    ):
         super().__init__(parent)
         self.app = app
         self.machines_only = machines_only
+        self.crafting_grids_only = crafting_grids_only
         self.kinds = kinds
         self._base_kinds = set(kinds) if kinds else {"item", "fluid", "gas", "machine"}
         self.result: dict | None = None
@@ -95,7 +105,7 @@ class ItemPickerDialog(QtWidgets.QDialog):
         self.search_edit.setFocus()
 
     def _build_tabs(self, layout: QtWidgets.QVBoxLayout) -> None:
-        if self.machines_only:
+        if self.machines_only or self.crafting_grids_only:
             return
         self.tabs = QtWidgets.QTabBar()
         self.tabs.setExpanding(True)
@@ -130,6 +140,8 @@ class ItemPickerDialog(QtWidgets.QDialog):
     def _active_kinds(self) -> set[str]:
         if self.machines_only:
             return {"machine"}
+        if self.crafting_grids_only:
+            return {"item"}
         if getattr(self, "tabs", None) and self._tab_kinds:
             idx = self.tabs.currentIndex()
             if 0 <= idx < len(self._tab_kinds):
@@ -153,6 +165,17 @@ class ItemPickerDialog(QtWidgets.QDialog):
                 "ORDER BY name"
             )
             self._items = self.app.conn.execute(sql).fetchall()
+        elif self.crafting_grids_only:
+            self._items = self.app.conn.execute(
+                "SELECT i.id, i.key, COALESCE(i.display_name, i.key) AS name, i.kind, "
+                "       i.item_kind_id, k.name AS item_kind_name, i.crafting_grid_size "
+                "FROM items i "
+                "LEFT JOIN item_kinds k ON k.id = i.item_kind_id "
+                "WHERE i.kind='item' "
+                "  AND i.crafting_grid_size IS NOT NULL "
+                "  AND TRIM(i.crafting_grid_size) != '' "
+                "ORDER BY name"
+            ).fetchall()
         else:
             if self.kinds:
                 placeholders = ",".join(["?"] * len(self.kinds))
@@ -212,6 +235,20 @@ class ItemPickerDialog(QtWidgets.QDialog):
             if not added_any:
                 QtWidgets.QTreeWidgetItem(p_machines, ["(no matches)"])
             self._select_first_child(p_machines)
+            return
+        if self.crafting_grids_only:
+            p_grids = QtWidgets.QTreeWidgetItem(self.tree, ["Crafting Grids"])
+            p_grids.setExpanded(True)
+            added_any = False
+            for row in self._items:
+                if not _matches(row):
+                    continue
+                child = QtWidgets.QTreeWidgetItem(p_grids, [self._label_for(row)])
+                self._display_map[child] = row
+                added_any = True
+            if not added_any:
+                QtWidgets.QTreeWidgetItem(p_grids, ["(no matches)"])
+            self._select_first_child(p_grids)
             return
 
         active_kinds = self._active_kinds()
@@ -345,6 +382,7 @@ class _ItemDialogBase(QtWidgets.QDialog):
         self.machine_kind_id = None
         self.material_id = row["material_id"] if row else None
         self.content_fluid_id = None
+        self.crafting_grid_size = None
         
         # Safe access to new columns if they exist in _row, else None
         self.content_fluid_id_val = _row_get(row, "content_fluid_id")
@@ -385,21 +423,29 @@ class _ItemDialogBase(QtWidgets.QDialog):
         self.item_kind_combo = QtWidgets.QComboBox()
         form.addWidget(self.item_kind_combo, 2, 1)
 
-        # Has Material Checkbox (Row 3)
-        self.has_material_check = QtWidgets.QCheckBox("Has Material?")
-        form.addWidget(self.has_material_check, 3, 1)
+        # Row 3: Crafting Grid Size (for Crafting Grid item kind)
+        self.crafting_grid_label = QtWidgets.QLabel("Crafting Grid")
+        self.crafting_grid_combo = QtWidgets.QComboBox()
+        form.addWidget(self.crafting_grid_label, 3, 0)
+        form.addWidget(self.crafting_grid_combo, 3, 1)
+        self.crafting_grid_label.hide()
+        self.crafting_grid_combo.hide()
 
-        # Row 4: Material OR Machine Type
+        # Has Material Checkbox (Row 4)
+        self.has_material_check = QtWidgets.QCheckBox("Has Material?")
+        form.addWidget(self.has_material_check, 4, 1)
+
+        # Row 5: Material OR Machine Type
         self.material_label = QtWidgets.QLabel("Material")
         self.material_combo = QtWidgets.QComboBox()
-        form.addWidget(self.material_label, 4, 0)
-        form.addWidget(self.material_combo, 4, 1)
+        form.addWidget(self.material_label, 5, 0)
+        form.addWidget(self.material_combo, 5, 1)
 
         self.machine_type_label = QtWidgets.QLabel("Machine Type")
         self.machine_type_combo = QtWidgets.QComboBox()
         self.machine_type_combo.setEditable(True)
-        form.addWidget(self.machine_type_label, 4, 0)
-        form.addWidget(self.machine_type_combo, 4, 1)
+        form.addWidget(self.machine_type_label, 5, 0)
+        form.addWidget(self.machine_type_combo, 5, 1)
         self.machine_type_label.hide()
         self.machine_type_combo.hide()
 
@@ -407,12 +453,12 @@ class _ItemDialogBase(QtWidgets.QDialog):
         self.tier_combo = QtWidgets.QComboBox()
         tiers = self.app.get_all_tiers() if hasattr(self.app, "get_all_tiers") else list(ALL_TIERS)
         self.tier_combo.addItems([NONE_TIER_LABEL] + list(tiers))
-        form.addWidget(self.tier_label, 5, 0)
-        form.addWidget(self.tier_combo, 5, 1)
+        form.addWidget(self.tier_label, 6, 0)
+        form.addWidget(self.tier_combo, 6, 1)
         self.tier_label.hide()
         self.tier_combo.hide()
         
-        # Row 6: Fluid Container options
+        # Row 7: Fluid Container options
         self.container_group = QtWidgets.QGroupBox("Fluid Container")
         container_layout = QtWidgets.QGridLayout(self.container_group)
         self.is_container_check = QtWidgets.QCheckBox("Is Fluid Container? (e.g. Cell/Bucket)")
@@ -428,10 +474,10 @@ class _ItemDialogBase(QtWidgets.QDialog):
         self.content_qty_edit.setValidator(QtGui.QIntValidator(1, 1000000))
         container_layout.addWidget(self.content_qty_label, 2, 0)
         container_layout.addWidget(self.content_qty_edit, 2, 1)
-        form.addWidget(self.container_group, 6, 0, 1, 2)
+        form.addWidget(self.container_group, 7, 0, 1, 2)
 
         self.is_base_check = QtWidgets.QCheckBox("Base resource (planner stops here later)")
-        form.addWidget(self.is_base_check, 7, 1)
+        form.addWidget(self.is_base_check, 8, 1)
 
         if self._show_availability:
             self.availability_group = QtWidgets.QGroupBox("Availability")
@@ -446,7 +492,7 @@ class _ItemDialogBase(QtWidgets.QDialog):
             self.online_spin.setMaximum(0)
             availability_layout.addWidget(self.online_spin, 1, 1)
             self.owned_spin.valueChanged.connect(self._on_owned_changed)
-            form.addWidget(self.availability_group, 8, 0, 1, 2)
+            form.addWidget(self.availability_group, 9, 0, 1, 2)
 
         buttons = QtWidgets.QDialogButtonBox(
             QtWidgets.QDialogButtonBox.StandardButton.Save
@@ -460,6 +506,7 @@ class _ItemDialogBase(QtWidgets.QDialog):
         self._reload_materials()
         self._reload_machine_types()
         self._reload_fluids()
+        self._reload_crafting_grids()
 
         self.kind_combo.currentTextChanged.connect(self._on_high_level_kind_changed)
         self.item_kind_combo.currentTextChanged.connect(self._on_item_kind_selected)
@@ -468,6 +515,7 @@ class _ItemDialogBase(QtWidgets.QDialog):
         self.has_material_check.toggled.connect(self._on_has_material_toggled)
         self.is_container_check.toggled.connect(self._on_is_container_toggled)
         self.content_fluid_combo.currentTextChanged.connect(self._on_content_fluid_selected)
+        self.crafting_grid_combo.currentTextChanged.connect(self._on_crafting_grid_selected)
 
         self._load_row_defaults()
         self._on_high_level_kind_changed()
@@ -482,6 +530,8 @@ class _ItemDialogBase(QtWidgets.QDialog):
                 self.kind_combo.setCurrentText(self.kind_combo.itemText(0))
             self.item_kind_combo.setCurrentText(NONE_KIND_LABEL)
             self.material_combo.setCurrentText(NONE_MATERIAL_LABEL)
+            if self.crafting_grid_combo.count() > 0:
+                self.crafting_grid_combo.setCurrentIndex(0)
             self.is_base_check.setChecked(False)
             self.has_material_check.setChecked(False)
             self.is_container_check.setChecked(False)
@@ -499,6 +549,8 @@ class _ItemDialogBase(QtWidgets.QDialog):
         self.kind_combo.setCurrentText(self._row["kind"])
         item_kind_name = (self._row["item_kind_name"] or "") or NONE_KIND_LABEL
         self.item_kind_combo.setCurrentText(item_kind_name)
+        if _row_get(self._row, "crafting_grid_size"):
+            self.crafting_grid_combo.setCurrentText(str(_row_get(self._row, "crafting_grid_size")))
 
         if (item_kind_name.strip().lower() == "machine") or bool(self._row["is_machine"]):
             # Prefer machine_type, fallback to display_name for legacy/migration
@@ -616,6 +668,21 @@ class _ItemDialogBase(QtWidgets.QDialog):
         v = (self.content_fluid_combo.currentText() or "").strip()
         self.content_fluid_id = self._fluid_name_to_id.get(v) if v and v != NONE_FLUID_LABEL else None
 
+    def _reload_crafting_grids(self) -> None:
+        grids = self.app.get_crafting_grids() if hasattr(self.app, "get_crafting_grids") else ["2x2", "3x3"]
+        values = [g for g in grids if g]
+        if not values:
+            values = ["2x2", "3x3"]
+        cur = self.crafting_grid_combo.currentText()
+        self.crafting_grid_combo.blockSignals(True)
+        self.crafting_grid_combo.clear()
+        self.crafting_grid_combo.addItems(values)
+        if cur not in values:
+            cur = values[0]
+        self.crafting_grid_combo.setCurrentText(cur)
+        self.crafting_grid_combo.blockSignals(False)
+        self._on_crafting_grid_selected()
+
     def _reload_machine_types(self) -> None:
         rows = fetch_machine_metadata(self.app.conn)
         types = sorted({(row["machine_type"] or "").strip() for row in rows if row["machine_type"]})
@@ -654,9 +721,17 @@ class _ItemDialogBase(QtWidgets.QDialog):
         is_gas_kind = kind_high == "gas"
         is_fluid_like = is_fluid_kind or is_gas_kind
         show_item_kind = kind_high in ("item", "fluid")
+        is_crafting_grid_kind = show_item_kind and v.strip().lower() == "crafting grid" and kind_high == "item"
 
         self.item_kind_label.setVisible(show_item_kind)
         self.item_kind_combo.setVisible(show_item_kind)
+
+        self.crafting_grid_label.setVisible(is_crafting_grid_kind)
+        self.crafting_grid_combo.setVisible(is_crafting_grid_kind)
+        if is_crafting_grid_kind:
+            self._on_crafting_grid_selected()
+        else:
+            self.crafting_grid_size = None
 
         # Machine-specific fields depend on KIND, not Item Type
         self.machine_type_label.setVisible(is_machine_kind)
@@ -766,6 +841,13 @@ class _ItemDialogBase(QtWidgets.QDialog):
             self.content_fluid_id = self._fluid_name_to_id.get(v) if v and v != NONE_FLUID_LABEL else None
         else:
             self.content_fluid_id = None
+
+    def _on_crafting_grid_selected(self) -> None:
+        if self.crafting_grid_combo.isVisible():
+            v = (self.crafting_grid_combo.currentText() or "").strip()
+            self.crafting_grid_size = v if v else None
+        else:
+            self.crafting_grid_size = None
 
     def _on_machine_type_selected(self) -> None:
         return
@@ -878,6 +960,17 @@ class AddItemDialog(_ItemDialogBase):
         is_machine = 1 if kind == "machine" else 0
         item_kind_id = None if kind == "gas" else self.item_kind_id
 
+        crafting_grid_size = None
+        if kind == "item" and (self.item_kind_combo.currentText() or "").strip().lower() == "crafting grid":
+            crafting_grid_size = self.crafting_grid_size
+            if not crafting_grid_size:
+                QtWidgets.QMessageBox.warning(
+                    self,
+                    "Missing grid size",
+                    "Crafting Grid items require a grid size selection.",
+                )
+                return
+
         if self.has_material_check.isVisible() and self.has_material_check.isChecked():
             material_id = self.material_id
         else:
@@ -917,8 +1010,8 @@ class AddItemDialog(_ItemDialogBase):
         try:
             cur = self.app.conn.execute(
                 "INSERT INTO items(key, display_name, kind, is_base, is_machine, item_kind_id, material_id, "
-                "machine_type, machine_tier, content_fluid_id, content_qty_liters) "
-                "VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                "machine_type, machine_tier, content_fluid_id, content_qty_liters, crafting_grid_size) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     key,
                     display_name,
@@ -931,6 +1024,7 @@ class AddItemDialog(_ItemDialogBase):
                     md.get("machine_tier"),
                     content_fluid_id,
                     content_qty,
+                    crafting_grid_size,
                 ),
             )
             item_id = cur.lastrowid
@@ -978,7 +1072,7 @@ class EditItemDialog(_ItemDialogBase):
         row = app.conn.execute(
             "SELECT i.id, i.key, COALESCE(i.display_name, i.key) AS name, i.display_name, i.kind, "
             "       i.is_base, i.is_machine, i.machine_type, i.machine_tier, "
-            "       i.content_fluid_id, i.content_qty_liters, "
+            "       i.content_fluid_id, i.content_qty_liters, i.crafting_grid_size, "
             "       i.item_kind_id, i.material_id, k.name AS item_kind_name, m.name AS material_name "
             "FROM items i "
             "LEFT JOIN item_kinds k ON k.id = i.item_kind_id "
@@ -1008,6 +1102,17 @@ class EditItemDialog(_ItemDialogBase):
         # "Machine" is now a top-level Kind
         is_machine = 1 if kind == "machine" else 0
         item_kind_id = None if kind == "gas" else self.item_kind_id
+
+        crafting_grid_size = None
+        if kind == "item" and (self.item_kind_combo.currentText() or "").strip().lower() == "crafting grid":
+            crafting_grid_size = self.crafting_grid_size
+            if not crafting_grid_size:
+                QtWidgets.QMessageBox.warning(
+                    self,
+                    "Missing grid size",
+                    "Crafting Grid items require a grid size selection.",
+                )
+                return
 
         if self.has_material_check.isVisible() and self.has_material_check.isChecked():
             material_id = self.material_id
@@ -1039,7 +1144,7 @@ class EditItemDialog(_ItemDialogBase):
         try:
             self.app.conn.execute(
                 "UPDATE items SET display_name=?, kind=?, is_base=?, is_machine=?, item_kind_id=?, material_id=?, "
-                "machine_type=?, machine_tier=?, content_fluid_id=?, content_qty_liters=? "
+                "machine_type=?, machine_tier=?, content_fluid_id=?, content_qty_liters=?, crafting_grid_size=? "
                 "WHERE id=?",
                 (
                     display_name,
@@ -1052,6 +1157,7 @@ class EditItemDialog(_ItemDialogBase):
                     md.get("machine_tier"),
                     content_fluid_id,
                     content_qty,
+                    crafting_grid_size,
                     self.item_id,
                 ),
             )
@@ -1406,6 +1512,7 @@ class _RecipeDialogBase(QtWidgets.QDialog):
         self.outputs: list[dict] = []
         self.name_item_id: int | None = None
         self.duplicate_of_recipe_id: int | None = None
+        self._station_grid_lock = False
 
         layout = QtWidgets.QVBoxLayout(self)
         form = QtWidgets.QGridLayout()
@@ -1607,7 +1714,10 @@ class _RecipeDialogBase(QtWidgets.QDialog):
         self.station_label.setVisible(is_crafting)
         self.station_frame.setVisible(is_crafting)
         if is_crafting:
+            self._apply_station_grid_size()
             self._refresh_crafting_grid()
+        else:
+            self.grid_combo.setEnabled(True)
 
     def _get_available_grid_sizes(self) -> list[str]:
         if hasattr(self.app, "get_crafting_grids"):
@@ -1642,6 +1752,8 @@ class _RecipeDialogBase(QtWidgets.QDialog):
         return rows, cols
 
     def _refresh_crafting_grid(self) -> None:
+        if self._station_grid_lock:
+            return
         while self.grid_preview_layout.count():
             item = self.grid_preview_layout.takeAt(0)
             widget = item.widget()
@@ -1661,6 +1773,33 @@ class _RecipeDialogBase(QtWidgets.QDialog):
                 label.setStyleSheet("border: 1px solid #3a3c40; border-radius: 3px;")
                 self.grid_preview_layout.addWidget(label, r, c)
                 slot += 1
+
+    def _fetch_crafting_grid_size(self, item_id: int) -> str | None:
+        row = self.app.conn.execute(
+            "SELECT crafting_grid_size FROM items WHERE id=?",
+            (item_id,),
+        ).fetchone()
+        if not row:
+            return None
+        return (row["crafting_grid_size"] or "").strip() or None
+
+    def _apply_station_grid_size(self) -> None:
+        if self.station_item_id is None:
+            self.grid_combo.setEnabled(True)
+            return
+        grid_size = self._fetch_crafting_grid_size(self.station_item_id)
+        if not grid_size:
+            self.grid_combo.setEnabled(True)
+            return
+        if self.grid_combo.findText(grid_size) == -1:
+            self.grid_combo.addItem(grid_size)
+        self._station_grid_lock = True
+        try:
+            self.grid_combo.setCurrentText(grid_size)
+        finally:
+            self._station_grid_lock = False
+        self.grid_combo.setEnabled(False)
+        self._refresh_crafting_grid()
 
     def pick_machine(self) -> None:
         d = ItemPickerDialog(self.app, title="Pick Machine", machines_only=True, parent=self)
@@ -1683,10 +1822,11 @@ class _RecipeDialogBase(QtWidgets.QDialog):
         self.machine_edit.setText("")
 
     def pick_station(self) -> None:
-        d = ItemPickerDialog(self.app, title="Pick Station", kinds=["item"], parent=self)
+        d = ItemPickerDialog(self.app, title="Pick Station", crafting_grids_only=True, parent=self)
         if d.exec() == QtWidgets.QDialog.DialogCode.Accepted and d.result:
             self.station_item_id = d.result["id"]
             self.station_edit.setText(d.result["name"])
+            self._apply_station_grid_size()
 
     def pick_name(self) -> None:
         d = ItemPickerDialog(self.app, title="Pick Recipe Item", parent=self)
@@ -1701,6 +1841,7 @@ class _RecipeDialogBase(QtWidgets.QDialog):
     def clear_station(self) -> None:
         self.station_item_id = None
         self.station_edit.setText("")
+        self.grid_combo.setEnabled(True)
 
     def _resolve_name_item_id(self, *, warn: bool = True) -> int | None:
         # If we have a specific item ID from the picker (or loaded from DB), use it.
@@ -2291,8 +2432,24 @@ class AddRecipeDialog(_RecipeDialogBase):
             machine = None
             self.machine_item_id = None
             machine_item_id = None
-            grid_size = (self.grid_combo.currentText() or "2x2").strip()
             station_item_id = self.station_item_id
+            if station_item_id is None:
+                QtWidgets.QMessageBox.warning(
+                    self,
+                    "Missing crafting grid",
+                    "Select a Crafting Grid item for crafting recipes.",
+                )
+                return
+            grid_size = self._fetch_crafting_grid_size(station_item_id)
+            if not grid_size:
+                QtWidgets.QMessageBox.warning(
+                    self,
+                    "Missing grid size",
+                    "Selected crafting grid item does not have a grid size.",
+                )
+                return
+            if self.grid_combo.currentText().strip() != grid_size:
+                self.grid_combo.setCurrentText(grid_size)
             if not self._validate_crafting_inputs(grid_size):
                 return
         else:
@@ -2447,6 +2604,7 @@ class EditRecipeDialog(_RecipeDialogBase):
             ).fetchone()
             if row:
                 self.station_edit.setText(row["name"])
+        self._apply_station_grid_size()
 
         self.inputs = []
         self.outputs = []
@@ -2588,8 +2746,25 @@ class EditRecipeDialog(_RecipeDialogBase):
             method_db = "crafting"
             machine = None
             self.machine_item_id = None
-            grid_size = (self.grid_combo.currentText() or "2x2").strip()
+            machine_item_id = None
             station_item_id = self.station_item_id
+            if station_item_id is None:
+                QtWidgets.QMessageBox.warning(
+                    self,
+                    "Missing crafting grid",
+                    "Select a Crafting Grid item for crafting recipes.",
+                )
+                return
+            grid_size = self._fetch_crafting_grid_size(station_item_id)
+            if not grid_size:
+                QtWidgets.QMessageBox.warning(
+                    self,
+                    "Missing grid size",
+                    "Selected crafting grid item does not have a grid size.",
+                )
+                return
+            if self.grid_combo.currentText().strip() != grid_size:
+                self.grid_combo.setCurrentText(grid_size)
             if not self._validate_crafting_inputs(grid_size):
                 return
         else:
@@ -3292,6 +3467,127 @@ class TierManagerDialog(QtWidgets.QDialog):
             self.app._machines_load_from_db()
         if hasattr(self.app, "status_bar"):
             self.app.status_bar.showMessage("Updated tier list.")
+        self.accept()
+
+
+class CraftingGridManagerDialog(QtWidgets.QDialog):
+    def __init__(self, app, parent=None):
+        super().__init__(parent)
+        self.app = app
+        self.setWindowTitle("Manage Crafting Grids")
+        self.setModal(True)
+        self.resize(420, 320)
+
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.addWidget(QtWidgets.QLabel("Define the crafting grid sizes available in recipes and items."))
+
+        self.table = QtWidgets.QTableWidget(0, 1)
+        self.table.setHorizontalHeaderLabels(["Grid Size (e.g. 3x3)"])
+        self.table.verticalHeader().setVisible(False)
+        self.table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.ResizeMode.Stretch)
+        layout.addWidget(self.table, stretch=1)
+
+        controls = QtWidgets.QHBoxLayout()
+        self.add_row_btn = QtWidgets.QPushButton("Add Row")
+        self.add_row_btn.clicked.connect(self._add_row)
+        self.remove_row_btn = QtWidgets.QPushButton("Remove Selected")
+        self.remove_row_btn.clicked.connect(self._remove_selected_rows)
+        controls.addWidget(self.add_row_btn)
+        controls.addWidget(self.remove_row_btn)
+        controls.addStretch(1)
+        layout.addLayout(controls)
+
+        buttons = QtWidgets.QDialogButtonBox(
+            QtWidgets.QDialogButtonBox.StandardButton.Save
+            | QtWidgets.QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self._save)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+        self._load_rows()
+
+    def _load_rows(self) -> None:
+        self.table.setRowCount(0)
+        grids = self.app.get_crafting_grids() if hasattr(self.app, "get_crafting_grids") else ["2x2", "3x3"]
+        for grid in grids:
+            self._add_row({"size": grid})
+        if self.table.rowCount() == 0:
+            self._add_row()
+
+    def _add_row(self, row=None) -> None:
+        if isinstance(row, bool):
+            row = None
+        row_idx = self.table.rowCount()
+        self.table.insertRow(row_idx)
+        size_item = QtWidgets.QTableWidgetItem((row["size"] or "").strip() if row else "")
+        self.table.setItem(row_idx, 0, size_item)
+
+    def _remove_selected_rows(self) -> None:
+        rows = sorted({idx.row() for idx in self.table.selectionModel().selectedRows()}, reverse=True)
+        for row_idx in rows:
+            self.table.removeRow(row_idx)
+
+    @staticmethod
+    def _parse_grid_size(value: str) -> tuple[int, int] | None:
+        raw = (value or "").strip().lower().replace("×", "x")
+        if "x" not in raw:
+            return None
+        parts = [p.strip() for p in raw.split("x", 1)]
+        if len(parts) != 2:
+            return None
+        if not parts[0].isdigit() or not parts[1].isdigit():
+            return None
+        rows = int(parts[0])
+        cols = int(parts[1])
+        if rows <= 0 or cols <= 0:
+            return None
+        return rows, cols
+
+    def _validate_rows(self) -> list[str] | None:
+        grids: list[str] = []
+        seen: set[str] = set()
+        for row_idx in range(self.table.rowCount()):
+            size_item = self.table.item(row_idx, 0)
+            size = (size_item.text() if size_item else "").strip()
+            if not size:
+                QtWidgets.QMessageBox.warning(
+                    self,
+                    "Missing grid size",
+                    f"Row {row_idx + 1} needs a grid size.",
+                )
+                return None
+            if not self._parse_grid_size(size):
+                QtWidgets.QMessageBox.warning(
+                    self,
+                    "Invalid grid size",
+                    f"Row {row_idx + 1} must be in NxM format (e.g. 3x3).",
+                )
+                return None
+            canon = size.lower()
+            if canon in seen:
+                QtWidgets.QMessageBox.warning(
+                    self,
+                    "Duplicate grid size",
+                    f"Grid size '{size}' is listed twice.",
+                )
+                return None
+            seen.add(canon)
+            grids.append(size)
+        if not grids:
+            QtWidgets.QMessageBox.warning(self, "Missing grids", "Define at least one crafting grid size.")
+            return None
+        return grids
+
+    def _save(self) -> None:
+        grids = self._validate_rows()
+        if grids is None:
+            return
+        if hasattr(self.app, "set_crafting_grids"):
+            self.app.set_crafting_grids(grids)
+        if hasattr(self.app, "status_bar"):
+            self.app.status_bar.showMessage("Updated crafting grids.")
         self.accept()
 
 

@@ -11,7 +11,13 @@ from services.db_lifecycle import DbLifecycle
 from services.items import fetch_items
 from services.recipes import fetch_recipes
 from services.tab_config import apply_tab_reorder, config_path, load_tab_config, save_tab_config
-from ui_dialogs import ItemKindManagerDialog, ItemMergeConflictDialog, MaterialManagerDialog, TierManagerDialog
+from ui_dialogs import (
+    CraftingGridManagerDialog,
+    ItemKindManagerDialog,
+    ItemMergeConflictDialog,
+    MaterialManagerDialog,
+    TierManagerDialog,
+)
 from ui_tabs.inventory_tab import InventoryTab
 from ui_tabs.items_tab_qt import ItemsTab, FluidsTab, GasesTab
 from ui_tabs.recipes_tab_qt import RecipesTab
@@ -412,6 +418,9 @@ class App(QtWidgets.QMainWindow):
         tiers_action.setEnabled(self.editor_enabled)
         tiers_action.triggered.connect(self.menu_manage_tiers)
         tools_menu.addAction(tiers_action)
+        grids_action = QtGui.QAction("Manage Crafting Grids…", self)
+        grids_action.triggered.connect(self.menu_manage_crafting_grids)
+        tools_menu.addAction(grids_action)
 
     def _apply_theme(self, theme: str) -> None:
         app = QtWidgets.QApplication.instance()
@@ -541,6 +550,10 @@ class App(QtWidgets.QMainWindow):
             )
             return
         dlg = TierManagerDialog(self, parent=self)
+        dlg.exec()
+
+    def menu_manage_crafting_grids(self) -> None:
+        dlg = CraftingGridManagerDialog(self, parent=self)
         dlg.exec()
 
     def menu_export_content_db(self) -> None:

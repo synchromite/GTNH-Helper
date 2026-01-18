@@ -207,6 +207,8 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
 
     if not _has_col("items", "content_qty_liters"):
         conn.execute("ALTER TABLE items ADD COLUMN content_qty_liters INTEGER")
+    if not _has_col("items", "crafting_grid_size"):
+        conn.execute("ALTER TABLE items ADD COLUMN crafting_grid_size TEXT")
 
     # Detailed item classification (user-editable list of kinds)
     if not _has_col("items", "item_kind_id"):
@@ -260,6 +262,7 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
             ("Circuit", 70),
             ("Component", 80),
             ("Machine", 90),
+            ("Crafting Grid", 95),
             ("Tool", 100),
             ("Other", 1000),
         ]
@@ -267,6 +270,15 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
             "INSERT INTO item_kinds(name, sort_order, is_builtin, applies_to) VALUES(?,?,1,'item')",
             defaults,
         )
+    else:
+        crafting_grid_kind = conn.execute(
+            "SELECT 1 FROM item_kinds WHERE LOWER(name)=LOWER('Crafting Grid')"
+        ).fetchone()
+        if not crafting_grid_kind:
+            conn.execute(
+                "INSERT INTO item_kinds(name, sort_order, is_builtin, applies_to) VALUES(?, ?, 1, 'item')",
+                ("Crafting Grid", 95),
+            )
 
     # Keep machine tagging consistent between the legacy columns and Item Kind.
     # Item Kind = 'Machine' is now the primary way to mark machines in the UI.
@@ -676,7 +688,7 @@ def merge_db(
         # ---- Items ----
         src_items = src.execute(
             "SELECT id, key, display_name, kind, is_base, is_machine, machine_tier, machine_type, "
-            "       item_kind_id, material_id "
+            "       item_kind_id, material_id, crafting_grid_size "
             "FROM items ORDER BY id"
         ).fetchall()
 
@@ -729,7 +741,7 @@ def merge_db(
 
             dest_row = dest_conn.execute(
                 "SELECT id, display_name, kind, is_base, is_machine, machine_tier, machine_type, "
-                "       item_kind_id, material_id "
+                "       item_kind_id, material_id, crafting_grid_size "
                 "FROM items WHERE key=?",
                 (key,),
             ).fetchone()
@@ -745,8 +757,8 @@ def merge_db(
             if not dest_row:
                 insert_sql = (
                     "INSERT INTO items(key, display_name, kind, is_base, is_machine, machine_tier, machine_type, "
-                    "item_kind_id, material_id, needs_review) "
-                    "VALUES(?,?,?,?,?,?,?,?,?,?)"
+                    "item_kind_id, material_id, crafting_grid_size, needs_review) "
+                    "VALUES(?,?,?,?,?,?,?,?,?,?,?)"
                 )
                 needs_review = _needs_review_for_item(
                     kind=it["kind"],
@@ -766,6 +778,7 @@ def merge_db(
                     it["machine_type"],
                     mapped_kind_id,
                     mapped_material_id,
+                    it["crafting_grid_size"],
                     1 if needs_review else 0,
                 )
                 dest_conn.execute(insert_sql, insert_values)
@@ -795,6 +808,11 @@ def merge_db(
                 updates["machine_tier"] = it["machine_tier"]
             if (dest_row["machine_type"] is None or str(dest_row["machine_type"] or "").strip() == "") and (it["machine_type"] or "").strip():
                 updates["machine_type"] = it["machine_type"]
+            if (
+                dest_row["crafting_grid_size"] is None
+                or str(dest_row["crafting_grid_size"] or "").strip() == ""
+            ) and (it["crafting_grid_size"] or "").strip():
+                updates["crafting_grid_size"] = it["crafting_grid_size"]
 
             if updates:
                 sets = ", ".join([f"{k}=?" for k in updates.keys()])
