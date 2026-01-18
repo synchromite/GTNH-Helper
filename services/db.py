@@ -167,7 +167,7 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         key TEXT NOT NULL UNIQUE,
         display_name TEXT,
-        kind TEXT NOT NULL CHECK(kind IN ('item','fluid','gas','machine')),
+        kind TEXT NOT NULL CHECK(kind IN ('item','fluid','gas','machine','crafting_grid')),
         is_base INTEGER NOT NULL DEFAULT 0,
         material_id INTEGER,
         FOREIGN KEY(material_id) REFERENCES materials(id) ON DELETE SET NULL
@@ -221,6 +221,72 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
     if not _has_col("items", "needs_review"):
         conn.execute("ALTER TABLE items ADD COLUMN needs_review INTEGER NOT NULL DEFAULT 0")
 
+    def _has_kind_constraint() -> bool:
+        row = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='items'"
+        ).fetchone()
+        if not row:
+            return True
+        sql = (row["sql"] or "").lower()
+        return "crafting_grid" in sql
+
+    def _rebuild_items_table() -> None:
+        columns = [r["name"] for r in conn.execute("PRAGMA table_info(items)").fetchall()]
+        col_set = set(columns)
+        desired_cols = [
+            "id",
+            "key",
+            "display_name",
+            "kind",
+            "is_base",
+            "material_id",
+            "is_machine",
+            "machine_tier",
+            "machine_type",
+            "content_fluid_id",
+            "content_qty_liters",
+            "item_kind_id",
+            "needs_review",
+            "crafting_grid_size",
+        ]
+        select_cols = [
+            col if col in col_set else f"NULL AS {col}"
+            for col in desired_cols
+        ]
+
+        conn.execute("PRAGMA foreign_keys=OFF")
+        conn.execute(
+            """
+            CREATE TABLE items_new (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                key TEXT NOT NULL UNIQUE,
+                display_name TEXT,
+                kind TEXT NOT NULL CHECK(kind IN ('item','fluid','gas','machine','crafting_grid')),
+                is_base INTEGER NOT NULL DEFAULT 0,
+                material_id INTEGER,
+                is_machine INTEGER NOT NULL DEFAULT 0,
+                machine_tier TEXT,
+                machine_type TEXT,
+                content_fluid_id INTEGER,
+                content_qty_liters INTEGER,
+                item_kind_id INTEGER,
+                needs_review INTEGER NOT NULL DEFAULT 0,
+                crafting_grid_size TEXT,
+                FOREIGN KEY(material_id) REFERENCES materials(id) ON DELETE SET NULL
+            )
+            """
+        )
+        conn.execute(
+            f"INSERT INTO items_new({', '.join(desired_cols)}) "
+            f"SELECT {', '.join(select_cols)} FROM items"
+        )
+        conn.execute("DROP TABLE items")
+        conn.execute("ALTER TABLE items_new RENAME TO items")
+        conn.execute("PRAGMA foreign_keys=ON")
+
+    if not _has_kind_constraint():
+        _rebuild_items_table()
+
     # Per-machine IO slot typing (each machine slot can accept item or fluid)
     conn.execute(
         """
@@ -262,7 +328,6 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
             ("Circuit", 70),
             ("Component", 80),
             ("Machine", 90),
-            ("Crafting Grid", 95),
             ("Tool", 100),
             ("Other", 1000),
         ]
@@ -270,15 +335,6 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
             "INSERT INTO item_kinds(name, sort_order, is_builtin, applies_to) VALUES(?,?,1,'item')",
             defaults,
         )
-    else:
-        crafting_grid_kind = conn.execute(
-            "SELECT 1 FROM item_kinds WHERE LOWER(name)=LOWER('Crafting Grid')"
-        ).fetchone()
-        if not crafting_grid_kind:
-            conn.execute(
-                "INSERT INTO item_kinds(name, sort_order, is_builtin, applies_to) VALUES(?, ?, 1, 'item')",
-                ("Crafting Grid", 95),
-            )
 
     # Keep machine tagging consistent between the legacy columns and Item Kind.
     # Item Kind = 'Machine' is now the primary way to mark machines in the UI.

@@ -57,7 +57,7 @@ class ItemPickerDialog(QtWidgets.QDialog):
         self.machines_only = machines_only
         self.crafting_grids_only = crafting_grids_only
         self.kinds = kinds
-        self._base_kinds = set(kinds) if kinds else {"item", "fluid", "gas", "machine"}
+        self._base_kinds = set(kinds) if kinds else {"item", "fluid", "gas", "machine", "crafting_grid"}
         self.result: dict | None = None
         self._items = []
         self._display_map: dict[QtWidgets.QTreeWidgetItem, dict] = {}
@@ -122,6 +122,8 @@ class ItemPickerDialog(QtWidgets.QDialog):
             _add_tab("Fluids", {"fluid", "gas"})
         if "machine" in self._base_kinds:
             _add_tab("Machines", {"machine"})
+        if "crafting_grid" in self._base_kinds:
+            _add_tab("Crafting Grids", {"crafting_grid"})
         _add_tab("All", set(self._base_kinds))
 
         self.tabs.currentChanged.connect(self.rebuild_tree)
@@ -141,7 +143,7 @@ class ItemPickerDialog(QtWidgets.QDialog):
         if self.machines_only:
             return {"machine"}
         if self.crafting_grids_only:
-            return {"item"}
+            return {"crafting_grid"}
         if getattr(self, "tabs", None) and self._tab_kinds:
             idx = self.tabs.currentIndex()
             if 0 <= idx < len(self._tab_kinds):
@@ -171,9 +173,7 @@ class ItemPickerDialog(QtWidgets.QDialog):
                 "       i.item_kind_id, k.name AS item_kind_name, i.crafting_grid_size "
                 "FROM items i "
                 "LEFT JOIN item_kinds k ON k.id = i.item_kind_id "
-                "WHERE i.kind='item' "
-                "  AND i.crafting_grid_size IS NOT NULL "
-                "  AND TRIM(i.crafting_grid_size) != '' "
+                "WHERE i.kind='crafting_grid' "
                 "ORDER BY name"
             ).fetchall()
         else:
@@ -256,18 +256,21 @@ class ItemPickerDialog(QtWidgets.QDialog):
         show_fluids = "fluid" in active_kinds
         show_gases = "gas" in active_kinds
         show_machines = "machine" in active_kinds
+        show_grids = "crafting_grid" in active_kinds
 
         p_items = QtWidgets.QTreeWidgetItem(self.tree, ["Items"]) if show_items else None
         p_fluids = QtWidgets.QTreeWidgetItem(self.tree, ["Fluids"]) if show_fluids else None
         p_gases = QtWidgets.QTreeWidgetItem(self.tree, ["Gases"]) if show_gases else None
         p_machines = QtWidgets.QTreeWidgetItem(self.tree, ["Machines"]) if show_machines else None
+        p_grids = QtWidgets.QTreeWidgetItem(self.tree, ["Crafting Grids"]) if show_grids else None
 
         if p_items: p_items.setExpanded(True)
         if p_fluids: p_fluids.setExpanded(True)
         if p_gases: p_gases.setExpanded(True)
         if p_machines: p_machines.setExpanded(True)
+        if p_grids: p_grids.setExpanded(True)
 
-        added_any = {"item": False, "fluid": False, "gas": False, "machine": False}
+        added_any = {"item": False, "fluid": False, "gas": False, "machine": False, "crafting_grid": False}
         item_kind_nodes: dict[str, QtWidgets.QTreeWidgetItem] = {}
 
         for row in self._items:
@@ -298,6 +301,8 @@ class ItemPickerDialog(QtWidgets.QDialog):
                 parent = _get_kind_parent(p_gases, "(gas)")
             elif row["kind"] == "machine":
                 parent = _get_kind_parent(p_machines, "(machine)")
+            elif row["kind"] == "crafting_grid":
+                parent = _get_kind_parent(p_grids, "(crafting grid)")
             
             if parent is None:
                 continue
@@ -310,8 +315,9 @@ class ItemPickerDialog(QtWidgets.QDialog):
         if p_fluids and not added_any["fluid"]: QtWidgets.QTreeWidgetItem(p_fluids, ["(no matches)"])
         if p_gases and not added_any["gas"]: QtWidgets.QTreeWidgetItem(p_gases, ["(no matches)"])
         if p_machines and not added_any["machine"]: QtWidgets.QTreeWidgetItem(p_machines, ["(no matches)"])
+        if p_grids and not added_any["crafting_grid"]: QtWidgets.QTreeWidgetItem(p_grids, ["(no matches)"])
 
-        for p in [p_items, p_fluids, p_gases, p_machines]:
+        for p in [p_items, p_fluids, p_gases, p_machines, p_grids]:
             if p is not None:
                 for k_parent in self._children(p):
                     if self._select_first_child(k_parent):
@@ -414,7 +420,7 @@ class _ItemDialogBase(QtWidgets.QDialog):
 
         form.addWidget(QtWidgets.QLabel("Kind"), 1, 0)
         self.kind_combo = QtWidgets.QComboBox()
-        kind_values = allowed_kinds or ["item", "fluid", "gas", "machine"]
+        kind_values = allowed_kinds or ["item", "fluid", "gas", "machine", "crafting_grid"]
         self.kind_combo.addItems(kind_values)
         form.addWidget(self.kind_combo, 1, 1)
 
@@ -720,8 +726,8 @@ class _ItemDialogBase(QtWidgets.QDialog):
         is_fluid_kind = kind_high == "fluid"
         is_gas_kind = kind_high == "gas"
         is_fluid_like = is_fluid_kind or is_gas_kind
+        is_crafting_grid_kind = kind_high == "crafting_grid"
         show_item_kind = kind_high in ("item", "fluid")
-        is_crafting_grid_kind = show_item_kind and v.strip().lower() == "crafting grid" and kind_high == "item"
 
         self.item_kind_label.setVisible(show_item_kind)
         self.item_kind_combo.setVisible(show_item_kind)
@@ -738,8 +744,8 @@ class _ItemDialogBase(QtWidgets.QDialog):
         self.machine_type_combo.setVisible(is_machine_kind)
         self.tier_label.setVisible(is_machine_kind)
         self.tier_combo.setVisible(is_machine_kind)
-        self.is_base_check.setVisible(not is_machine_kind)
-        if is_machine_kind:
+        self.is_base_check.setVisible(not is_machine_kind and not is_crafting_grid_kind)
+        if is_machine_kind or is_crafting_grid_kind:
             self.is_base_check.setChecked(False)
 
         if self._show_availability and self.availability_group is not None:
@@ -753,7 +759,7 @@ class _ItemDialogBase(QtWidgets.QDialog):
                 self._on_owned_changed()
 
         # Material is hidden if Machine Kind OR Fluid/Gas.
-        if is_machine_kind or is_fluid_like:
+        if is_machine_kind or is_fluid_like or is_crafting_grid_kind:
             self.has_material_check.setVisible(False)
             self.material_label.setVisible(False)
             self.material_combo.setVisible(False)
@@ -791,6 +797,8 @@ class _ItemDialogBase(QtWidgets.QDialog):
         v2 = (self.item_kind_combo.currentText() or "").strip()
         if is_machine_kind:
             self.item_kind_id = self.machine_kind_id
+        elif is_crafting_grid_kind:
+            self.item_kind_id = None
         elif show_item_kind:
             self.item_kind_id = self._kind_name_to_id.get(v2) if v2 and v2 != NONE_KIND_LABEL else None
         else:
@@ -864,7 +872,7 @@ class _ItemDialogBase(QtWidgets.QDialog):
         self._update_item_kind_combo()
         self._on_item_kind_selected()
         kind_high = (self.kind_combo.currentText() or "").strip().lower()
-        if kind_high in ("machine", "gas"):
+        if kind_high in ("machine", "gas", "crafting_grid"):
             self.item_kind_combo.setEnabled(False)
         else:
             self.item_kind_combo.setEnabled(True)
@@ -950,18 +958,22 @@ class AddItemDialog(_ItemDialogBase):
         key = self._slugify(display_name)
 
         kind = (self.kind_combo.currentText() or "").strip().lower()
-        if kind not in ("item", "fluid", "gas", "machine"):
-            QtWidgets.QMessageBox.warning(self, "Invalid kind", "Kind must be item, fluid, gas, or machine.")
+        if kind not in ("item", "fluid", "gas", "machine", "crafting_grid"):
+            QtWidgets.QMessageBox.warning(
+                self,
+                "Invalid kind",
+                "Kind must be item, fluid, gas, machine, or crafting grid.",
+            )
             return
 
         is_base = 1 if self.is_base_check.isChecked() else 0
 
         # "Machine" is now a top-level Kind
         is_machine = 1 if kind == "machine" else 0
-        item_kind_id = None if kind == "gas" else self.item_kind_id
+        item_kind_id = None if kind in ("gas", "crafting_grid") else self.item_kind_id
 
         crafting_grid_size = None
-        if kind == "item" and (self.item_kind_combo.currentText() or "").strip().lower() == "crafting grid":
+        if kind == "crafting_grid":
             crafting_grid_size = self.crafting_grid_size
             if not crafting_grid_size:
                 QtWidgets.QMessageBox.warning(
@@ -1093,18 +1105,22 @@ class EditItemDialog(_ItemDialogBase):
             return
 
         kind = (self.kind_combo.currentText() or "").strip().lower()
-        if kind not in ("item", "fluid", "gas", "machine"):
-            QtWidgets.QMessageBox.warning(self, "Invalid kind", "Kind must be item, fluid, gas, or machine.")
+        if kind not in ("item", "fluid", "gas", "machine", "crafting_grid"):
+            QtWidgets.QMessageBox.warning(
+                self,
+                "Invalid kind",
+                "Kind must be item, fluid, gas, machine, or crafting grid.",
+            )
             return
 
         is_base = 1 if self.is_base_check.isChecked() else 0
 
         # "Machine" is now a top-level Kind
         is_machine = 1 if kind == "machine" else 0
-        item_kind_id = None if kind == "gas" else self.item_kind_id
+        item_kind_id = None if kind in ("gas", "crafting_grid") else self.item_kind_id
 
         crafting_grid_size = None
-        if kind == "item" and (self.item_kind_combo.currentText() or "").strip().lower() == "crafting grid":
+        if kind == "crafting_grid":
             crafting_grid_size = self.crafting_grid_size
             if not crafting_grid_size:
                 QtWidgets.QMessageBox.warning(
