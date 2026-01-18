@@ -251,7 +251,12 @@ class BaseItemTab(QtWidgets.QWidget):
                 "To enable editing, create a file named '.enable_editor' next to the app.",
             )
             return
-        dialog = AddItemDialog(self.app, parent=self, allowed_kinds=["item", "machine"], default_kind="item")
+        dialog = AddItemDialog(
+            self.app,
+            parent=self,
+            allowed_kinds=["item", "machine", "crafting_grid"],
+            default_kind="item",
+        )
         if dialog.exec() == QtWidgets.QDialog.DialogCode.Accepted:
             self.app.refresh_items()
 
