@@ -104,10 +104,19 @@ class BaseItemTab(QtWidgets.QWidget):
         def _label(value: str | None, fallback: str) -> str:
             if value is None:
                 return fallback
-            value = value.strip()
+            value = value.strip().replace("_", " ")
             return value if value else fallback
 
         def _sort_key(it: dict) -> tuple[str, str, str, str]:
+            kind_raw = (self._get_value(it, "kind") or "").strip().lower()
+            grid_size_raw = (self._get_value(it, "crafting_grid_size") or "").strip().lower()
+            if kind_raw == "crafting_grid":
+                return (
+                    kind_raw,
+                    grid_size_raw,
+                    "",
+                    (self._get_value(it, "name") or "").strip().lower(),
+                )
             return (
                 (self._get_value(it, "kind") or "").strip().lower(),
                 (self._get_value(it, "item_kind_name") or "").strip().lower(),
@@ -129,12 +138,17 @@ class BaseItemTab(QtWidgets.QWidget):
             if (kind_val or "").strip().lower() == "machine":
                 machine_type_val = self._get_value(it, "machine_type")
                 item_kind_label = _label(machine_type_val, "(Machine type)")
+            if (kind_val or "").strip().lower() == "crafting_grid":
+                grid_size_val = self._get_value(it, "crafting_grid_size")
+                item_kind_label = _label(grid_size_val, "(No grid size)")
             use_item_kind_grouping = self.use_item_kind_grouping(kind_val)
 
             # Check if Material exists
             raw_mat_name = self._get_value(it, "material_name")
             has_material = raw_mat_name and raw_mat_name.strip()
             if (kind_val or "").strip().lower() == "machine":
+                has_material = False
+            if (kind_val or "").strip().lower() == "crafting_grid":
                 has_material = False
 
             # Build Tree Nodes
