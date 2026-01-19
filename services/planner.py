@@ -187,6 +187,13 @@ class PlannerService:
                         byproducts=plan_data["byproducts"],
                     )
                 )
+                produced_qty = plan_data["output_qty"] * plan_data["multiplier"]
+                if produced_qty > 0:
+                    inventory[item_id] = inventory.get(item_id, 0) + produced_qty
+                for byproduct_id, _name, qty, _unit, chance in plan_data["byproducts"]:
+                    if chance < 100:
+                        continue
+                    inventory[byproduct_id] = inventory.get(byproduct_id, 0) + qty
                 visiting.remove(item_id)
                 continue
 
@@ -579,14 +586,19 @@ class PlannerService:
                 req_tier,
                 machine_tier,
             )
-            duration = float(scaled_duration or 0)
+            duration_value = scaled_duration
+            if method == "crafting" and (duration_value is None or float(duration_value) <= 0):
+                duration_value = 200
+            duration = float(duration_value or 0)
             time_per_item = duration / output_qty if output_qty > 0 else duration
 
             # --- CRITERIA 5: ENERGY COST ---
-            if scaled_eu is None or scaled_duration is None:
+            if method == "crafting" and scaled_eu is None:
+                scaled_eu = 0
+            if scaled_eu is None or duration_value is None:
                 energy_per_item = float("inf")
             else:
-                energy_per_item = (float(scaled_eu) * float(scaled_duration)) / output_qty if output_qty > 0 else 0.0
+                energy_per_item = (float(scaled_eu) * float(duration_value)) / output_qty if output_qty > 0 else 0.0
 
             # --- CRITERIA 6: TIER RANK ---
             t_rank = tier_sort_map.get(req_tier, 999)
@@ -595,8 +607,8 @@ class PlannerService:
                 avail_score,
                 -machine_count,
                 ratio,
-                energy_per_item,
                 time_per_item,
+                energy_per_item,
                 t_rank,
             )
 

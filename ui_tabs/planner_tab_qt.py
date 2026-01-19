@@ -5,7 +5,57 @@ import json
 from PySide6 import QtCore, QtWidgets
 
 from services.planner import PlannerService
+from services.db import connect, connect_profile
 from ui_dialogs import AddRecipeDialog, ItemPickerDialog
+
+
+class PlannerWorker(QtCore.QObject):
+    finished = QtCore.Signal(object, object)
+
+    def __init__(
+        self,
+        *,
+        db_path,
+        profile_db_path,
+        target_item_id: int,
+        target_qty: int,
+        use_inventory: bool,
+        enabled_tiers: list[str],
+        crafting_6x6_unlocked: bool,
+    ) -> None:
+        super().__init__()
+        self._db_path = db_path
+        self._profile_db_path = profile_db_path
+        self._target_item_id = target_item_id
+        self._target_qty = target_qty
+        self._use_inventory = use_inventory
+        self._enabled_tiers = enabled_tiers
+        self._crafting_6x6_unlocked = crafting_6x6_unlocked
+
+    @QtCore.Slot()
+    def run(self) -> None:
+        content_conn = None
+        profile_conn = None
+        try:
+            content_conn = connect(self._db_path, read_only=True)
+            profile_path = self._profile_db_path or ":memory:"
+            profile_conn = connect_profile(profile_path)
+            planner = PlannerService(content_conn, profile_conn)
+            result = planner.plan(
+                self._target_item_id,
+                self._target_qty,
+                use_inventory=self._use_inventory,
+                enabled_tiers=self._enabled_tiers,
+                crafting_6x6_unlocked=self._crafting_6x6_unlocked,
+            )
+            self.finished.emit(result, None)
+        except Exception as exc:
+            self.finished.emit(None, exc)
+        finally:
+            if content_conn is not None:
+                content_conn.close()
+            if profile_conn is not None:
+                profile_conn.close()
 
 
 class PlannerTab(QtWidgets.QWidget):
@@ -13,6 +63,8 @@ class PlannerTab(QtWidgets.QWidget):
         super().__init__(parent)
         self.app = app
         self.planner = PlannerService(app.conn, app.profile_conn)
+        self._planner_thread: QtCore.QThread | None = None
+        self._planner_worker: PlannerWorker | None = None
 
         self.target_item_id = None
         self.target_item_kind = None
@@ -171,16 +223,13 @@ class PlannerTab(QtWidgets.QWidget):
         self._persist_state()
 
     def run_plan(self) -> None:
-        self.planner = PlannerService(self.app.conn, self.app.profile_conn)
         if self.target_item_id is None:
             QtWidgets.QMessageBox.information(self, "Select an item", "Choose a target item first.")
             return
         qty = self._parse_target_qty(show_errors=True)
         if qty is None:
             return
-
-        self._run_plan_with_qty(qty, set_status=True)
-        self.clear_build_steps(persist=False)
+        self._start_plan_worker(qty, mode="plan")
 
     def on_inventory_changed(self) -> None:
         if not self.last_plan_run or not self.last_plan_used_inventory or not self.use_inventory_checkbox.isChecked():
@@ -228,6 +277,9 @@ class PlannerTab(QtWidgets.QWidget):
             crafting_6x6_unlocked=self.app.is_crafting_6x6_unlocked(),
         )
 
+        self._apply_plan_result(result, set_status=set_status)
+
+    def _apply_plan_result(self, result, *, set_status: bool) -> None:
         if result.errors:
             filtered_errors = self._filter_plan_errors(result)
             if filtered_errors:
@@ -266,7 +318,6 @@ class PlannerTab(QtWidgets.QWidget):
         self._persist_state()
 
     def run_build(self) -> None:
-        self.planner = PlannerService(self.app.conn, self.app.profile_conn)
         if self.target_item_id is None:
             QtWidgets.QMessageBox.information(self, "Select an item", "Choose a target item first.")
             return
@@ -277,22 +328,84 @@ class PlannerTab(QtWidgets.QWidget):
             QtWidgets.QMessageBox.information(self, "No recipes", "There are no recipes to plan against.")
             self.app.status_bar.showMessage("Build failed: missing recipes")
             return
+        self._start_plan_worker(qty, mode="build")
 
-        self.build_base_inventory = self.planner.load_inventory() if self.use_inventory_checkbox.isChecked() else {}
-        self.build_completed_steps = set()
-        self.build_step_byproducts = {}
-        result = self.planner.plan(
-            self.target_item_id,
-            qty,
+    def _start_plan_worker(self, qty: int, *, mode: str) -> None:
+        if self._planner_thread is not None:
+            return
+        if self.target_item_id is None:
+            return
+
+        self.planner = PlannerService(self.app.conn, self.app.profile_conn)
+        self._set_planning_state(True, mode=mode)
+
+        self._planner_thread = QtCore.QThread(self)
+        self._planner_worker = PlannerWorker(
+            db_path=self.app.db_path,
+            profile_db_path=self.app.profile_db_path,
+            target_item_id=self.target_item_id,
+            target_qty=qty,
             use_inventory=self.use_inventory_checkbox.isChecked(),
             enabled_tiers=self.app.get_enabled_tiers(),
             crafting_6x6_unlocked=self.app.is_crafting_6x6_unlocked(),
         )
+        self._planner_worker.moveToThread(self._planner_thread)
+        self._planner_thread.started.connect(self._planner_worker.run)
+        self._planner_worker.finished.connect(
+            lambda result, error, m=mode: self._on_plan_worker_finished(result, error, mode=m)
+        )
+        self._planner_worker.finished.connect(self._planner_thread.quit)
+        self._planner_thread.finished.connect(self._planner_thread.deleteLater)
+        self._planner_thread.finished.connect(self._cleanup_plan_worker)
+        self._planner_thread.start()
 
+    def _cleanup_plan_worker(self) -> None:
+        if self._planner_worker is not None:
+            self._planner_worker.deleteLater()
+        self._planner_worker = None
+        self._planner_thread = None
+
+    def _set_planning_state(self, active: bool, *, mode: str) -> None:
+        for btn in (self.btn_plan, self.btn_build, self.btn_clear, self.btn_save_plan, self.btn_load_plan):
+            btn.setEnabled(not active)
+        if active:
+            QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.CursorShape.WaitCursor)
+            label = "Building plan..." if mode == "build" else "Planning..."
+            self.app.status_bar.showMessage(label)
+        else:
+            QtWidgets.QApplication.restoreOverrideCursor()
+
+    def _on_plan_worker_finished(self, result, error, *, mode: str) -> None:
+        self._set_planning_state(False, mode=mode)
+        if error is not None:
+            QtWidgets.QMessageBox.critical(
+                self,
+                "Planner error",
+                f"Planner failed unexpectedly.\n\nDetails: {error}",
+            )
+            self.app.status_bar.showMessage("Planner failed")
+            return
+        if result is None:
+            self.app.status_bar.showMessage("Planner failed")
+            return
+
+        if mode == "plan":
+            self._apply_plan_result(result, set_status=True)
+            self.clear_build_steps(persist=False)
+        elif mode == "build":
+            self._apply_build_result(result)
+        else:
+            self.app.status_bar.showMessage("Planner complete")
+
+    def _apply_build_result(self, result) -> None:
         if result.errors:
             self._handle_plan_errors(result.errors)
             self.clear_build_steps(persist=False)
             return
+
+        self.build_base_inventory = self.planner.load_inventory() if self.use_inventory_checkbox.isChecked() else {}
+        self.build_completed_steps = set()
+        self.build_step_byproducts = {}
 
         self.build_steps = result.steps
         self._build_step_dependencies()
@@ -485,11 +598,11 @@ class PlannerTab(QtWidgets.QWidget):
         ]
 
     def _build_step_signature(self, step) -> tuple:
-        inputs = tuple((item_id, qty) for item_id, _name, qty, _unit in step.inputs)
+        inputs = tuple(sorted(item_id for item_id, _name, _qty, _unit in step.inputs))
         return (
+            step.recipe_id,
             step.output_item_id,
             step.output_qty,
-            step.multiplier,
             inputs,
         )
 
