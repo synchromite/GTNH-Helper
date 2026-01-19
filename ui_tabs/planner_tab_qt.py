@@ -65,6 +65,7 @@ class PlannerTab(QtWidgets.QWidget):
         self.planner = PlannerService(app.conn, app.profile_conn)
         self._planner_thread: QtCore.QThread | None = None
         self._planner_worker: PlannerWorker | None = None
+        self._planner_mode: str | None = None
 
         self.target_item_id = None
         self.target_item_kind = None
@@ -338,6 +339,7 @@ class PlannerTab(QtWidgets.QWidget):
 
         self.planner = PlannerService(self.app.conn, self.app.profile_conn)
         self._set_planning_state(True, mode=mode)
+        self._planner_mode = mode
 
         self._planner_thread = QtCore.QThread(self)
         self._planner_worker = PlannerWorker(
@@ -352,7 +354,8 @@ class PlannerTab(QtWidgets.QWidget):
         self._planner_worker.moveToThread(self._planner_thread)
         self._planner_thread.started.connect(self._planner_worker.run)
         self._planner_worker.finished.connect(
-            lambda result, error, m=mode: self._on_plan_worker_finished(result, error, mode=m)
+            self._on_plan_worker_finished,
+            QtCore.Qt.ConnectionType.QueuedConnection,
         )
         self._planner_worker.finished.connect(self._planner_thread.quit)
         self._planner_thread.finished.connect(self._planner_thread.deleteLater)
@@ -364,6 +367,7 @@ class PlannerTab(QtWidgets.QWidget):
             self._planner_worker.deleteLater()
         self._planner_worker = None
         self._planner_thread = None
+        self._planner_mode = None
 
     def _set_planning_state(self, active: bool, *, mode: str) -> None:
         for btn in (self.btn_plan, self.btn_build, self.btn_clear, self.btn_save_plan, self.btn_load_plan):
@@ -375,7 +379,8 @@ class PlannerTab(QtWidgets.QWidget):
         else:
             QtWidgets.QApplication.restoreOverrideCursor()
 
-    def _on_plan_worker_finished(self, result, error, *, mode: str) -> None:
+    def _on_plan_worker_finished(self, result, error) -> None:
+        mode = self._planner_mode or "plan"
         self._set_planning_state(False, mode=mode)
         if error is not None:
             QtWidgets.QMessageBox.critical(
