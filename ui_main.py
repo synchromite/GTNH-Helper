@@ -134,6 +134,7 @@ class App(QtWidgets.QMainWindow):
         self.status_bar = self.statusBar()
         self.status_bar.showMessage("Ready")
         self.planner_state: dict[str, object] = {}
+        self._ui_config_save_failed = False
 
         self.tab_registry = {
             "items": {"label": "Items"},
@@ -197,10 +198,13 @@ class App(QtWidgets.QMainWindow):
         return config.order, config.enabled
 
     def _save_ui_config(self) -> None:
+        if self._ui_config_save_failed:
+            return
         path = self._config_path()
         try:
             save_tab_config(path, self.tab_order, self.enabled_tabs)
         except Exception as exc:
+            self._ui_config_save_failed = True
             QtWidgets.QMessageBox.warning(
                 self,
                 "Config save failed",

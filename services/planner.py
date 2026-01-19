@@ -233,7 +233,7 @@ class PlannerService:
                 continue
 
             if item_id in visiting:
-                errors.append(f"Detected cyclic dependency for {item['name']}.")
+                shopping_needed[item_id] = shopping_needed.get(item_id, 0) + qty_needed
                 continue
 
             # Pass 'items' to helper to access machine stats
@@ -344,9 +344,10 @@ class PlannerService:
             item = items.get(item_id)
             if not item:
                 continue
-            shopping_list.append((item["name"], qty, self._unit_for_kind(item["kind"])))
+            name = item["name"] or item.get("key") or f"Item {item_id}"
+            shopping_list.append((name, qty, self._unit_for_kind(item["kind"])))
 
-        shopping_list.sort(key=lambda row: row[0].lower())
+        shopping_list.sort(key=lambda row: (row[0] or "").lower())
 
         return PlanResult(
             shopping_list=shopping_list,

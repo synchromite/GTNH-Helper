@@ -58,6 +58,54 @@ class PlannerWorker(QtCore.QObject):
                 profile_conn.close()
 
 
+class ByproductDialog(QtWidgets.QDialog):
+    def __init__(self, parent, byproducts: list[tuple[int, str, str, float]]) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Byproduct check")
+        self._rows: list[tuple[int, QtWidgets.QCheckBox, QtWidgets.QSpinBox]] = []
+
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.addWidget(QtWidgets.QLabel("Select any byproducts produced for this step."))
+
+        rows_layout = QtWidgets.QGridLayout()
+        rows_layout.addWidget(QtWidgets.QLabel("Produced"), 0, 0)
+        rows_layout.addWidget(QtWidgets.QLabel("Byproduct"), 0, 1)
+        rows_layout.addWidget(QtWidgets.QLabel("Quantity"), 0, 2)
+
+        for row_idx, (item_id, name, unit, chance) in enumerate(byproducts, start=1):
+            checkbox = QtWidgets.QCheckBox()
+            label = QtWidgets.QLabel(f"{name} ({unit}) — {chance:.0f}%")
+            spinbox = QtWidgets.QSpinBox()
+            spinbox.setRange(0, 1_000_000_000)
+            spinbox.setValue(0)
+            spinbox.setEnabled(False)
+            checkbox.toggled.connect(spinbox.setEnabled)
+
+            rows_layout.addWidget(checkbox, row_idx, 0)
+            rows_layout.addWidget(label, row_idx, 1)
+            rows_layout.addWidget(spinbox, row_idx, 2)
+            self._rows.append((item_id, checkbox, spinbox))
+
+        layout.addLayout(rows_layout)
+
+        button_box = QtWidgets.QDialogButtonBox(
+            QtWidgets.QDialogButtonBox.StandardButton.Ok
+            | QtWidgets.QDialogButtonBox.StandardButton.Cancel
+        )
+        button_box.accepted.connect(self.accept)
+        button_box.rejected.connect(self.reject)
+        layout.addWidget(button_box)
+
+    def selected_byproducts(self) -> list[tuple[int, int]]:
+        selections = []
+        for item_id, checkbox, spinbox in self._rows:
+            if checkbox.isChecked():
+                qty = spinbox.value()
+                if qty:
+                    selections.append((item_id, qty))
+        return selections
+
+
 class PlannerTab(QtWidgets.QWidget):
     def __init__(self, app, parent=None):
         super().__init__(parent)
@@ -739,29 +787,17 @@ class PlannerTab(QtWidgets.QWidget):
 
         step = self.build_steps[idx]
         applied: list[tuple[int, int]] = []
+        probabilistic: list[tuple[int, str, str, float]] = []
         for item_id, name, qty, unit, chance in step.byproducts:
             if chance >= 100:
                 applied.append((item_id, qty))
                 continue
-            ok = QtWidgets.QMessageBox.question(
-                self,
-                "Byproduct check",
-                f"Did this step produce any {name} ({unit})?",
-            )
-            if ok != QtWidgets.QMessageBox.StandardButton.Yes:
-                continue
-            add_qty, ok = QtWidgets.QInputDialog.getInt(
-                self,
-                "Add byproduct",
-                f"How many {name} ({unit}) were produced?",
-                0,
-                0,
-                1_000_000_000,
-            )
-            if not ok:
+            probabilistic.append((item_id, name, unit, chance))
+        if probabilistic:
+            dialog = ByproductDialog(self, probabilistic)
+            if dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted:
                 return False, []
-            if add_qty:
-                applied.append((item_id, add_qty))
+            applied.extend(dialog.selected_byproducts())
         return True, applied
 
     def _adjust_inventory_qty(self, item_id: int, delta: int, *, commit: bool = True) -> None:
