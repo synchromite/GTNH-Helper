@@ -284,9 +284,13 @@ class ItemPickerDialog(QtWidgets.QDialog):
                 if row["kind"] == "gas":
                     return p_root
                 try:
-                    k_name = (row["item_kind_name"] or "").strip()
+                    if row["kind"] == "crafting_grid":
+                        k_name = (row["crafting_grid_size"] or "").strip()
+                    else:
+                        k_name = (row["item_kind_name"] or "").strip()
                 except Exception:
                     k_name = ""
+                k_name = k_name.replace("_", " ")
                 k_name = k_name if k_name else default_label
                 if k_name not in item_kind_nodes:
                     item_kind_nodes[k_name] = QtWidgets.QTreeWidgetItem(p_root, [k_name])
