@@ -445,6 +445,10 @@ class PlannerTab(QtWidgets.QWidget):
         if not self._has_recipes():
             return
 
+        previous_steps = list(self.build_steps)
+        previous_completed = set(self.build_completed_steps)
+        previous_byproducts = dict(self.build_step_byproducts)
+
         result = self.planner.plan(
             self.target_item_id,
             qty,
@@ -457,11 +461,37 @@ class PlannerTab(QtWidgets.QWidget):
             return
         self.build_base_inventory = self.planner.load_inventory()
         self.build_steps = result.steps
-        self.build_completed_steps = set()
-        self.build_step_byproducts = {}
+        if self._step_signatures_match(previous_steps, self.build_steps):
+            self.build_completed_steps = {
+                idx for idx in previous_completed if 0 <= idx < len(self.build_steps)
+            }
+            self.build_step_byproducts = {
+                idx: byproducts
+                for idx, byproducts in previous_byproducts.items()
+                if 0 <= idx < len(self.build_steps)
+            }
+        else:
+            self.build_completed_steps = set()
+            self.build_step_byproducts = {}
         self._build_step_dependencies()
         self._render_build_steps()
         self._recalculate_build_steps()
+
+    def _step_signatures_match(self, before: list, after: list) -> bool:
+        if len(before) != len(after):
+            return False
+        return [self._build_step_signature(step) for step in before] == [
+            self._build_step_signature(step) for step in after
+        ]
+
+    def _build_step_signature(self, step) -> tuple:
+        inputs = tuple((item_id, qty) for item_id, _name, qty, _unit in step.inputs)
+        return (
+            step.output_item_id,
+            step.output_qty,
+            step.multiplier,
+            inputs,
+        )
 
     def _apply_step_inventory(self, idx: int, *, reverse: bool = False) -> bool:
         step = self.build_steps[idx]
@@ -552,28 +582,47 @@ class PlannerTab(QtWidgets.QWidget):
                     return False
 
         direction = -1 if reverse else 1
-        for item_id, _name, qty, _unit in step.inputs:
-            self._adjust_inventory_qty(item_id, -qty * direction)
-
-        output_qty = step.output_qty * step.multiplier
-        self._adjust_inventory_qty(step.output_item_id, output_qty * direction)
-        if not self._apply_step_byproducts(idx, direction):
+        byproduct_ok, byproducts = self._collect_step_byproducts(idx, direction)
+        if not byproduct_ok:
             return False
+
+        adjustments = [
+            (item_id, -qty * direction) for item_id, _name, qty, _unit in step.inputs
+        ]
+        output_qty = step.output_qty * step.multiplier
+        adjustments.append((step.output_item_id, output_qty * direction))
+        adjustments.extend(byproducts)
+
+        try:
+            self.app.profile_conn.execute("BEGIN")
+            for item_id, delta in adjustments:
+                self._adjust_inventory_qty(item_id, delta, commit=False)
+            self.app.profile_conn.commit()
+        except Exception as exc:
+            self.app.profile_conn.rollback()
+            QtWidgets.QMessageBox.critical(
+                self,
+                "Inventory update failed",
+                f"Could not update inventory for this step.\n\nDetails: {exc}",
+            )
+            return False
+        if direction < 0:
+            self.build_step_byproducts.pop(idx, None)
+        elif byproducts:
+            self.build_step_byproducts[idx] = [(item_id, qty) for item_id, qty in byproducts]
+
         self.build_base_inventory = self.planner.load_inventory()
         return True
 
-    def _apply_step_byproducts(self, idx: int, direction: int) -> bool:
+    def _collect_step_byproducts(self, idx: int, direction: int) -> tuple[bool, list[tuple[int, int]]]:
         if direction < 0:
-            applied = self.build_step_byproducts.pop(idx, [])
-            for item_id, qty in applied:
-                self._adjust_inventory_qty(item_id, -qty)
-            return True
+            applied = self.build_step_byproducts.get(idx, [])
+            return True, [(item_id, -qty) for item_id, qty in applied]
 
         step = self.build_steps[idx]
         applied: list[tuple[int, int]] = []
         for item_id, name, qty, unit, chance in step.byproducts:
             if chance >= 100:
-                self._adjust_inventory_qty(item_id, qty)
                 applied.append((item_id, qty))
                 continue
             ok = QtWidgets.QMessageBox.question(
@@ -591,14 +640,13 @@ class PlannerTab(QtWidgets.QWidget):
                 0,
                 1_000_000_000,
             )
-            if ok and add_qty:
-                self._adjust_inventory_qty(item_id, add_qty)
+            if not ok:
+                return False, []
+            if add_qty:
                 applied.append((item_id, add_qty))
-        if applied:
-            self.build_step_byproducts[idx] = applied
-        return True
+        return True, applied
 
-    def _adjust_inventory_qty(self, item_id: int, delta: int) -> None:
+    def _adjust_inventory_qty(self, item_id: int, delta: int, *, commit: bool = True) -> None:
         item = next((item for item in self.app.items if item["id"] == item_id), None)
         if not item:
             return
@@ -624,7 +672,8 @@ class PlannerTab(QtWidgets.QWidget):
                 "ON CONFLICT(item_id) DO UPDATE SET qty_count=excluded.qty_count, qty_liters=excluded.qty_liters",
                 (item_id, count_val, liter_val),
             )
-        self.app.profile_conn.commit()
+        if commit:
+            self.app.profile_conn.commit()
 
     def reset_build_steps(self) -> None:
         if not self.build_steps:
