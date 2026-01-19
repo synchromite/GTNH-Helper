@@ -25,7 +25,7 @@ def _make_item_row() -> sqlite3.Row:
         "NULL AS material_name, 1 AS is_base, 1 AS is_machine, 2 AS machine_tier, 2 AS machine_input_slots, "
         "1 AS machine_output_slots, 0 AS machine_storage_slots, 0 AS machine_power_slots, "
         "0 AS machine_circuit_slots, 0 AS machine_input_tanks, 0 AS machine_input_tank_capacity_l, "
-        "0 AS machine_output_tanks, 0 AS machine_output_tank_capacity_l"
+        "0 AS machine_output_tanks, 0 AS machine_output_tank_capacity_l, 1 AS is_multiblock"
     ).fetchone()
     conn.close()
     return row

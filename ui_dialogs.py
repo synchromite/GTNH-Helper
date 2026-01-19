@@ -478,8 +478,12 @@ class _ItemDialogBase(QtWidgets.QDialog):
         form.addWidget(self.tier_combo, 6, 1)
         self.tier_label.hide()
         self.tier_combo.hide()
+
+        self.is_multiblock_check = QtWidgets.QCheckBox("Multi-block machine")
+        form.addWidget(self.is_multiblock_check, 7, 1)
+        self.is_multiblock_check.hide()
         
-        # Row 7: Fluid Container options
+        # Row 8: Fluid Container options
         self.container_group = QtWidgets.QGroupBox("Fluid Container")
         container_layout = QtWidgets.QGridLayout(self.container_group)
         self.is_container_check = QtWidgets.QCheckBox("Is Fluid Container? (e.g. Cell/Bucket)")
@@ -495,10 +499,10 @@ class _ItemDialogBase(QtWidgets.QDialog):
         self.content_qty_edit.setValidator(QtGui.QIntValidator(1, 1000000))
         container_layout.addWidget(self.content_qty_label, 2, 0)
         container_layout.addWidget(self.content_qty_edit, 2, 1)
-        form.addWidget(self.container_group, 7, 0, 1, 2)
+        form.addWidget(self.container_group, 8, 0, 1, 2)
 
         self.is_base_check = QtWidgets.QCheckBox("Base resource (planner stops here later)")
-        form.addWidget(self.is_base_check, 8, 1)
+        form.addWidget(self.is_base_check, 9, 1)
 
         if self._show_availability:
             self.availability_group = QtWidgets.QGroupBox("Availability")
@@ -513,7 +517,7 @@ class _ItemDialogBase(QtWidgets.QDialog):
             self.online_spin.setMaximum(0)
             availability_layout.addWidget(self.online_spin, 1, 1)
             self.owned_spin.valueChanged.connect(self._on_owned_changed)
-            form.addWidget(self.availability_group, 9, 0, 1, 2)
+            form.addWidget(self.availability_group, 10, 0, 1, 2)
 
         buttons = QtWidgets.QDialogButtonBox(
             QtWidgets.QDialogButtonBox.StandardButton.Save
@@ -556,6 +560,7 @@ class _ItemDialogBase(QtWidgets.QDialog):
             self.is_base_check.setChecked(False)
             self.has_material_check.setChecked(False)
             self.is_container_check.setChecked(False)
+            self.is_multiblock_check.setChecked(False)
             self.content_fluid_combo.setCurrentText(NONE_FLUID_LABEL)
             self.content_qty_edit.setText("1000")
             if self._show_availability:
@@ -580,6 +585,9 @@ class _ItemDialogBase(QtWidgets.QDialog):
                  m_type = self._row["display_name"]
             self.machine_type_combo.setCurrentText(m_type or "")
             self.tier_combo.setCurrentText(self._row["machine_tier"] or NONE_TIER_LABEL)
+            self.is_multiblock_check.setChecked(bool(_row_get(self._row, "is_multiblock")))
+        else:
+            self.is_multiblock_check.setChecked(False)
 
         material_name = (self._row["material_name"] or "") or NONE_MATERIAL_LABEL
         if material_name != NONE_MATERIAL_LABEL:
@@ -759,9 +767,12 @@ class _ItemDialogBase(QtWidgets.QDialog):
         self.machine_type_combo.setVisible(is_machine_kind)
         self.tier_label.setVisible(is_machine_kind)
         self.tier_combo.setVisible(is_machine_kind)
+        self.is_multiblock_check.setVisible(is_machine_kind)
         self.is_base_check.setVisible(not is_machine_kind and not is_crafting_grid_kind)
         if is_machine_kind or is_crafting_grid_kind:
             self.is_base_check.setChecked(False)
+            if not is_machine_kind:
+                self.is_multiblock_check.setChecked(False)
 
         if self._show_availability and self.availability_group is not None:
             self.availability_group.setVisible(is_machine_kind)
@@ -997,6 +1008,7 @@ class AddItemDialog(_ItemDialogBase):
             return
 
         is_base = 1 if self.is_base_check.isChecked() else 0
+        is_multiblock = 1 if self.is_multiblock_check.isChecked() else 0
 
         # "Machine" is now a top-level Kind
         is_machine = 1 if kind == "machine" else 0
@@ -1052,8 +1064,8 @@ class AddItemDialog(_ItemDialogBase):
         try:
             cur = self.app.conn.execute(
                 "INSERT INTO items(key, display_name, kind, is_base, is_machine, item_kind_id, material_id, "
-                "machine_type, machine_tier, content_fluid_id, content_qty_liters, crafting_grid_size) "
-                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                "machine_type, machine_tier, is_multiblock, content_fluid_id, content_qty_liters, crafting_grid_size) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     key,
                     display_name,
@@ -1064,6 +1076,7 @@ class AddItemDialog(_ItemDialogBase):
                     material_id,
                     machine_type_val,
                     md.get("machine_tier"),
+                    is_multiblock,
                     content_fluid_id,
                     content_qty,
                     crafting_grid_size,
@@ -1113,7 +1126,7 @@ class EditItemDialog(_ItemDialogBase):
     def __init__(self, app, item_id: int, parent=None):
         row = app.conn.execute(
             "SELECT i.id, i.key, COALESCE(i.display_name, i.key) AS name, i.display_name, i.kind, "
-            "       i.is_base, i.is_machine, i.machine_type, i.machine_tier, "
+            "       i.is_base, i.is_machine, i.machine_type, i.machine_tier, i.is_multiblock, "
             "       i.content_fluid_id, i.content_qty_liters, i.crafting_grid_size, "
             "       i.item_kind_id, i.material_id, k.name AS item_kind_name, m.name AS material_name "
             "FROM items i "
@@ -1144,6 +1157,7 @@ class EditItemDialog(_ItemDialogBase):
             return
 
         is_base = 1 if self.is_base_check.isChecked() else 0
+        is_multiblock = 1 if self.is_multiblock_check.isChecked() else 0
 
         # "Machine" is now a top-level Kind
         is_machine = 1 if kind == "machine" else 0
@@ -1190,7 +1204,7 @@ class EditItemDialog(_ItemDialogBase):
         try:
             self.app.conn.execute(
                 "UPDATE items SET display_name=?, kind=?, is_base=?, is_machine=?, item_kind_id=?, material_id=?, "
-                "machine_type=?, machine_tier=?, content_fluid_id=?, content_qty_liters=?, crafting_grid_size=? "
+                "machine_type=?, machine_tier=?, is_multiblock=?, content_fluid_id=?, content_qty_liters=?, crafting_grid_size=? "
                 "WHERE id=?",
                 (
                     display_name,
@@ -1201,6 +1215,7 @@ class EditItemDialog(_ItemDialogBase):
                     material_id,
                     machine_type_val,
                     md.get("machine_tier"),
+                    is_multiblock,
                     content_fluid_id,
                     content_qty,
                     crafting_grid_size,

@@ -187,6 +187,8 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE items ADD COLUMN machine_tier TEXT")
     if not _has_col("items", "machine_type"):
         conn.execute("ALTER TABLE items ADD COLUMN machine_type TEXT")
+    if not _has_col("items", "is_multiblock"):
+        conn.execute("ALTER TABLE items ADD COLUMN is_multiblock INTEGER NOT NULL DEFAULT 0")
     # Drop legacy machine stats columns if they exist (migrated to machine_metadata)
     for col in [
         "machine_input_slots",
@@ -243,6 +245,7 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
             "is_machine",
             "machine_tier",
             "machine_type",
+            "is_multiblock",
             "content_fluid_id",
             "content_qty_liters",
             "item_kind_id",
@@ -267,6 +270,7 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
                 is_machine INTEGER NOT NULL DEFAULT 0,
                 machine_tier TEXT,
                 machine_type TEXT,
+                is_multiblock INTEGER NOT NULL DEFAULT 0,
                 content_fluid_id INTEGER,
                 content_qty_liters INTEGER,
                 item_kind_id INTEGER,

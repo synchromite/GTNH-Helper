@@ -155,6 +155,7 @@ class MachinesTab(QtWidgets.QWidget):
                 COALESCE(i.display_name, i.key) AS name,
                 i.machine_type,
                 i.machine_tier,
+                i.is_multiblock,
                 COALESCE(mm.input_slots, 1) AS machine_input_slots,
                 COALESCE(mm.output_slots, 1) AS machine_output_slots,
                 COALESCE(mm.byproduct_slots, 0) AS machine_byproduct_slots,
@@ -415,6 +416,7 @@ class MachinesTab(QtWidgets.QWidget):
             f"Item Name: {item_name}\n"
             f"Machine Type: {machine_type}\n"
             f"Tier: {tier}\n"
+            f"Multi-block: {'Yes' if row.get('is_multiblock') else 'No'}\n"
             f"Owned: {owned}\n"
             f"Online: {online}\n"
             "\nMachine Specs\n"

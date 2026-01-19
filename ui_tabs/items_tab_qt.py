@@ -218,6 +218,7 @@ class BaseItemTab(QtWidgets.QWidget):
         is_machine_kind = ((it["item_kind_name"] or "").strip().lower() == "machine") or bool(it["is_machine"])
         if is_machine_kind:
             txt += f"Machine Tier: {it['machine_tier'] or ''}\n"
+            txt += f"Multi-block: {'Yes' if self._get_value(it, 'is_multiblock') else 'No'}\n"
 
             def _as_int(value, default=0):
                 try:
