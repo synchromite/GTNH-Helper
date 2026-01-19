@@ -456,7 +456,11 @@ class PlannerTab(QtWidgets.QWidget):
             self.clear_build_steps(persist=False)
             return
 
-        self.build_base_inventory = self.planner.load_inventory() if self.use_inventory_checkbox.isChecked() else {}
+        self.build_base_inventory = (
+            self.planner.load_inventory(self._items_by_id())
+            if self.use_inventory_checkbox.isChecked()
+            else {}
+        )
         self.build_completed_steps = set()
         self.build_step_byproducts = {}
 
@@ -583,6 +587,9 @@ class PlannerTab(QtWidgets.QWidget):
             inventory[step.output_item_id] = inventory.get(step.output_item_id, 0) + qty
         return inventory
 
+    def _items_by_id(self) -> dict[int, dict]:
+        return {item["id"]: item for item in self.app.items}
+
     def _recalculate_build_steps(self) -> None:
         inventory = self._effective_build_inventory()
         for idx, step in enumerate(self.build_steps):
@@ -600,7 +607,7 @@ class PlannerTab(QtWidgets.QWidget):
         if not self.build_steps:
             return
         if self.use_inventory_checkbox.isChecked():
-            self.build_base_inventory = self.planner.load_inventory()
+            self.build_base_inventory = self.planner.load_inventory(self._items_by_id())
         else:
             self.build_base_inventory = {}
         self._recalculate_build_steps()
@@ -625,7 +632,7 @@ class PlannerTab(QtWidgets.QWidget):
         if result.errors:
             self.app.status_bar.showMessage("Build steps not updated: missing recipe")
             return
-        self.build_base_inventory = self.planner.load_inventory()
+        self.build_base_inventory = self.planner.load_inventory(self._items_by_id())
         self.build_steps = result.steps
         if self._step_signatures_match(previous_steps, self.build_steps):
             self.build_completed_steps = {
@@ -662,7 +669,7 @@ class PlannerTab(QtWidgets.QWidget):
     def _apply_step_inventory(self, idx: int, *, reverse: bool = False) -> bool:
         step = self.build_steps[idx]
         if reverse:
-            inventory = self.planner.load_inventory()
+            inventory = self.planner.load_inventory(self._items_by_id())
             output_qty = step.output_qty * step.multiplier
             missing_outputs = []
             available_output = inventory.get(step.output_item_id, 0)
@@ -732,7 +739,7 @@ class PlannerTab(QtWidgets.QWidget):
                     if ok and add_qty:
                         self._adjust_inventory_qty(item_id, add_qty)
 
-                self.build_base_inventory = self.planner.load_inventory()
+                self.build_base_inventory = self.planner.load_inventory(self._items_by_id())
                 inventory = self._effective_build_inventory()
                 still_missing = [
                     (item_id, name, qty, unit, inventory.get(item_id, 0))
@@ -777,7 +784,7 @@ class PlannerTab(QtWidgets.QWidget):
         elif byproducts:
             self.build_step_byproducts[idx] = [(item_id, qty) for item_id, qty in byproducts]
 
-        self.build_base_inventory = self.planner.load_inventory()
+        self.build_base_inventory = self.planner.load_inventory(self._items_by_id())
         return True
 
     def _collect_step_byproducts(self, idx: int, direction: int) -> tuple[bool, list[tuple[int, int]]]:
@@ -868,7 +875,7 @@ class PlannerTab(QtWidgets.QWidget):
     def _filter_plan_errors(self, result) -> list[str]:
         if not self.use_inventory_checkbox.isChecked():
             return result.errors
-        inventory = self.planner.load_inventory()
+        inventory = self.planner.load_inventory(self._items_by_id())
         missing_map = {item_id: (name, qty) for item_id, name, qty in result.missing_recipes}
         filtered = [err for err in result.errors if not err.startswith("No recipe found for ")]
         for item_id, (name, qty_needed) in missing_map.items():

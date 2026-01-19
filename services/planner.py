@@ -145,7 +145,7 @@ class PlannerService:
         if inventory_override is not None:
             inventory = dict(inventory_override)
         else:
-            inventory = self._load_inventory() if use_inventory else {}
+            inventory = self._load_inventory(items) if use_inventory else {}
         errors: list[str] = []
         missing_recipes: list[tuple[int, str, int]] = []
         steps: list[PlanStep] = []
@@ -392,22 +392,30 @@ class PlannerService:
         ).fetchall()
         return {row["id"]: row for row in rows}
 
-    def _load_inventory(self) -> dict[int, int]:
+    def _load_inventory(self, items: dict[int, dict] | None = None) -> dict[int, int]:
         rows = self.profile_conn.execute("SELECT item_id, qty_count, qty_liters FROM inventory").fetchall()
         inventory: dict[int, int] = {}
         for row in rows:
-            qty = row["qty_liters"] if row["qty_liters"] is not None else row["qty_count"]
+            item_id = row["item_id"]
+            if items is not None:
+                kind = (items.get(item_id, {}).get("kind") or "").strip().lower()
+                if kind in ("fluid", "gas"):
+                    qty = row["qty_liters"] if row["qty_liters"] is not None else row["qty_count"]
+                else:
+                    qty = row["qty_count"] if row["qty_count"] is not None else row["qty_liters"]
+            else:
+                qty = row["qty_liters"] if row["qty_liters"] is not None else row["qty_count"]
             if qty is None:
                 continue
             try:
                 qty_int = int(float(qty))
             except (TypeError, ValueError):
                 continue
-            inventory[row["item_id"]] = max(qty_int, 0)
+            inventory[item_id] = max(qty_int, 0)
         return inventory
 
-    def load_inventory(self) -> dict[int, int]:
-        return self._load_inventory()
+    def load_inventory(self, items: dict[int, dict] | None = None) -> dict[int, int]:
+        return self._load_inventory(items)
 
     def _empty_containers_for_fluid(
         self,
