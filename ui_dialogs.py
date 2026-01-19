@@ -2476,22 +2476,25 @@ class AddRecipeDialog(_RecipeDialogBase):
             machine_item_id = None
             station_item_id = self.station_item_id
             if station_item_id is None:
-                QtWidgets.QMessageBox.warning(
-                    self,
-                    "Missing crafting grid",
-                    "Select a Crafting Grid item for crafting recipes.",
-                )
-                return
-            grid_size = self._fetch_crafting_grid_size(station_item_id)
-            if not grid_size:
-                QtWidgets.QMessageBox.warning(
-                    self,
-                    "Missing grid size",
-                    "Selected crafting grid item does not have a grid size.",
-                )
-                return
-            if self.grid_combo.currentText().strip() != grid_size:
-                self.grid_combo.setCurrentText(grid_size)
+                grid_size = (self.grid_combo.currentText() or "2x2").strip()
+                if grid_size != "2x2":
+                    QtWidgets.QMessageBox.warning(
+                        self,
+                        "Missing crafting grid",
+                        "Only the built-in 2x2 grid can be used without a Crafting Grid item.",
+                    )
+                    return
+            else:
+                grid_size = self._fetch_crafting_grid_size(station_item_id)
+                if not grid_size:
+                    QtWidgets.QMessageBox.warning(
+                        self,
+                        "Missing grid size",
+                        "Selected crafting grid item does not have a grid size.",
+                    )
+                    return
+                if self.grid_combo.currentText().strip() != grid_size:
+                    self.grid_combo.setCurrentText(grid_size)
             if not self._validate_crafting_inputs(grid_size):
                 return
         else:
@@ -2791,22 +2794,25 @@ class EditRecipeDialog(_RecipeDialogBase):
             machine_item_id = None
             station_item_id = self.station_item_id
             if station_item_id is None:
-                QtWidgets.QMessageBox.warning(
-                    self,
-                    "Missing crafting grid",
-                    "Select a Crafting Grid item for crafting recipes.",
-                )
-                return
-            grid_size = self._fetch_crafting_grid_size(station_item_id)
-            if not grid_size:
-                QtWidgets.QMessageBox.warning(
-                    self,
-                    "Missing grid size",
-                    "Selected crafting grid item does not have a grid size.",
-                )
-                return
-            if self.grid_combo.currentText().strip() != grid_size:
-                self.grid_combo.setCurrentText(grid_size)
+                grid_size = (self.grid_combo.currentText() or "2x2").strip()
+                if grid_size != "2x2":
+                    QtWidgets.QMessageBox.warning(
+                        self,
+                        "Missing crafting grid",
+                        "Only the built-in 2x2 grid can be used without a Crafting Grid item.",
+                    )
+                    return
+            else:
+                grid_size = self._fetch_crafting_grid_size(station_item_id)
+                if not grid_size:
+                    QtWidgets.QMessageBox.warning(
+                        self,
+                        "Missing grid size",
+                        "Selected crafting grid item does not have a grid size.",
+                    )
+                    return
+                if self.grid_combo.currentText().strip() != grid_size:
+                    self.grid_combo.setCurrentText(grid_size)
             if not self._validate_crafting_inputs(grid_size):
                 return
         else:
