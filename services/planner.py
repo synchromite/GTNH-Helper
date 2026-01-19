@@ -398,7 +398,8 @@ class PlannerService:
         for row in rows:
             item_id = row["item_id"]
             if items is not None:
-                kind = (items.get(item_id, {}).get("kind") or "").strip().lower()
+                item = items.get(item_id)
+                kind = ((item["kind"] if item else "") or "").strip().lower()
                 if kind in ("fluid", "gas"):
                     qty = row["qty_liters"] if row["qty_liters"] is not None else row["qty_count"]
                 else:
