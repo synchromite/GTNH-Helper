@@ -128,6 +128,37 @@ def test_plan_inserts_emptying_step_for_fluid_container():
     assert [step.recipe_name for step in result.steps] == ["Emptying", "Make Output"]
 
 
+def test_plan_aggregates_duplicate_inputs_before_inventory_usage():
+    conn = _setup_conn()
+    profile_conn = connect_profile(":memory:")
+
+    gravel = _insert_item(conn, key="gravel", name="Gravel", is_base=1)
+    flint = _insert_item(conn, key="flint", name="Flint")
+    target = _insert_item(conn, key="target", name="Target")
+
+    recipe_flint = _insert_recipe(conn, name="Make Flint")
+    _insert_line(conn, recipe_id=recipe_flint, direction="out", item_id=flint, qty_count=1)
+    _insert_line(conn, recipe_id=recipe_flint, direction="in", item_id=gravel, qty_count=3)
+
+    recipe_target = _insert_recipe(conn, name="Make Target")
+    _insert_line(conn, recipe_id=recipe_target, direction="out", item_id=target, qty_count=1)
+    _insert_line(conn, recipe_id=recipe_target, direction="in", item_id=flint, qty_count=1)
+    _insert_line(conn, recipe_id=recipe_target, direction="in", item_id=flint, qty_count=1)
+
+    planner = PlannerService(conn, profile_conn)
+    result = planner.plan(
+        target,
+        1,
+        use_inventory=True,
+        enabled_tiers=[],
+        crafting_6x6_unlocked=True,
+    )
+
+    assert result.errors == []
+    assert result.missing_recipes == []
+    assert result.shopping_list == [("Gravel", 6, "count")]
+
+
 def test_plan_missing_recipe_reports_error():
     conn = _setup_conn()
     profile_conn = connect_profile(":memory:")

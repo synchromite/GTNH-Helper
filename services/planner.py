@@ -251,6 +251,7 @@ class PlannerService:
             multiplier = max(1, math.ceil(qty_needed / output_qty))
             inputs = []
             input_frames = []
+            input_requirements: dict[int, dict[str, int | str]] = {}
             input_lines = self._recipe_inputs(recipe["id"])
             for line in input_lines:
                 input_item = items.get(line["item_id"])
@@ -260,19 +261,30 @@ class PlannerService:
                 if input_qty <= 0:
                     continue
                 total_qty = input_qty * multiplier
+                existing = input_requirements.get(input_item["id"])
+                if existing:
+                    existing["qty"] = int(existing["qty"]) + total_qty
+                else:
+                    input_requirements[input_item["id"]] = {
+                        "id": input_item["id"],
+                        "name": input_item["name"],
+                        "qty": total_qty,
+                        "unit": self._unit_for_kind(input_item["kind"]),
+                    }
+            for requirement in input_requirements.values():
                 inputs.append(
                     (
-                        input_item["id"],
-                        input_item["name"],
-                        total_qty,
-                        self._unit_for_kind(input_item["kind"]),
+                        requirement["id"],
+                        requirement["name"],
+                        int(requirement["qty"]),
+                        requirement["unit"],
                     )
                 )
                 input_frames.append(
                     {
                         "state": "enter",
-                        "item_id": line["item_id"],
-                        "qty_needed": total_qty,
+                        "item_id": requirement["id"],
+                        "qty_needed": int(requirement["qty"]),
                     }
                 )
 
