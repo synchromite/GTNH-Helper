@@ -271,55 +271,69 @@ class ItemPickerDialog(QtWidgets.QDialog):
         if p_grids: p_grids.setExpanded(True)
 
         added_any = {"item": False, "fluid": False, "gas": False, "machine": False, "crafting_grid": False}
-        item_kind_nodes: dict[str, QtWidgets.QTreeWidgetItem] = {}
+        grouped: dict[str, dict[str | None, list]] = {
+            "item": {},
+            "fluid": {},
+            "gas": {},
+            "machine": {},
+            "crafting_grid": {},
+        }
+
+        def _category_label(row) -> str | None:
+            kind = row["kind"]
+            if kind == "gas":
+                return None
+            if kind == "crafting_grid":
+                label = (_row_get(row, "crafting_grid_size") or "").strip()
+                return label.replace("_", " ") if label else "(crafting grid)"
+            label = (_row_get(row, "item_kind_name") or "").strip()
+            label = label.replace("_", " ")
+            if label:
+                return label
+            return "(no type)" if kind == "item" else f"({kind})"
 
         for row in self._items:
             if not _matches(row):
                 continue
+            kind = row["kind"]
+            category = _category_label(row)
+            grouped.setdefault(kind, {})
+            grouped[kind].setdefault(category, []).append(row)
 
-            parent = None
-            # Helper to get/create generic kind group nodes
-            def _get_kind_parent(p_root, default_label):
-                if p_root is None: return None
-                if row["kind"] == "gas":
-                    return p_root
-                try:
-                    if row["kind"] == "crafting_grid":
-                        k_name = (row["crafting_grid_size"] or "").strip()
-                    else:
-                        k_name = (row["item_kind_name"] or "").strip()
-                except Exception:
-                    k_name = ""
-                k_name = k_name.replace("_", " ")
-                k_name = k_name if k_name else default_label
-                if k_name not in item_kind_nodes:
-                    item_kind_nodes[k_name] = QtWidgets.QTreeWidgetItem(p_root, [k_name])
-                    item_kind_nodes[k_name].setExpanded(bool(query))
-                return item_kind_nodes[k_name]
+        def _add_group(parent_item: QtWidgets.QTreeWidgetItem | None, kind: str) -> None:
+            if parent_item is None:
+                return
+            categories = grouped.get(kind, {})
+            if not categories:
+                return
+            for category in sorted(categories.keys(), key=lambda val: "" if val is None else val.casefold()):
+                rows = categories[category]
+                if category is None:
+                    category_item = parent_item
+                else:
+                    category_item = QtWidgets.QTreeWidgetItem(parent_item, [category])
+                    category_item.setExpanded(bool(query))
+                for row in sorted(rows, key=lambda r: self._label_for(r).casefold()):
+                    child = QtWidgets.QTreeWidgetItem(category_item, [self._label_for(row)])
+                    self._display_map[child] = row
+                    added_any[row["kind"]] = True
 
-            if row["kind"] == "item":
-                parent = _get_kind_parent(p_items, "(no type)")
-            elif row["kind"] == "fluid":
-                parent = _get_kind_parent(p_fluids, "(fluid)")
-            elif row["kind"] == "gas":
-                parent = _get_kind_parent(p_gases, "(gas)")
-            elif row["kind"] == "machine":
-                parent = _get_kind_parent(p_machines, "(machine)")
-            elif row["kind"] == "crafting_grid":
-                parent = _get_kind_parent(p_grids, "(crafting grid)")
-            
-            if parent is None:
-                continue
+        _add_group(p_items, "item")
+        _add_group(p_fluids, "fluid")
+        _add_group(p_gases, "gas")
+        _add_group(p_machines, "machine")
+        _add_group(p_grids, "crafting_grid")
 
-            child = QtWidgets.QTreeWidgetItem(parent, [self._label_for(row)])
-            self._display_map[child] = row
-            added_any[row["kind"]] = True
-
-        if p_items and not added_any["item"]: QtWidgets.QTreeWidgetItem(p_items, ["(no matches)"])
-        if p_fluids and not added_any["fluid"]: QtWidgets.QTreeWidgetItem(p_fluids, ["(no matches)"])
-        if p_gases and not added_any["gas"]: QtWidgets.QTreeWidgetItem(p_gases, ["(no matches)"])
-        if p_machines and not added_any["machine"]: QtWidgets.QTreeWidgetItem(p_machines, ["(no matches)"])
-        if p_grids and not added_any["crafting_grid"]: QtWidgets.QTreeWidgetItem(p_grids, ["(no matches)"])
+        if p_items and not added_any["item"]:
+            QtWidgets.QTreeWidgetItem(p_items, ["(no matches)"])
+        if p_fluids and not added_any["fluid"]:
+            QtWidgets.QTreeWidgetItem(p_fluids, ["(no matches)"])
+        if p_gases and not added_any["gas"]:
+            QtWidgets.QTreeWidgetItem(p_gases, ["(no matches)"])
+        if p_machines and not added_any["machine"]:
+            QtWidgets.QTreeWidgetItem(p_machines, ["(no matches)"])
+        if p_grids and not added_any["crafting_grid"]:
+            QtWidgets.QTreeWidgetItem(p_grids, ["(no matches)"])
 
         for p in [p_items, p_fluids, p_gases, p_machines, p_grids]:
             if p is not None:

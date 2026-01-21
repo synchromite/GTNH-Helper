@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from PySide6 import QtWidgets
+from PySide6 import QtCore, QtWidgets
 
 from services.recipes import fetch_item_name, fetch_machine_output_slots, fetch_recipe_lines
 from ui_dialogs import AddRecipeDialog, EditRecipeDialog
@@ -12,6 +12,7 @@ class RecipesTab(QtWidgets.QWidget):
         self.app = app
         self.recipes: list = []
         self.recipe_entries: list[dict | None] = []
+        self.recipe_item_map: dict[QtWidgets.QTreeWidgetItem, dict] = {}
         root_layout = QtWidgets.QHBoxLayout(self)
         root_layout.setContentsMargins(8, 8, 8, 8)
 
@@ -21,12 +22,13 @@ class RecipesTab(QtWidgets.QWidget):
         right = QtWidgets.QVBoxLayout()
         root_layout.addLayout(right, stretch=1)
 
-        self.recipe_list = QtWidgets.QListWidget()
-        self.recipe_list.setMinimumWidth(240)
-        self.recipe_list.currentRowChanged.connect(self.on_recipe_select)
+        self.recipe_tree = QtWidgets.QTreeWidget()
+        self.recipe_tree.setHeaderHidden(True)
+        self.recipe_tree.setMinimumWidth(240)
+        self.recipe_tree.currentItemChanged.connect(self.on_recipe_select)
         if self.app.editor_enabled:
-            self.recipe_list.itemDoubleClicked.connect(lambda _item: self.open_edit_recipe_dialog())
-        left.addWidget(self.recipe_list, stretch=1)
+            self.recipe_tree.itemDoubleClicked.connect(lambda _item, _column=0: self.open_edit_recipe_dialog())
+        left.addWidget(self.recipe_tree, stretch=1)
 
         btns = QtWidgets.QHBoxLayout()
         left.addLayout(btns)
@@ -57,14 +59,14 @@ class RecipesTab(QtWidgets.QWidget):
             selected_id = focus_id
             self.app.recipe_focus_id = None
         else:
-            current_row = self.recipe_list.currentRow()
-            if 0 <= current_row < len(self.recipe_entries):
-                entry = self.recipe_entries[current_row]
+            current_item = self.recipe_tree.currentItem()
+            if current_item is not None:
+                entry = self.recipe_item_map.get(current_item)
                 if entry is not None:
                     selected_id = entry["id"]
 
         self.recipes = list(recipes)
-        self.recipe_list.clear()
+        self.recipe_tree.clear()
 
         canonical_names = {
             self._canonical_name(recipe["name"])
@@ -84,28 +86,58 @@ class RecipesTab(QtWidgets.QWidget):
                 normal.append(recipe)
 
         self.recipe_entries = []
+        self.recipe_item_map: dict[QtWidgets.QTreeWidgetItem, dict] = {}
+        id_nodes: dict[int, QtWidgets.QTreeWidgetItem] = {}
+        output_kind_map = self._recipe_output_kind_map(normal)
+        grouped: dict[str, list[dict]] = {"item": [], "fluid": [], "gas": []}
         for recipe in normal:
-            self.recipe_list.addItem(recipe["name"])
-            self.recipe_entries.append(recipe)
+            kind = (output_kind_map.get(recipe["id"]) or "item").strip().lower()
+            if kind not in grouped:
+                kind = "item"
+            grouped[kind].append(recipe)
+
+        def _sort_key(recipe: dict) -> str:
+            return (recipe["name"] or "").strip().casefold()
+
+        group_order = [("Items", "item"), ("Fluids", "fluid"), ("Gases", "gas")]
+        for label, kind in group_order:
+            recipes = sorted(grouped[kind], key=_sort_key)
+            if not recipes:
+                continue
+            parent = QtWidgets.QTreeWidgetItem([label])
+            parent.setExpanded(True)
+            self.recipe_tree.addTopLevelItem(parent)
+            for recipe in recipes:
+                node = QtWidgets.QTreeWidgetItem([recipe["name"]])
+                node.setData(0, QtCore.Qt.UserRole, recipe["id"])
+                parent.addChild(node)
+                self.recipe_item_map[node] = recipe
+                id_nodes[recipe["id"]] = node
+                self.recipe_entries.append(recipe)
 
         if selected_id is not None:
-            for idx, entry in enumerate(self.recipe_entries):
-                if entry is not None and entry["id"] == selected_id:
-                    self.recipe_list.setCurrentRow(idx)
-                    self.recipe_list.scrollToItem(self.recipe_list.item(idx))
-                    break
+            target_item = id_nodes.get(selected_id)
+            if target_item is not None:
+                self.recipe_tree.setCurrentItem(target_item)
+                self._expand_to_item(target_item)
         elif self.recipe_entries:
             for idx, entry in enumerate(self.recipe_entries):
                 if entry is not None:
-                    self.recipe_list.setCurrentRow(idx)
-                    self.recipe_list.scrollToItem(self.recipe_list.item(idx))
+                    target_item = id_nodes.get(entry["id"])
+                    if target_item is not None:
+                        self.recipe_tree.setCurrentItem(target_item)
+                        self._expand_to_item(target_item)
                     break
 
-    def on_recipe_select(self, row: int) -> None:
-        if row < 0 or row >= len(self.recipe_entries):
+    def on_recipe_select(
+        self,
+        current: QtWidgets.QTreeWidgetItem | None,
+        _previous: QtWidgets.QTreeWidgetItem | None = None,
+    ) -> None:
+        if current is None:
             self._recipe_details_set("")
             return
-        entry = self.recipe_entries[row]
+        entry = self.recipe_item_map.get(current)
         if entry is None:
             self._recipe_details_set("")
             return
@@ -120,6 +152,12 @@ class RecipesTab(QtWidgets.QWidget):
         for idx, recipe_row in enumerate(recipes, start=1):
             details.append(self._format_recipe_details(recipe_row, index=idx))
         self._recipe_details_set("\n\n".join(details))
+
+    def _expand_to_item(self, item: QtWidgets.QTreeWidgetItem) -> None:
+        current = item
+        while current is not None:
+            current.setExpanded(True)
+            current = current.parent()
 
     def _recipe_details_set(self, txt: str) -> None:
         self.recipe_details.setPlainText(txt)
@@ -165,6 +203,29 @@ class RecipesTab(QtWidgets.QWidget):
             """,
             (item_id,),
         ).fetchall()
+
+    def _recipe_output_kind_map(self, recipes: list[dict]) -> dict[int, str]:
+        recipe_ids = [recipe["id"] for recipe in recipes]
+        if not recipe_ids:
+            return {}
+        placeholders = ",".join(["?"] * len(recipe_ids))
+        rows = self.app.conn.execute(
+            f"""
+            SELECT rl.recipe_id, i.kind
+            FROM recipe_lines rl
+            JOIN items i ON i.id = rl.item_id
+            WHERE rl.direction='out' AND rl.recipe_id IN ({placeholders})
+            ORDER BY rl.recipe_id, rl.id
+            """,
+            tuple(recipe_ids),
+        ).fetchall()
+        output_map: dict[int, str] = {}
+        for row in rows:
+            recipe_id = int(row["recipe_id"])
+            if recipe_id in output_map:
+                continue
+            output_map[recipe_id] = (row["kind"] or "item").strip().lower()
+        return output_map
 
     def _format_recipe_details(self, recipe: dict, *, index: int) -> str:
         lines = fetch_recipe_lines(self.app.conn, recipe["id"])
@@ -264,11 +325,7 @@ class RecipesTab(QtWidgets.QWidget):
                 "Editing Recipes is only available in editor mode.",
             )
             return
-        row = self.recipe_list.currentRow()
-        if row < 0 or row >= len(self.recipe_entries):
-            QtWidgets.QMessageBox.information(self, "Select a recipe", "Click a recipe first.")
-            return
-        entry = self.recipe_entries[row]
+        entry = self.recipe_item_map.get(self.recipe_tree.currentItem())
         if entry is None:
             QtWidgets.QMessageBox.information(self, "Select a recipe", "Click a recipe first.")
             return
@@ -285,11 +342,7 @@ class RecipesTab(QtWidgets.QWidget):
                 "Deleting Recipes is only available in editor mode.",
             )
             return
-        row = self.recipe_list.currentRow()
-        if row < 0 or row >= len(self.recipe_entries):
-            QtWidgets.QMessageBox.information(self, "Select a recipe", "Click a recipe first.")
-            return
-        recipe = self.recipe_entries[row]
+        recipe = self.recipe_item_map.get(self.recipe_tree.currentItem())
         if recipe is None:
             QtWidgets.QMessageBox.information(self, "Select a recipe", "Click a recipe first.")
             return
