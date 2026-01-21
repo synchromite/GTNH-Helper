@@ -612,8 +612,8 @@ class PlannerService:
 
             # --- CRITERIA 3: EFFICIENCY (Input per Output) ---
             output_qty = float(row["output_qty"] or 1)
-            input_qty = float(row["input_qty"] or 0)
-            ratio = input_qty / output_qty if output_qty > 0 else 999.0
+            input_unit_count = float(row["item_req_count"] or 0) + float(row["fluid_req_count"] or 0)
+            ratio = input_unit_count / output_qty if output_qty > 0 else 999.0
 
             # --- CRITERIA 4: SPEED + POWER ---
             scaled_duration, scaled_eu = apply_overclock(

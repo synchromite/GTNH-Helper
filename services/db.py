@@ -748,11 +748,13 @@ def merge_db(
         # ---- Items ----
         src_items = src.execute(
             "SELECT id, key, display_name, kind, is_base, is_machine, machine_tier, machine_type, "
-            "       item_kind_id, material_id, crafting_grid_size "
+            "       item_kind_id, material_id, crafting_grid_size, content_fluid_id, content_qty_liters "
             "FROM items ORDER BY id"
         ).fetchall()
 
         item_key_to_dest_id: dict[str, int] = {}
+        src_id_to_key = {r["id"]: r["key"] for r in src_items}
+        pending_fluid_links: list[tuple[int, str, int | None]] = []
         def _needs_review_for_item(
             *,
             kind: str,
@@ -801,7 +803,7 @@ def merge_db(
 
             dest_row = dest_conn.execute(
                 "SELECT id, display_name, kind, is_base, is_machine, machine_tier, machine_type, "
-                "       item_kind_id, material_id, crafting_grid_size "
+                "       item_kind_id, material_id, crafting_grid_size, content_fluid_id, content_qty_liters "
                 "FROM items WHERE key=?",
                 (key,),
             ).fetchone()
@@ -814,11 +816,17 @@ def merge_db(
             if it["material_id"] is not None:
                 mapped_material_id = dest_material_map.get(int(it["material_id"]), None)
 
+            mapped_content_fluid_id = None
+            if it["content_fluid_id"] is not None:
+                src_fluid_key = src_id_to_key.get(int(it["content_fluid_id"]))
+                if src_fluid_key:
+                    mapped_content_fluid_id = item_key_to_dest_id.get(src_fluid_key)
+
             if not dest_row:
                 insert_sql = (
                     "INSERT INTO items(key, display_name, kind, is_base, is_machine, machine_tier, machine_type, "
-                    "item_kind_id, material_id, crafting_grid_size, needs_review) "
-                    "VALUES(?,?,?,?,?,?,?,?,?,?,?)"
+                    "item_kind_id, material_id, crafting_grid_size, content_fluid_id, content_qty_liters, needs_review) "
+                    "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)"
                 )
                 needs_review = _needs_review_for_item(
                     kind=it["kind"],
@@ -839,11 +847,17 @@ def merge_db(
                     mapped_kind_id,
                     mapped_material_id,
                     it["crafting_grid_size"],
+                    mapped_content_fluid_id,
+                    it["content_qty_liters"],
                     1 if needs_review else 0,
                 )
                 dest_conn.execute(insert_sql, insert_values)
                 new_id = dest_conn.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
                 item_key_to_dest_id[key] = new_id
+                if it["content_fluid_id"] is not None and mapped_content_fluid_id is None:
+                    src_fluid_key = src_id_to_key.get(int(it["content_fluid_id"]))
+                    if src_fluid_key:
+                        pending_fluid_links.append((new_id, src_fluid_key, it["content_qty_liters"]))
                 stats["items_added"] += 1
                 continue
 
@@ -857,6 +871,10 @@ def merge_db(
                 updates["material_id"] = mapped_material_id
             if int(it["is_base"] or 0) and not int(dest_row["is_base"] or 0):
                 updates["is_base"] = 1
+            if dest_row["content_fluid_id"] is None and mapped_content_fluid_id is not None:
+                updates["content_fluid_id"] = mapped_content_fluid_id
+                if dest_row["content_qty_liters"] is None and it["content_qty_liters"] is not None:
+                    updates["content_qty_liters"] = it["content_qty_liters"]
 
             # Machine logic: OR the flags, and backfill item_kind_id to Machine when possible.
             src_is_machine = int(it["is_machine"] or 0)
@@ -873,6 +891,18 @@ def merge_db(
                 or str(dest_row["crafting_grid_size"] or "").strip() == ""
             ) and (it["crafting_grid_size"] or "").strip():
                 updates["crafting_grid_size"] = it["crafting_grid_size"]
+            if (
+                dest_row["content_qty_liters"] is None
+                and it["content_qty_liters"] is not None
+                and mapped_content_fluid_id is not None
+                and dest_row["content_fluid_id"] is None
+            ):
+                updates["content_fluid_id"] = mapped_content_fluid_id
+                updates["content_qty_liters"] = it["content_qty_liters"]
+            if it["content_fluid_id"] is not None and mapped_content_fluid_id is None:
+                src_fluid_key = src_id_to_key.get(int(it["content_fluid_id"]))
+                if src_fluid_key:
+                    pending_fluid_links.append((dest_row["id"], src_fluid_key, it["content_qty_liters"]))
 
             if updates:
                 sets = ", ".join([f"{k}=?" for k in updates.keys()])
@@ -900,8 +930,14 @@ def merge_db(
             "SELECT machine_item_id, direction, slot_index, content_kind, label FROM machine_io_slots"
         ).fetchall()
 
-        # Map src_id -> key using the already-fetched src_items
-        src_id_to_key = {r["id"]: r["key"] for r in src_items}
+        for dest_id, src_fluid_key, content_qty in pending_fluid_links:
+            mapped_fluid_id = item_key_to_dest_id.get(src_fluid_key)
+            if mapped_fluid_id is None:
+                continue
+            dest_conn.execute(
+                "UPDATE items SET content_fluid_id=?, content_qty_liters=? WHERE id=? AND content_fluid_id IS NULL",
+                (mapped_fluid_id, content_qty, dest_id),
+            )
 
         for row in src_slots:
             k = src_id_to_key.get(row["machine_item_id"])
