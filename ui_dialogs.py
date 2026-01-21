@@ -2915,7 +2915,6 @@ class MachineMetadataEditorDialog(QtWidgets.QDialog):
     _slot_defaults = {
         "input_slots": 1,
         "output_slots": 1,
-        "byproduct_slots": 0,
         "storage_slots": 0,
         "power_slots": 0,
         "circuit_slots": 0,
@@ -2939,8 +2938,7 @@ class MachineMetadataEditorDialog(QtWidgets.QDialog):
         layout = QtWidgets.QVBoxLayout(self)
         layout.addWidget(
             QtWidgets.QLabel(
-                "Define machine tiers and per-tier slot/tank capabilities. "
-                "Byproduct slots must be less than output slots."
+                "Define machine tiers and per-tier slot/tank capabilities."
             )
         )
 
@@ -2996,7 +2994,6 @@ class MachineMetadataEditorDialog(QtWidgets.QDialog):
 
         self._add_slot_row("input_slots", "Input Slots", 1, 64, required=True)
         self._add_slot_row("output_slots", "Output Slots", 1, 64, required=True)
-        self._add_slot_row("byproduct_slots", "Byproduct Slots", 0, 64)
         self._add_slot_row("storage_slots", "Storage Slots", 0, 64)
         self._add_slot_row("power_slots", "Power Slots", 0, 16)
         self._add_slot_row("circuit_slots", "Circuit Slots", 0, 16)
@@ -3031,7 +3028,6 @@ class MachineMetadataEditorDialog(QtWidgets.QDialog):
             self._metadata[(machine_type, tier)] = {
                 "input_slots": int(row["input_slots"] or 1),
                 "output_slots": int(row["output_slots"] or 1),
-                "byproduct_slots": int(row["byproduct_slots"] or 0),
                 "storage_slots": int(row["storage_slots"] or 0),
                 "power_slots": int(row["power_slots"] or 0),
                 "circuit_slots": int(row["circuit_slots"] or 0),
@@ -3140,8 +3136,8 @@ class MachineMetadataEditorDialog(QtWidgets.QDialog):
         if slot is None:
             return
         checkbox, spin = slot
-        if checked and spin.value() == 0 and spin.minimum() > 0:
-            spin.setValue(spin.minimum())
+        if checked and spin.value() == 0:
+            spin.setValue(max(1, spin.minimum()))
         spin.setVisible(checked)
         if key == "input_tanks":
             self._toggle_capacity("input_tank_capacity_l", checked)
@@ -3272,21 +3268,13 @@ class MachineMetadataEditorDialog(QtWidgets.QDialog):
                 continue
             input_slots = max(1, int(values.get("input_slots", 1)))
             output_slots = max(1, int(values.get("output_slots", 1)))
-            byproduct_slots = int(values.get("byproduct_slots", 0))
-            if byproduct_slots > max(output_slots - 1, 0):
-                QtWidgets.QMessageBox.warning(
-                    self,
-                    "Invalid byproducts",
-                    f"{machine_type} {tier} has {byproduct_slots} byproduct slots but only {output_slots} output slots.",
-                )
-                return None
             rows.append(
                 (
                     machine_type,
                     tier,
                     input_slots,
                     output_slots,
-                    byproduct_slots,
+                    0,
                     int(values.get("storage_slots", 0)),
                     int(values.get("power_slots", 0)),
                     int(values.get("circuit_slots", 0)),
