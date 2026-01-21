@@ -104,10 +104,13 @@ class RecipesTab(QtWidgets.QWidget):
             return value if value else fallback
 
         recipes_by_id = {recipe["id"]: recipe for recipe in normal}
+        primary_output_item: dict[int, int] = {}
         for row in output_rows:
             recipe = recipes_by_id.get(row["recipe_id"])
             if recipe is None:
                 continue
+            if row["recipe_id"] not in primary_output_item:
+                primary_output_item[row["recipe_id"]] = row["item_id"]
             kind = (row["kind"] or "item").strip().lower()
             if kind not in grouped:
                 kind = "item"
@@ -124,6 +127,8 @@ class RecipesTab(QtWidgets.QWidget):
             item_id = row["item_id"]
             if item_id not in item_group:
                 item_group[item_id] = {"name": row["item_name"], "recipes": []}
+            if primary_output_item.get(recipe["id"]) != item_id:
+                continue
             if all(existing["id"] != recipe["id"] for existing in item_group[item_id]["recipes"]):
                 item_group[item_id]["recipes"].append(recipe)
 
