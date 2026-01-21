@@ -1093,6 +1093,9 @@ class AddItemDialog(_ItemDialogBase):
             )
             return
 
+        if hasattr(self.app, "last_added_item_id"):
+            self.app.last_added_item_id = item_id
+
         if is_machine and self._show_availability and self.owned_spin is not None and self.online_spin is not None:
             owned = int(self.owned_spin.value())
             online = int(self.online_spin.value())

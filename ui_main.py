@@ -157,6 +157,7 @@ class App(QtWidgets.QMainWindow):
         self.items: list = []
         self.recipes: list = []
         self.recipe_focus_id: int | None = None
+        self.last_added_item_id: int | None = None
 
         self.nb = QtWidgets.QTabWidget()
         self.nb.tabBar().setContextMenuPolicy(QtCore.Qt.ContextMenuPolicy.CustomContextMenu)

@@ -85,10 +85,13 @@ class BaseItemTab(QtWidgets.QWidget):
         return any(search_text in str(value).strip().lower() for value in values)
 
     def render_items(self, items: list) -> None:
+        expanded_paths = self._collect_expanded_paths()
         selected_id = None
         current_item = self.item_tree.currentItem()
         if current_item is not None:
             selected_id = current_item.data(0, QtCore.Qt.UserRole)
+
+        new_item_id = getattr(self.app, "last_added_item_id", None)
 
         self.all_items = list(items)
         search_text = (self.search_edit.text() or "").strip().lower()
@@ -187,8 +190,17 @@ class BaseItemTab(QtWidgets.QWidget):
             parent_node.addChild(item_node)
             id_nodes[it["id"]] = item_node
 
-        if selected_id is not None and selected_id in id_nodes:
-            self.item_tree.setCurrentItem(id_nodes[selected_id])
+        self._restore_expanded_paths(expanded_paths)
+
+        target_id = selected_id
+        if new_item_id is not None and new_item_id in id_nodes:
+            target_id = new_item_id
+            self.app.last_added_item_id = None
+
+        if target_id is not None and target_id in id_nodes:
+            target_item = id_nodes[target_id]
+            self.item_tree.setCurrentItem(target_item)
+            self._expand_to_item(target_item)
 
     def _on_search_changed(self, _value: str) -> None:
         self.render_items(self.all_items)
@@ -244,6 +256,41 @@ class BaseItemTab(QtWidgets.QWidget):
                 cap_txt = f" ({out_cap} L)" if out_cap > 0 else ""
                 txt += f"Output Tanks: {out_tanks}{cap_txt}\n"
         self._item_details_set(txt)
+
+    def _collect_expanded_paths(self) -> set[tuple[str, ...]]:
+        expanded: set[tuple[str, ...]] = set()
+
+        def walk(item: QtWidgets.QTreeWidgetItem, path: tuple[str, ...]) -> None:
+            next_path = (*path, item.text(0))
+            if item.isExpanded():
+                expanded.add(next_path)
+            for idx in range(item.childCount()):
+                walk(item.child(idx), next_path)
+
+        for idx in range(self.item_tree.topLevelItemCount()):
+            walk(self.item_tree.topLevelItem(idx), ())
+        return expanded
+
+    def _restore_expanded_paths(self, expanded_paths: set[tuple[str, ...]]) -> None:
+        if not expanded_paths:
+            return
+
+        def walk(item: QtWidgets.QTreeWidgetItem, path: tuple[str, ...]) -> None:
+            next_path = (*path, item.text(0))
+            if next_path in expanded_paths:
+                item.setExpanded(True)
+            for idx in range(item.childCount()):
+                walk(item.child(idx), next_path)
+
+        for idx in range(self.item_tree.topLevelItemCount()):
+            walk(self.item_tree.topLevelItem(idx), ())
+
+    @staticmethod
+    def _expand_to_item(item: QtWidgets.QTreeWidgetItem) -> None:
+        parent = item.parent()
+        while parent is not None:
+            parent.setExpanded(True)
+            parent = parent.parent()
 
     def _item_details_set(self, txt: str) -> None:
         self.item_details.setPlainText(txt)
