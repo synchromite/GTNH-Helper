@@ -39,11 +39,20 @@ def _insert_recipe(conn, *, name, method="crafting", duration_ticks=None, eu_per
     return conn.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
 
 
-def _insert_line(conn, *, recipe_id, direction, item_id, qty_count=None, qty_liters=None):
+def _insert_line(
+    conn,
+    *,
+    recipe_id,
+    direction,
+    item_id,
+    qty_count=None,
+    qty_liters=None,
+    consumption_chance=None,
+):
     conn.execute(
-        "INSERT INTO recipe_lines(recipe_id, direction, item_id, qty_count, qty_liters) "
-        "VALUES(?,?,?,?,?)",
-        (recipe_id, direction, item_id, qty_count, qty_liters),
+        "INSERT INTO recipe_lines(recipe_id, direction, item_id, qty_count, qty_liters, consumption_chance) "
+        "VALUES(?,?,?,?,?,?)",
+        (recipe_id, direction, item_id, qty_count, qty_liters, consumption_chance),
     )
 
 
@@ -98,6 +107,7 @@ def test_plan_inserts_emptying_step_for_fluid_container():
     profile_conn = connect_profile(":memory:")
 
     water = _insert_item(conn, key="water", name="Water", kind="fluid")
+    empty_cell = _insert_item(conn, key="cell", name="Cell", kind="item")
     water_cell = _insert_item(
         conn,
         key="water_cell",
@@ -126,6 +136,42 @@ def test_plan_inserts_emptying_step_for_fluid_container():
     assert result.missing_recipes == []
     assert result.shopping_list == []
     assert [step.recipe_name for step in result.steps] == ["Emptying", "Make Output"]
+    assert result.steps[0].byproducts == [(empty_cell, "Cell", 2, "count", 100.0)]
+
+
+def test_plan_accounts_for_non_consumed_inputs():
+    conn = _setup_conn()
+    profile_conn = connect_profile(":memory:")
+
+    circuit = _insert_item(conn, key="programmed_circuit", name="Programmed Circuit", is_base=1)
+    input_item = _insert_item(conn, key="input_item", name="Input Item", is_base=1)
+    output = _insert_item(conn, key="output_item", name="Output Item")
+
+    recipe = _insert_recipe(conn, name="Make Output")
+    _insert_line(conn, recipe_id=recipe, direction="out", item_id=output, qty_count=1)
+    _insert_line(
+        conn,
+        recipe_id=recipe,
+        direction="in",
+        item_id=circuit,
+        qty_count=1,
+        consumption_chance=0.0,
+    )
+    _insert_line(conn, recipe_id=recipe, direction="in", item_id=input_item, qty_count=2)
+
+    planner = PlannerService(conn, profile_conn)
+    result = planner.plan(
+        output,
+        3,
+        use_inventory=True,
+        enabled_tiers=[],
+        crafting_6x6_unlocked=True,
+    )
+
+    assert result.errors == []
+    assert result.missing_recipes == []
+    assert ("Programmed Circuit", 1, "count") in result.shopping_list
+    assert ("Input Item", 6, "count") in result.shopping_list
 
 
 def test_plan_aggregates_duplicate_inputs_before_inventory_usage():

@@ -260,7 +260,12 @@ class PlannerService:
                 input_qty = self._line_qty(line, input_item["kind"])
                 if input_qty <= 0:
                     continue
-                total_qty = input_qty * multiplier
+                consumption_chance = self._normalize_consumption_chance(line["consumption_chance"])
+                total_qty = self._required_input_qty(
+                    input_qty=input_qty,
+                    multiplier=multiplier,
+                    consumption_chance=consumption_chance,
+                )
                 existing = input_requirements.get(input_item["id"])
                 if existing:
                     existing["qty"] = int(existing["qty"]) + total_qty
@@ -493,9 +498,18 @@ class PlannerService:
                             self._unit_for_kind(container["kind"]),
                         )
                     ],
-                    byproducts=[],
+                    byproducts=self._container_byproducts(
+                        container=container,
+                        fluid_item=fluid_item,
+                        use_containers=use_containers,
+                        items=items,
+                    ),
                 )
             )
+            for byproduct_id, _name, qty, _unit, chance in steps[-1].byproducts:
+                if chance < 100:
+                    continue
+                inventory[byproduct_id] = inventory.get(byproduct_id, 0) + qty
             if remaining <= 0:
                 break
         return remaining, steps
@@ -768,7 +782,8 @@ class PlannerService:
 
     def _recipe_inputs(self, recipe_id: int):
         return self.conn.execute(
-            "SELECT item_id, qty_count, qty_liters FROM recipe_lines WHERE recipe_id=? AND direction='in'",
+            "SELECT item_id, qty_count, qty_liters, consumption_chance "
+            "FROM recipe_lines WHERE recipe_id=? AND direction='in'",
             (recipe_id,),
         ).fetchall()
 
@@ -802,3 +817,116 @@ class PlannerService:
 
     def _unit_for_kind(self, kind: str) -> str:
         return "L" if (kind or "").strip().lower() in ("fluid", "gas") else "count"
+
+    def _normalize_consumption_chance(self, value: float | int | None) -> float:
+        if value is None:
+            return 1.0
+        try:
+            chance = float(value)
+        except (TypeError, ValueError):
+            return 1.0
+        if chance > 1:
+            if chance <= 100:
+                return chance / 100.0
+            return 1.0
+        if chance < 0:
+            return 0.0
+        return chance
+
+    def _required_input_qty(
+        self,
+        *,
+        input_qty: int,
+        multiplier: int,
+        consumption_chance: float,
+    ) -> int:
+        if input_qty <= 0:
+            return 0
+        if consumption_chance <= 0:
+            return input_qty
+        expected_consumed = math.ceil(input_qty * multiplier * consumption_chance)
+        return max(input_qty, expected_consumed)
+
+    def _container_byproducts(
+        self,
+        *,
+        container: dict,
+        fluid_item: dict,
+        use_containers: int,
+        items: dict[int, dict],
+    ) -> list[tuple[int, str, int, str, float]]:
+        empty_container = self._find_empty_container(container, fluid_item, items)
+        if not empty_container:
+            return []
+        return [
+            (
+                empty_container["id"],
+                empty_container["name"],
+                use_containers,
+                self._unit_for_kind(empty_container["kind"]),
+                100.0,
+            )
+        ]
+
+    def _find_empty_container(
+        self,
+        container: dict,
+        fluid_item: dict,
+        items: dict[int, dict],
+    ) -> dict | None:
+        if not container or not fluid_item:
+            return None
+        if self._row_value(container, "content_fluid_id") is None:
+            return None
+        fluid_key = (self._row_value(fluid_item, "key") or "").strip()
+        fluid_name = (self._row_value(fluid_item, "name") or "").strip()
+        container_key = (self._row_value(container, "key") or "").strip()
+        container_name = (self._row_value(container, "name") or "").strip()
+
+        candidate_keys: list[str] = []
+        candidate_names: list[str] = []
+
+        if fluid_key and container_key:
+            if container_key.startswith(f"{fluid_key}_"):
+                candidate_keys.append(container_key[len(fluid_key) + 1 :])
+            if container_key.endswith(f"_{fluid_key}"):
+                candidate_keys.append(container_key[: -len(fluid_key) - 1])
+
+        if fluid_name and container_name:
+            lower_container = container_name.lower()
+            lower_fluid = fluid_name.lower()
+            if lower_container.startswith(lower_fluid):
+                candidate_names.append(container_name[len(fluid_name) :].strip(" -"))
+            if lower_container.endswith(lower_fluid):
+                candidate_names.append(container_name[: -len(fluid_name)].strip(" -"))
+            candidate_names.append(container_name.replace(fluid_name, "").strip(" -"))
+
+        candidate_keys = [candidate for candidate in candidate_keys if candidate]
+        candidate_names = [candidate for candidate in candidate_names if candidate]
+
+        def _match_item(predicate):
+            for item in items.values():
+                if self._row_value(item, "content_fluid_id") is not None:
+                    continue
+                if predicate(item):
+                    return item
+            return None
+
+        for key in candidate_keys:
+            match = _match_item(
+                lambda item: (self._row_value(item, "key") or "").strip().lower() == key.lower()
+            )
+            if match:
+                return match
+        for name in candidate_names:
+            match = _match_item(
+                lambda item: (self._row_value(item, "name") or "").strip().lower() == name.lower()
+            )
+            if match:
+                return match
+        return None
+
+    def _row_value(self, row: dict | sqlite3.Row, key: str):
+        if isinstance(row, sqlite3.Row):
+            return row[key]
+        return row.get(key)
