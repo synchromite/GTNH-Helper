@@ -104,13 +104,28 @@ class RecipesTab(QtWidgets.QWidget):
             return value if value else fallback
 
         recipes_by_id = {recipe["id"]: recipe for recipe in normal}
-        primary_output_item: dict[int, int] = {}
+        outputs_by_recipe: dict[int, list[dict]] = {}
+        for row in output_rows:
+            outputs_by_recipe.setdefault(row["recipe_id"], []).append(row)
+
+        preferred_output_item: dict[int, int] = {}
+        for recipe_id, rows in outputs_by_recipe.items():
+            recipe = recipes_by_id.get(recipe_id)
+            if recipe is None:
+                continue
+            recipe_name = self._canonical_name(recipe["name"])
+            preferred_item_id = rows[0]["item_id"]
+            if recipe_name:
+                for row in rows:
+                    if self._canonical_name(row["item_name"]) == recipe_name:
+                        preferred_item_id = row["item_id"]
+                        break
+            preferred_output_item[recipe_id] = preferred_item_id
+
         for row in output_rows:
             recipe = recipes_by_id.get(row["recipe_id"])
             if recipe is None:
                 continue
-            if row["recipe_id"] not in primary_output_item:
-                primary_output_item[row["recipe_id"]] = row["item_id"]
             kind = (row["kind"] or "item").strip().lower()
             if kind not in grouped:
                 kind = "item"
@@ -127,7 +142,7 @@ class RecipesTab(QtWidgets.QWidget):
             item_id = row["item_id"]
             if item_id not in item_group:
                 item_group[item_id] = {"name": row["item_name"], "recipes": []}
-            if primary_output_item.get(recipe["id"]) != item_id:
+            if preferred_output_item.get(recipe["id"]) != item_id:
                 continue
             if all(existing["id"] != recipe["id"] for existing in item_group[item_id]["recipes"]):
                 item_group[item_id]["recipes"].append(recipe)
