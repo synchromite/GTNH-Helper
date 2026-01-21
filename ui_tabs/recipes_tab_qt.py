@@ -13,6 +13,7 @@ class RecipesTab(QtWidgets.QWidget):
         self.recipes: list = []
         self.recipe_entries: list[dict | None] = []
         self.recipe_item_map: dict[QtWidgets.QTreeWidgetItem, dict] = {}
+        self.recipe_item_node_map: dict[QtWidgets.QTreeWidgetItem, int] = {}
         root_layout = QtWidgets.QHBoxLayout(self)
         root_layout.setContentsMargins(8, 8, 8, 8)
 
@@ -87,9 +88,10 @@ class RecipesTab(QtWidgets.QWidget):
 
         self.recipe_entries = []
         self.recipe_item_map = {}
+        self.recipe_item_node_map = {}
         id_nodes: dict[int, QtWidgets.QTreeWidgetItem] = {}
-        output_meta_map = self._recipe_output_metadata_map(normal)
-        grouped: dict[str, dict[str, dict[str | None, list[dict]]]] = {
+        output_rows = self._fetch_recipe_outputs(normal)
+        grouped: dict[str, dict[str, dict[str | None, dict[int, dict]]]] = {
             "item": {},
             "fluid": {},
             "gas": {},
@@ -101,20 +103,29 @@ class RecipesTab(QtWidgets.QWidget):
             value = value.strip().replace("_", " ")
             return value if value else fallback
 
-        for recipe in normal:
-            meta = output_meta_map.get(recipe["id"], {})
-            kind = (meta.get("kind") or "item").strip().lower()
+        recipes_by_id = {recipe["id"]: recipe for recipe in normal}
+        for row in output_rows:
+            recipe = recipes_by_id.get(row["recipe_id"])
+            if recipe is None:
+                continue
+            kind = (row["kind"] or "item").strip().lower()
             if kind not in grouped:
                 kind = "item"
-            item_kind_label = _label(meta.get("item_kind_name"), "(No kind)")
-            material_label = meta.get("material_name")
+            item_kind_label = _label(row["item_kind_name"], "(No kind)")
+            material_label = row["material_name"]
             if material_label is not None:
                 material_label = material_label.strip()
                 if not material_label:
                     material_label = None
             grouped.setdefault(kind, {})
             grouped[kind].setdefault(item_kind_label, {})
-            grouped[kind][item_kind_label].setdefault(material_label, []).append(recipe)
+            grouped[kind][item_kind_label].setdefault(material_label, {})
+            item_group = grouped[kind][item_kind_label][material_label]
+            item_id = row["item_id"]
+            if item_id not in item_group:
+                item_group[item_id] = {"name": row["item_name"], "recipes": []}
+            if all(existing["id"] != recipe["id"] for existing in item_group[item_id]["recipes"]):
+                item_group[item_id]["recipes"].append(recipe)
 
         def _sort_key(recipe: dict) -> str:
             return (recipe["name"] or "").strip().casefold()
@@ -135,19 +146,28 @@ class RecipesTab(QtWidgets.QWidget):
                     material_groups.keys(),
                     key=lambda val: "" if val is None else val.casefold(),
                 ):
-                    recipes = material_groups[material_label]
+                    item_groups = material_groups[material_label]
                     if material_label is None:
                         material_node = item_kind_node
                     else:
                         material_node = QtWidgets.QTreeWidgetItem([material_label])
                         item_kind_node.addChild(material_node)
-                    for recipe in sorted(recipes, key=_sort_key):
-                        node = QtWidgets.QTreeWidgetItem([recipe["name"]])
-                        node.setData(0, QtCore.Qt.UserRole, recipe["id"])
-                        material_node.addChild(node)
-                        self.recipe_item_map[node] = recipe
-                        id_nodes[recipe["id"]] = node
-                        self.recipe_entries.append(recipe)
+                    for item_id in sorted(
+                        item_groups.keys(),
+                        key=lambda val: item_groups[val]["name"].casefold(),
+                    ):
+                        item_info = item_groups[item_id]
+                        item_node = QtWidgets.QTreeWidgetItem([item_info["name"]])
+                        item_node.setData(0, QtCore.Qt.UserRole, item_id)
+                        material_node.addChild(item_node)
+                        self.recipe_item_node_map[item_node] = item_id
+                        for recipe in sorted(item_info["recipes"], key=_sort_key):
+                            node = QtWidgets.QTreeWidgetItem([recipe["name"]])
+                            node.setData(0, QtCore.Qt.UserRole, recipe["id"])
+                            item_node.addChild(node)
+                            self.recipe_item_map[node] = recipe
+                            id_nodes[recipe["id"]] = node
+                            self.recipe_entries.append(recipe)
 
         if selected_id is not None:
             target_item = id_nodes.get(selected_id)
@@ -172,20 +192,18 @@ class RecipesTab(QtWidgets.QWidget):
             self._recipe_details_set("")
             return
         entry = self.recipe_item_map.get(current)
-        if entry is None:
+        if entry is not None:
+            item_id = self._resolve_recipe_item_id(entry)
+            if item_id is None:
+                self._recipe_details_set("Item not found for selected recipe.")
+                return
+            self._render_item_recipes(item_id)
+            return
+        item_id = self.recipe_item_node_map.get(current)
+        if item_id is None:
             self._recipe_details_set("")
             return
-        recipe = entry
-        item_id = self._resolve_recipe_item_id(recipe)
-        if item_id is None:
-            self._recipe_details_set("Item not found for selected recipe.")
-            return
-        item_name = fetch_item_name(self.app.conn, item_id)
-        recipes = self._fetch_recipes_for_item(item_id)
-        details = [f"Item: {item_name}\n"]
-        for idx, recipe_row in enumerate(recipes, start=1):
-            details.append(self._format_recipe_details(recipe_row, index=idx))
-        self._recipe_details_set("\n\n".join(details))
+        self._render_item_recipes(item_id)
 
     def _expand_to_item(self, item: QtWidgets.QTreeWidgetItem) -> None:
         current = item
@@ -195,6 +213,14 @@ class RecipesTab(QtWidgets.QWidget):
 
     def _recipe_details_set(self, txt: str) -> None:
         self.recipe_details.setPlainText(txt)
+
+    def _render_item_recipes(self, item_id: int) -> None:
+        item_name = fetch_item_name(self.app.conn, item_id)
+        recipes = self._fetch_recipes_for_item(item_id)
+        details = [f"Item: {item_name}\n"]
+        for idx, recipe_row in enumerate(recipes, start=1):
+            details.append(self._format_recipe_details(recipe_row, index=idx))
+        self._recipe_details_set("\n\n".join(details))
 
     @staticmethod
     def _canonical_name(name: str) -> str:
@@ -238,15 +264,17 @@ class RecipesTab(QtWidgets.QWidget):
             (item_id,),
         ).fetchall()
 
-    def _recipe_output_metadata_map(self, recipes: list[dict]) -> dict[int, dict[str, str | None]]:
+    def _fetch_recipe_outputs(self, recipes: list[dict]) -> list[dict]:
         recipe_ids = [recipe["id"] for recipe in recipes]
         if not recipe_ids:
-            return {}
+            return []
         placeholders = ",".join(["?"] * len(recipe_ids))
-        rows = self.app.conn.execute(
+        return self.app.conn.execute(
             f"""
             SELECT rl.recipe_id,
+                   rl.item_id,
                    i.kind,
+                   COALESCE(i.display_name, i.key) AS item_name,
                    k.name AS item_kind_name,
                    m.name AS material_name
             FROM recipe_lines rl
@@ -258,17 +286,6 @@ class RecipesTab(QtWidgets.QWidget):
             """,
             tuple(recipe_ids),
         ).fetchall()
-        output_map: dict[int, dict[str, str | None]] = {}
-        for row in rows:
-            recipe_id = int(row["recipe_id"])
-            if recipe_id in output_map:
-                continue
-            output_map[recipe_id] = {
-                "kind": (row["kind"] or "item").strip().lower(),
-                "item_kind_name": row["item_kind_name"],
-                "material_name": row["material_name"],
-            }
-        return output_map
 
     def _format_recipe_details(self, recipe: dict, *, index: int) -> str:
         lines = fetch_recipe_lines(self.app.conn, recipe["id"])
@@ -370,7 +387,7 @@ class RecipesTab(QtWidgets.QWidget):
             return
         entry = self.recipe_item_map.get(self.recipe_tree.currentItem())
         if entry is None:
-            QtWidgets.QMessageBox.information(self, "Select a recipe", "Click a recipe first.")
+            QtWidgets.QMessageBox.information(self, "Select a recipe", "Click a recipe entry first.")
             return
         recipe_id = entry["id"]
         dialog = EditRecipeDialog(self.app, recipe_id, parent=self)
@@ -387,7 +404,7 @@ class RecipesTab(QtWidgets.QWidget):
             return
         recipe = self.recipe_item_map.get(self.recipe_tree.currentItem())
         if recipe is None:
-            QtWidgets.QMessageBox.information(self, "Select a recipe", "Click a recipe first.")
+            QtWidgets.QMessageBox.information(self, "Select a recipe", "Click a recipe entry first.")
             return
         ok = QtWidgets.QMessageBox.question(
             self,
