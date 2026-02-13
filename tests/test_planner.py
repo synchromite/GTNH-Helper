@@ -99,6 +99,7 @@ def test_plan_simple_chain_with_inventory_override():
     assert result.errors == []
     assert result.missing_recipes == []
     assert result.shopping_list == [("Item A", 1, "count")]
+    assert result.required_base_list == [("Item A", 2, 1, "count")]
     assert [step.output_item_name for step in result.steps] == ["Item B", "Item C"]
 
 
@@ -228,6 +229,7 @@ def test_plan_reuses_non_consumed_tool_from_inventory():
     assert result.errors == []
     assert result.missing_recipes == []
     assert result.shopping_list == [("Plank", 2, "count")]
+    assert result.required_base_list == [("Plank", 2, 2, "count")]
 
 
 def test_plan_aggregates_duplicate_inputs_before_inventory_usage():
@@ -259,6 +261,33 @@ def test_plan_aggregates_duplicate_inputs_before_inventory_usage():
     assert result.errors == []
     assert result.missing_recipes == []
     assert result.shopping_list == [("Gravel", 6, "count")]
+
+
+def test_plan_reports_required_and_missing_base_items_with_inventory():
+    conn = _setup_conn()
+    profile_conn = connect_profile(":memory:")
+
+    ore = _insert_item(conn, key="ore", name="Ore", is_base=1)
+    plate = _insert_item(conn, key="plate", name="Plate")
+
+    recipe = _insert_recipe(conn, name="Smelt Plate")
+    _insert_line(conn, recipe_id=recipe, direction="out", item_id=plate, qty_count=1)
+    _insert_line(conn, recipe_id=recipe, direction="in", item_id=ore, qty_count=3)
+
+    planner = PlannerService(conn, profile_conn)
+    result = planner.plan(
+        plate,
+        2,
+        use_inventory=True,
+        enabled_tiers=[],
+        crafting_6x6_unlocked=True,
+        inventory_override={ore: 2},
+    )
+
+    assert result.errors == []
+    assert result.missing_recipes == []
+    assert result.required_base_list == [("Ore", 6, 4, "count")]
+    assert result.shopping_list == [("Ore", 4, "count")]
 
 
 def test_plan_missing_recipe_reports_error():

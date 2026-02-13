@@ -119,6 +119,7 @@ class PlanStep:
 @dataclass
 class PlanResult:
     shopping_list: list[tuple[str, int, str]]
+    required_base_list: list[tuple[str, int, int, str]]
     steps: list[PlanStep]
     errors: list[str]
     missing_recipes: list[tuple[int, str, int]]
@@ -150,6 +151,7 @@ class PlannerService:
         missing_recipes: list[tuple[int, str, int]] = []
         steps: list[PlanStep] = []
         shopping_needed: dict[int, int] = {}
+        required_base_needed: dict[int, int] = {}
         visiting: set[int] = set()
 
         stack = [
@@ -203,6 +205,7 @@ class PlannerService:
 
             item_id = frame["item_id"]
             qty_needed = frame["qty_needed"]
+            requested_qty = qty_needed
             if qty_needed <= 0:
                 continue
 
@@ -233,6 +236,7 @@ class PlannerService:
                     continue
 
             if item["is_base"]:
+                required_base_needed[item_id] = required_base_needed.get(item_id, 0) + requested_qty
                 shopping_needed[item_id] = shopping_needed.get(item_id, 0) + qty_needed
                 continue
 
@@ -365,6 +369,7 @@ class PlannerService:
                 stack.append(input_frame)
 
         shopping_list = []
+        required_base_list = []
         for item_id, qty in shopping_needed.items():
             item = items.get(item_id)
             if not item:
@@ -372,10 +377,20 @@ class PlannerService:
             name = item["name"] or item.get("key") or f"Item {item_id}"
             shopping_list.append((name, qty, self._unit_for_kind(item["kind"])))
 
+        for item_id, qty in required_base_needed.items():
+            item = items.get(item_id)
+            if not item:
+                continue
+            name = item["name"] or item.get("key") or f"Item {item_id}"
+            missing_qty = shopping_needed.get(item_id, 0)
+            required_base_list.append((name, qty, missing_qty, self._unit_for_kind(item["kind"])))
+
         shopping_list.sort(key=lambda row: (row[0] or "").lower())
+        required_base_list.sort(key=lambda row: (row[0] or "").lower())
 
         return PlanResult(
             shopping_list=shopping_list,
+            required_base_list=required_base_list,
             steps=steps,
             errors=errors,
             missing_recipes=missing_recipes,
