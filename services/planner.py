@@ -190,6 +190,10 @@ class PlannerService:
                 produced_qty = plan_data["output_qty"] * plan_data["multiplier"]
                 if produced_qty > 0:
                     inventory[item_id] = inventory.get(item_id, 0) + produced_qty
+                for reusable_item_id, reusable_qty in plan_data.get("reusable_inputs", []):
+                    if reusable_qty <= 0:
+                        continue
+                    inventory[reusable_item_id] = inventory.get(reusable_item_id, 0) + reusable_qty
                 for byproduct_id, _name, qty, _unit, chance in plan_data["byproducts"]:
                     if chance < 100:
                         continue
@@ -252,6 +256,7 @@ class PlannerService:
             inputs = []
             input_frames = []
             input_requirements: dict[int, dict[str, int | str]] = {}
+            reusable_requirements: dict[int, int] = {}
             input_lines = self._recipe_inputs(recipe["id"])
             for line in input_lines:
                 input_item = items.get(line["item_id"])
@@ -266,6 +271,8 @@ class PlannerService:
                     multiplier=multiplier,
                     consumption_chance=consumption_chance,
                 )
+                if consumption_chance <= 0:
+                    reusable_requirements[input_item["id"]] = reusable_requirements.get(input_item["id"], 0) + input_qty
                 existing = input_requirements.get(input_item["id"])
                 if existing:
                     existing["qty"] = int(existing["qty"]) + total_qty
@@ -349,6 +356,7 @@ class PlannerService:
                         "output_unit": self._unit_for_kind(item["kind"]),
                         "multiplier": multiplier,
                         "inputs": inputs,
+                        "reusable_inputs": list(reusable_requirements.items()),
                         "byproducts": byproducts,
                     },
                 }

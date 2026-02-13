@@ -174,6 +174,62 @@ def test_plan_accounts_for_non_consumed_inputs():
     assert ("Input Item", 6, "count") in result.shopping_list
 
 
+
+
+def test_plan_reuses_non_consumed_tool_from_inventory():
+    conn = _setup_conn()
+    profile_conn = connect_profile(":memory:")
+
+    hammer = _insert_item(conn, key="hammer", name="Hammer")
+    plank = _insert_item(conn, key="plank", name="Plank", is_base=1)
+    part_a = _insert_item(conn, key="part_a", name="Part A")
+    part_b = _insert_item(conn, key="part_b", name="Part B")
+    final = _insert_item(conn, key="final", name="Final")
+
+    recipe_a = _insert_recipe(conn, name="Make A")
+    _insert_line(conn, recipe_id=recipe_a, direction="out", item_id=part_a, qty_count=1)
+    _insert_line(conn, recipe_id=recipe_a, direction="in", item_id=plank, qty_count=1)
+    _insert_line(
+        conn,
+        recipe_id=recipe_a,
+        direction="in",
+        item_id=hammer,
+        qty_count=1,
+        consumption_chance=0,
+    )
+
+    recipe_b = _insert_recipe(conn, name="Make B")
+    _insert_line(conn, recipe_id=recipe_b, direction="out", item_id=part_b, qty_count=1)
+    _insert_line(conn, recipe_id=recipe_b, direction="in", item_id=plank, qty_count=1)
+    _insert_line(
+        conn,
+        recipe_id=recipe_b,
+        direction="in",
+        item_id=hammer,
+        qty_count=1,
+        consumption_chance=0,
+    )
+
+    recipe_final = _insert_recipe(conn, name="Make Final")
+    _insert_line(conn, recipe_id=recipe_final, direction="out", item_id=final, qty_count=1)
+    _insert_line(conn, recipe_id=recipe_final, direction="in", item_id=part_a, qty_count=1)
+    _insert_line(conn, recipe_id=recipe_final, direction="in", item_id=part_b, qty_count=1)
+
+    planner = PlannerService(conn, profile_conn)
+    result = planner.plan(
+        final,
+        1,
+        use_inventory=True,
+        enabled_tiers=[],
+        crafting_6x6_unlocked=True,
+        inventory_override={hammer: 1},
+    )
+
+    assert result.errors == []
+    assert result.missing_recipes == []
+    assert result.shopping_list == [("Plank", 2, "count")]
+
+
 def test_plan_aggregates_duplicate_inputs_before_inventory_usage():
     conn = _setup_conn()
     profile_conn = connect_profile(":memory:")
