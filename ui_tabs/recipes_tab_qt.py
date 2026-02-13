@@ -21,6 +21,11 @@ class RecipesTab(QtWidgets.QWidget):
         right = QtWidgets.QVBoxLayout()
         root_layout.addLayout(right, stretch=1)
 
+        self.search_edit = QtWidgets.QLineEdit()
+        self.search_edit.setPlaceholderText("Search by item name...")
+        self.search_edit.textChanged.connect(self._on_search_changed)
+        left.addWidget(self.search_edit)
+
         self.recipe_tree = QtWidgets.QTreeWidget()
         self.recipe_tree.setHeaderHidden(True)
         self.recipe_tree.setMinimumWidth(240)
@@ -50,6 +55,7 @@ class RecipesTab(QtWidgets.QWidget):
         self.recipe_details = QtWidgets.QTextEdit()
         self.recipe_details.setReadOnly(True)
         right.addWidget(self.recipe_details)
+        self._all_recipes: list = []
 
     def render_recipes(self, recipes: list) -> None:
         selected_item_id = None
@@ -58,7 +64,9 @@ class RecipesTab(QtWidgets.QWidget):
         if current_item is not None:
             selected_item_id = self.recipe_item_node_map.get(current_item)
 
-        self.recipes = list(recipes)
+        self._all_recipes = list(recipes)
+        search_text = (self.search_edit.text() or "").strip()
+        self.recipes = self._filter_recipes_by_item_name(self._all_recipes, search_text)
         self.recipe_tree.clear()
 
         canonical_names = {
@@ -178,6 +186,36 @@ class RecipesTab(QtWidgets.QWidget):
             first_item = next(iter(item_nodes.values()))
             self.recipe_tree.setCurrentItem(first_item)
             self._expand_to_item(first_item)
+        else:
+            self._recipe_details_set("")
+
+    def _on_search_changed(self, _value: str) -> None:
+        self.render_recipes(self._all_recipes)
+
+    def _filter_recipes_by_item_name(self, recipes: list[dict], search_text: str) -> list[dict]:
+        query = search_text.strip().casefold()
+        if not query:
+            return list(recipes)
+
+        recipe_ids = [recipe["id"] for recipe in recipes]
+        if not recipe_ids:
+            return []
+
+        placeholders = ",".join(["?"] * len(recipe_ids))
+        rows = self.app.conn.execute(
+            f"""
+            SELECT DISTINCT rl.recipe_id
+            FROM recipe_lines rl
+            JOIN items i ON i.id = rl.item_id
+            WHERE rl.recipe_id IN ({placeholders})
+              AND LOWER(COALESCE(i.display_name, i.key)) LIKE ?
+            """,
+            (*recipe_ids, f"%{query}%"),
+        ).fetchall()
+        matched_ids = {row["recipe_id"] for row in rows}
+        if not matched_ids:
+            return []
+        return [recipe for recipe in recipes if recipe["id"] in matched_ids]
 
     def on_recipe_select(
         self,
