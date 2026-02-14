@@ -30,6 +30,10 @@ from ui_constants import (
 )
 
 
+def _default_tier() -> str:
+    return ALL_TIERS[0] if ALL_TIERS else "Stone Age"
+
+
 @dataclass
 class DbLifecycle:
     editor_enabled: bool
@@ -87,9 +91,9 @@ class DbLifecycle:
     def get_enabled_tiers(self) -> list[str]:
         raw = get_setting(self.profile_conn, SETTINGS_ENABLED_TIERS, "")
         if not raw:
-            return ["Stone Age"]
+            return [_default_tier()]
         tiers = [t.strip() for t in raw.split(",") if t.strip()]
-        return tiers if tiers else ["Stone Age"]
+        return tiers if tiers else [_default_tier()]
 
     def set_enabled_tiers(self, tiers: list[str]) -> None:
         set_setting(self.profile_conn, SETTINGS_ENABLED_TIERS, ",".join(tiers))

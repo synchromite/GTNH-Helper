@@ -473,3 +473,12 @@ def test_apply_overclock_scales_duration_and_power():
 
     assert scaled_duration == 100
     assert scaled_eu == 128
+
+
+def test_get_calculated_tier_uses_first_configured_tier_for_non_eu_recipe(monkeypatch):
+    from services import planner as planner_module
+
+    monkeypatch.setattr(planner_module, "ALL_TIERS", ["Primitive", "LV", "MV"])
+    row = {"tier": "", "method": "machine", "eu_per_tick": 0}
+
+    assert planner_module.get_calculated_tier(row) == "Primitive"

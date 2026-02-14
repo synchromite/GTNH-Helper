@@ -130,3 +130,18 @@ def test_qt_ui_uses_settings_keys(tmp_path):
         assert row["value"] == "ULV,LV"
     finally:
         lifecycle.close()
+
+
+def test_enabled_tiers_default_to_first_configured_tier(tmp_path):
+    lifecycle = DbLifecycle(editor_enabled=False, db_path=tmp_path / "content.db")
+    try:
+        profile_conn = lifecycle.profile_conn
+        assert profile_conn is not None
+
+        lifecycle.set_all_tiers(["Primitive", "LV", "MV"])
+        profile_conn.execute("DELETE FROM app_settings WHERE key=?", (SETTINGS_ENABLED_TIERS,))
+        profile_conn.commit()
+
+        assert lifecycle.get_enabled_tiers() == ["Primitive"]
+    finally:
+        lifecycle.close()

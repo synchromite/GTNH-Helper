@@ -15,6 +15,10 @@ GT_VOLTAGES = [
 TIER_ORDER = {tier: idx for idx, tier in enumerate(ALL_TIERS)}
 
 
+def _default_tier() -> str:
+    return ALL_TIERS[0] if ALL_TIERS else "Stone Age"
+
+
 def set_tier_order(tiers: Iterable[str]) -> None:
     TIER_ORDER.clear()
     for idx, tier in enumerate(tiers):
@@ -75,10 +79,10 @@ def get_calculated_tier(row: sqlite3.Row) -> str:
     if tier_str:
         return tier_str
 
-    # 2. Crafting recipes default to Stone Age if no tier specified
+    # 2. Crafting recipes default to the first configured tier if no tier specified
     method = (row["method"] or "").strip().lower()
     if method == "crafting":
-        return "Stone Age"
+        return _default_tier()
 
     # 3. Fallback: Calculate electrical tier from EU/t
     try:
@@ -87,7 +91,7 @@ def get_calculated_tier(row: sqlite3.Row) -> str:
         eu = 0
         
     if eu <= 0:
-        return "Stone Age" # Assume manual/primitive if 0 EU
+        return _default_tier()  # Assume manual/primitive if 0 EU
 
     for voltage, name in GT_VOLTAGES:
         if eu <= voltage:
@@ -721,7 +725,7 @@ class PlannerService:
                 if avail_score > 0:
                     if req_tier in enabled_tiers_set:
                         avail_score = 1
-                    elif req_tier == "Stone Age":
+                    elif req_tier == _default_tier():
                         avail_score = 1
 
             # --- CRITERIA 2: MACHINE COUNT (Prefer more available machines) ---
