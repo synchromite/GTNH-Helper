@@ -54,7 +54,7 @@ def apply_overclock(
         return duration_ticks, eu_per_tick
     recipe_rank = _tier_rank(recipe_tier)
     machine_rank = _tier_rank(machine_tier)
-    if recipe_rank is None or machine_rank is None or machine_rank <= recipe_rank:
+    if recipe_rank is None or machine_rank is None or machine_rank == recipe_rank:
         return duration_ticks, eu_per_tick
     diff = machine_rank - recipe_rank
 
@@ -62,13 +62,19 @@ def apply_overclock(
     if duration_ticks is not None:
         duration_value = float(duration_ticks)
         if duration_value > 0:
-            scaled_duration = max(1, int(math.ceil(duration_value / (2**diff))))
+            if diff > 0:
+                scaled_duration = max(1, int(math.ceil(duration_value / (2**diff))))
+            else:
+                scaled_duration = max(1, int(math.ceil(duration_value * (2 ** abs(diff)))))
 
     scaled_eu = eu_per_tick
     if eu_per_tick is not None:
         eu_value = float(eu_per_tick)
         if eu_value > 0:
-            scaled_eu = max(0, int(math.ceil(eu_value * (4**diff))))
+            if diff > 0:
+                scaled_eu = max(0, int(math.ceil(eu_value * (4**diff))))
+            else:
+                scaled_eu = max(0, int(math.ceil(eu_value / (4 ** abs(diff)))))
 
     return scaled_duration, scaled_eu
 

@@ -516,6 +516,13 @@ def test_apply_overclock_scales_duration_and_power():
     assert scaled_eu == 128
 
 
+def test_apply_overclock_applies_underclock_when_machine_tier_is_lower():
+    scaled_duration, scaled_eu = apply_overclock(200, 32, "MV", "LV")
+
+    assert scaled_duration == 400
+    assert scaled_eu == 8
+
+
 def test_get_calculated_tier_uses_first_configured_tier_for_non_eu_recipe(monkeypatch):
     from services import planner as planner_module
 
