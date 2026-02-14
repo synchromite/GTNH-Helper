@@ -135,6 +135,7 @@ class App(QtWidgets.QMainWindow):
         self.status_bar.showMessage("Ready")
         self.planner_state: dict[str, object] = {}
         self._ui_config_save_failed = False
+        self._db_recovery_notified_for: Path | None = None
 
         self.tab_registry = {
             "items": {"label": "Items"},
@@ -455,6 +456,7 @@ class App(QtWidgets.QMainWindow):
     def _switch_db(self, new_path: Path) -> None:
         """Close current DB connection and open a new one."""
         self.db.switch_db(Path(new_path))
+        self._db_recovery_notified_for = None
         self._sync_db_handles()
         self._update_title()
         self._apply_theme(self.db.get_theme())
@@ -472,6 +474,37 @@ class App(QtWidgets.QMainWindow):
         self._tiers_load_from_db()
         self._machines_load_from_db()
         self.planner_state = {}
+
+    def _recover_closed_connection(self, source: str) -> None:
+        """Try to recover after a closed DB connection and notify the user."""
+        target_path = Path(self.db_path)
+        self.db.switch_db(target_path)
+        self._sync_db_handles()
+
+        if self._db_recovery_notified_for == target_path:
+            return
+
+        self._db_recovery_notified_for = target_path
+        if self.db.last_open_error:
+            QtWidgets.QMessageBox.warning(
+                self,
+                "Database connection lost",
+                "The database connection was closed unexpectedly while refreshing data. "
+                f"The app tried to re-open '{target_path}', but that failed. "
+                "The app is now using a temporary in-memory database.\n\n"
+                f"Source: {source}\n"
+                f"Details: {self.db.last_open_error}",
+            )
+            self.status_bar.showMessage("Database reconnect failed; using temporary in-memory DB")
+            return
+
+        QtWidgets.QMessageBox.information(
+            self,
+            "Database connection restored",
+            "The database connection was closed unexpectedly while refreshing data. "
+            f"The app re-opened '{target_path}'.",
+        )
+        self.status_bar.showMessage(f"Database connection restored: {target_path.name}")
 
     def menu_open_db(self) -> None:
         path, _ = QtWidgets.QFileDialog.getOpenFileName(
@@ -712,8 +745,7 @@ class App(QtWidgets.QMainWindow):
         except sqlite3.ProgrammingError as exc:
             if "closed" not in str(exc).lower():
                 raise
-            self.db.switch_db(self.db_path)
-            self._sync_db_handles()
+            self._recover_closed_connection("items refresh")
             self.items = fetch_items(self.conn)
         widget = self.tab_widgets.get("items")
         if widget and hasattr(widget, "render_items"):
@@ -734,8 +766,7 @@ class App(QtWidgets.QMainWindow):
         except sqlite3.ProgrammingError as exc:
             if "closed" not in str(exc).lower():
                 raise
-            self.db.switch_db(self.db_path)
-            self._sync_db_handles()
+            self._recover_closed_connection("recipes refresh")
             self.recipes = fetch_recipes(self.conn, self.get_enabled_tiers())
         widget = self.tab_widgets.get("recipes")
         if widget and hasattr(widget, "render_recipes"):
