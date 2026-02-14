@@ -100,6 +100,7 @@ def test_plan_simple_chain_with_inventory_override():
     assert result.missing_recipes == []
     assert result.shopping_list == [("Item A", 1, "count")]
     assert result.required_base_list == [("Item A", 2, 1, "count")]
+    assert result.storage_requirements == [("Item A", 2, 1, "count")]
     assert [step.output_item_name for step in result.steps] == ["Item B", "Item C"]
 
 
@@ -230,6 +231,7 @@ def test_plan_reuses_non_consumed_tool_from_inventory():
     assert result.missing_recipes == []
     assert result.shopping_list == [("Plank", 2, "count")]
     assert result.required_base_list == [("Plank", 2, 2, "count")]
+    assert result.storage_requirements == [("Plank", 2, 2, "count"), ("Hammer", 2, 0, "count")]
 
 
 def test_plan_aggregates_duplicate_inputs_before_inventory_usage():
@@ -287,6 +289,7 @@ def test_plan_reports_required_and_missing_base_items_with_inventory():
     assert result.errors == []
     assert result.missing_recipes == []
     assert result.required_base_list == [("Ore", 6, 4, "count")]
+    assert result.storage_requirements == [("Ore", 6, 4, "count")]
     assert result.shopping_list == [("Ore", 4, "count")]
 
 

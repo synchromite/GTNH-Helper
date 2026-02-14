@@ -120,6 +120,7 @@ class PlanStep:
 class PlanResult:
     shopping_list: list[tuple[str, int, str]]
     required_base_list: list[tuple[str, int, int, str]]
+    storage_requirements: list[tuple[str, int, int, str]]
     steps: list[PlanStep]
     errors: list[str]
     missing_recipes: list[tuple[int, str, int]]
@@ -152,6 +153,7 @@ class PlannerService:
         steps: list[PlanStep] = []
         shopping_needed: dict[int, int] = {}
         required_base_needed: dict[int, int] = {}
+        storage_used: dict[int, int] = {}
         visiting: set[int] = set()
 
         stack = [
@@ -214,6 +216,7 @@ class PlannerService:
                 if available > 0:
                     used = min(available, qty_needed)
                     inventory[item_id] = available - used
+                    storage_used[item_id] = storage_used.get(item_id, 0) + used
                     qty_needed -= used
                     if qty_needed <= 0:
                         continue
@@ -224,12 +227,15 @@ class PlannerService:
                 continue
 
             if use_inventory and qty_needed > 0 and item["kind"] in ("fluid", "gas"):
-                qty_needed, emptying_steps = self._empty_containers_for_fluid(
+                qty_needed, emptying_steps, consumed_containers = self._empty_containers_for_fluid(
                     fluid_item=item,
                     qty_needed=qty_needed,
                     inventory=inventory,
                     items=items,
                 )
+                if consumed_containers:
+                    for consumed_item_id, consumed_qty in consumed_containers.items():
+                        storage_used[consumed_item_id] = storage_used.get(consumed_item_id, 0) + consumed_qty
                 if emptying_steps:
                     steps.extend(emptying_steps)
                 if qty_needed <= 0:
@@ -370,6 +376,7 @@ class PlannerService:
 
         shopping_list = []
         required_base_list = []
+        storage_requirements = []
         for item_id, qty in shopping_needed.items():
             item = items.get(item_id)
             if not item:
@@ -385,12 +392,24 @@ class PlannerService:
             missing_qty = shopping_needed.get(item_id, 0)
             required_base_list.append((name, qty, missing_qty, self._unit_for_kind(item["kind"])))
 
+        for item_id in set(storage_used) | set(shopping_needed):
+            item = items.get(item_id)
+            if not item:
+                continue
+            name = item["name"] or item.get("key") or f"Item {item_id}"
+            used_qty = storage_used.get(item_id, 0)
+            missing_qty = shopping_needed.get(item_id, 0)
+            required_qty = used_qty + missing_qty
+            storage_requirements.append((name, required_qty, missing_qty, self._unit_for_kind(item["kind"])))
+
         shopping_list.sort(key=lambda row: (row[0] or "").lower())
         required_base_list.sort(key=lambda row: (row[0] or "").lower())
+        storage_requirements.sort(key=lambda row: (row[2] == 0, (row[0] or "").lower()))
 
         return PlanResult(
             shopping_list=shopping_list,
             required_base_list=required_base_list,
+            storage_requirements=storage_requirements,
             steps=steps,
             errors=errors,
             missing_recipes=missing_recipes,
@@ -465,9 +484,9 @@ class PlannerService:
         qty_needed: int,
         inventory: dict[int, int],
         items: dict[int, dict],
-    ) -> tuple[int, list[PlanStep]]:
+    ) -> tuple[int, list[PlanStep], dict[int, int]]:
         if qty_needed <= 0:
-            return 0, []
+            return 0, [], {}
         fluid_id = fluid_item["id"]
         containers = [
             item
@@ -475,9 +494,10 @@ class PlannerService:
             if item["content_fluid_id"] == fluid_id
         ]
         if not containers:
-            return qty_needed, []
+            return qty_needed, [], {}
         containers.sort(key=lambda row: (row["name"] or "").lower())
         steps: list[PlanStep] = []
+        consumed: dict[int, int] = {}
         remaining = qty_needed
         for container in containers:
             available = inventory.get(container["id"], 0)
@@ -496,6 +516,7 @@ class PlannerService:
             provided_qty = per_container * use_containers
             remaining = max(remaining - provided_qty, 0)
             inventory[container["id"]] = available - use_containers
+            consumed[container["id"]] = consumed.get(container["id"], 0) + use_containers
             steps.append(
                 PlanStep(
                     recipe_id=0,
@@ -535,7 +556,7 @@ class PlannerService:
                 inventory[byproduct_id] = inventory.get(byproduct_id, 0) + qty
             if remaining <= 0:
                 break
-        return remaining, steps
+        return remaining, steps, consumed
 
     # ---------- Recipe helpers ----------
     def _pick_recipe_for_item(
