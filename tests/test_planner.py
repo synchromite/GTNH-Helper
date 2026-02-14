@@ -176,6 +176,42 @@ def test_plan_inserts_filling_step_for_fluid_container_output():
     ]
 
 
+def test_plan_builds_fluid_then_fills_container_without_container_recipe():
+    conn = _setup_conn()
+    profile_conn = connect_profile(":memory:")
+
+    salt = _insert_item(conn, key="salt", name="Salt", is_base=1)
+    chlorine = _insert_item(conn, key="chlorine", name="Chlorine", kind="gas")
+    empty_cell = _insert_item(conn, key="cell", name="Cell", kind="item", is_base=1)
+    chlorine_cell = _insert_item(
+        conn,
+        key="chlorine_cell",
+        name="Chlorine Cell",
+        kind="item",
+        content_fluid_id=chlorine,
+        content_qty_liters=1,
+    )
+
+    chlorine_recipe = _insert_recipe(conn, name="Make Chlorine")
+    _insert_line(conn, recipe_id=chlorine_recipe, direction="out", item_id=chlorine, qty_liters=1)
+    _insert_line(conn, recipe_id=chlorine_recipe, direction="in", item_id=salt, qty_count=1)
+
+    planner = PlannerService(conn, profile_conn)
+    result = planner.plan(
+        chlorine_cell,
+        1,
+        use_inventory=True,
+        enabled_tiers=[],
+        crafting_6x6_unlocked=True,
+    )
+
+    assert result.errors == []
+    assert result.missing_recipes == []
+    assert [step.recipe_name for step in result.steps] == ["Make Chlorine", "Filling"]
+    assert ("Salt", 1, "count") in result.shopping_list
+    assert ("Cell", 1, "count") in result.shopping_list
+
+
 def test_plan_accounts_for_non_consumed_inputs():
     conn = _setup_conn()
     profile_conn = connect_profile(":memory:")

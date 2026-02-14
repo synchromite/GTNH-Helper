@@ -251,20 +251,32 @@ class PlannerService:
                 if qty_needed <= 0:
                     continue
 
-            if use_inventory and qty_needed > 0:
-                qty_needed, filling_steps, consumed_inputs = self._fill_containers_from_fluid(
-                    container_item=item,
-                    qty_needed=qty_needed,
-                    inventory=inventory,
-                    items=items,
-                )
-                if consumed_inputs:
-                    for consumed_item_id, consumed_qty in consumed_inputs.items():
-                        storage_used[consumed_item_id] = storage_used.get(consumed_item_id, 0) + consumed_qty
-                if filling_steps:
-                    steps.extend(filling_steps)
-                if qty_needed <= 0:
+            container_fill_plan = self._container_fill_plan(
+                container_item=item,
+                qty_needed=qty_needed,
+                items=items,
+            )
+            if container_fill_plan is not None:
+                if item_id in visiting:
+                    shopping_needed[item_id] = shopping_needed.get(item_id, 0) + qty_needed
                     continue
+                visiting.add(item_id)
+                stack.append(
+                    {
+                        "state": "exit",
+                        "item_id": item_id,
+                        "plan_data": container_fill_plan,
+                    }
+                )
+                for input_item_id, _name, input_qty, _unit in reversed(container_fill_plan["inputs"]):
+                    stack.append(
+                        {
+                            "state": "enter",
+                            "item_id": input_item_id,
+                            "qty_needed": input_qty,
+                        }
+                    )
+                continue
 
             if item["is_base"]:
                 required_base_needed[item_id] = required_base_needed.get(item_id, 0) + requested_qty
@@ -660,79 +672,64 @@ class PlannerService:
                 break
         return remaining, steps, consumed
 
-    def _fill_containers_from_fluid(
+    def _container_fill_plan(
         self,
         *,
         container_item: dict,
         qty_needed: int,
-        inventory: dict[int, int],
         items: dict[int, dict],
-    ) -> tuple[int, list[PlanStep], dict[int, int]]:
+    ) -> dict | None:
         if qty_needed <= 0:
-            return 0, [], {}
+            return None
         fluid_id = container_item["content_fluid_id"]
         if fluid_id is None:
-            return qty_needed, [], {}
+            return None
         fluid_item = items.get(fluid_id)
         if not fluid_item:
-            return qty_needed, [], {}
+            return None
         try:
             per_container = int(container_item["content_qty_liters"] or 0)
         except (TypeError, ValueError):
             per_container = 0
         if per_container <= 0:
-            return qty_needed, [], {}
+            return None
 
         empty_container = self._find_empty_container(container_item, fluid_item, items)
         if not empty_container:
-            return qty_needed, [], {}
+            return None
 
-        available_empty = inventory.get(empty_container["id"], 0)
-        available_fluid = inventory.get(fluid_id, 0)
-        if available_empty <= 0 or available_fluid < per_container:
-            return qty_needed, [], {}
-
-        fillable = min(qty_needed, available_empty, available_fluid // per_container)
-        if fillable <= 0:
-            return qty_needed, [], {}
-
-        consumed_fluid = fillable * per_container
-        inventory[empty_container["id"]] = available_empty - fillable
-        inventory[fluid_id] = available_fluid - consumed_fluid
-        consumed = {empty_container["id"]: fillable, fluid_id: consumed_fluid}
-        step = PlanStep(
-            recipe_id=0,
-            recipe_name="Filling",
-            method="filling",
-            machine=None,
-            machine_item_id=None,
-            machine_item_name="",
-            grid_size=None,
-            station_item_id=None,
-            station_item_name="",
-            circuit=None,
-            output_item_id=container_item["id"],
-            output_item_name=container_item["name"],
-            output_qty=1,
-            output_unit=self._unit_for_kind(container_item["kind"]),
-            multiplier=fillable,
-            inputs=[
+        fluid_qty = qty_needed * per_container
+        return {
+            "recipe_id": 0,
+            "recipe_name": "Filling",
+            "method": "filling",
+            "machine": None,
+            "machine_item_id": None,
+            "machine_item_name": "",
+            "grid_size": None,
+            "station_item_id": None,
+            "station_item_name": "",
+            "circuit": None,
+            "output_item_name": container_item["name"],
+            "output_qty": 1,
+            "output_unit": self._unit_for_kind(container_item["kind"]),
+            "multiplier": qty_needed,
+            "inputs": [
                 (
                     fluid_id,
                     fluid_item["name"],
-                    consumed_fluid,
+                    fluid_qty,
                     self._unit_for_kind(fluid_item["kind"]),
                 ),
                 (
                     empty_container["id"],
                     empty_container["name"],
-                    fillable,
+                    qty_needed,
                     self._unit_for_kind(empty_container["kind"]),
                 ),
             ],
-            byproducts=[],
-        )
-        return qty_needed - fillable, [step], consumed
+            "byproducts": [],
+        }
 
     # ---------- Recipe helpers ----------
     def _pick_recipe_for_item(
