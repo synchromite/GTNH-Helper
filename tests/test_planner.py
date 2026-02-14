@@ -212,6 +212,42 @@ def test_plan_builds_fluid_then_fills_container_without_container_recipe():
     assert ("Cell", 1, "count") in result.shopping_list
 
 
+def test_plan_recipe_requiring_cell_uses_fluid_and_empty_cell_from_inventory():
+    conn = _setup_conn()
+    profile_conn = connect_profile(":memory:")
+
+    chlorine = _insert_item(conn, key="chlorine", name="Chlorine", kind="gas")
+    empty_cell = _insert_item(conn, key="cell", name="Cell", kind="item")
+    chlorine_cell = _insert_item(
+        conn,
+        key="chlorine_cell",
+        name="Chlorine Cell",
+        kind="item",
+        content_fluid_id=chlorine,
+        content_qty_liters=1,
+    )
+    product = _insert_item(conn, key="bleach", name="Bleach")
+
+    recipe = _insert_recipe(conn, name="Make Bleach")
+    _insert_line(conn, recipe_id=recipe, direction="out", item_id=product, qty_count=1)
+    _insert_line(conn, recipe_id=recipe, direction="in", item_id=chlorine_cell, qty_count=1)
+
+    planner = PlannerService(conn, profile_conn)
+    result = planner.plan(
+        product,
+        1,
+        use_inventory=True,
+        enabled_tiers=[],
+        crafting_6x6_unlocked=True,
+        inventory_override={chlorine: 1, empty_cell: 1},
+    )
+
+    assert result.errors == []
+    assert result.missing_recipes == []
+    assert result.shopping_list == []
+    assert [step.recipe_name for step in result.steps] == ["Filling", "Make Bleach"]
+
+
 def test_plan_accounts_for_non_consumed_inputs():
     conn = _setup_conn()
     profile_conn = connect_profile(":memory:")

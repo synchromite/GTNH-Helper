@@ -518,6 +518,10 @@ class _ItemDialogBase(QtWidgets.QDialog):
         self.is_base_check = QtWidgets.QCheckBox("Base resource (planner stops here later)")
         form.addWidget(self.is_base_check, 9, 1)
 
+        self.has_cell_check = QtWidgets.QCheckBox("Has Cell? (auto-create '<Name> Cell')")
+        form.addWidget(self.has_cell_check, 10, 1)
+        self.has_cell_check.hide()
+
         if self._show_availability:
             self.availability_group = QtWidgets.QGroupBox("Availability")
             availability_layout = QtWidgets.QGridLayout(self.availability_group)
@@ -531,7 +535,7 @@ class _ItemDialogBase(QtWidgets.QDialog):
             self.online_spin.setMaximum(0)
             availability_layout.addWidget(self.online_spin, 1, 1)
             self.owned_spin.valueChanged.connect(self._on_owned_changed)
-            form.addWidget(self.availability_group, 10, 0, 1, 2)
+            form.addWidget(self.availability_group, 11, 0, 1, 2)
 
         buttons = QtWidgets.QDialogButtonBox(
             QtWidgets.QDialogButtonBox.StandardButton.Save
@@ -912,6 +916,12 @@ class _ItemDialogBase(QtWidgets.QDialog):
         self._update_item_kind_combo()
         self._on_item_kind_selected()
         kind_high = self._current_kind_value()
+        is_fluid_like = kind_high in ("fluid", "gas")
+        show_has_cell = is_fluid_like and self.item_id is None
+        self.has_cell_check.setVisible(show_has_cell)
+        if not show_has_cell:
+            self.has_cell_check.setChecked(False)
+
         if kind_high in ("machine", "gas", "crafting_grid"):
             self.item_kind_combo.setEnabled(False)
         else:
@@ -1067,13 +1077,7 @@ class AddItemDialog(_ItemDialogBase):
                 QtWidgets.QMessageBox.warning(self, "Missing tier", "Tier is required for machines.")
                 return
 
-        cur = self.app.conn.execute("SELECT 1 FROM items WHERE key=?", (key,)).fetchone()
-        if cur:
-            base = key
-            n = 2
-            while self.app.conn.execute("SELECT 1 FROM items WHERE key=?", (f"{base}_{n}",)).fetchone():
-                n += 1
-            key = f"{base}_{n}"
+        key = self._next_unique_key(key)
 
         try:
             cur = self.app.conn.execute(
@@ -1097,6 +1101,13 @@ class AddItemDialog(_ItemDialogBase):
                 ),
             )
             item_id = cur.lastrowid
+
+            if kind in ("fluid", "gas") and self.has_cell_check.isVisible() and self.has_cell_check.isChecked():
+                self._ensure_auto_cell_for_fluid(
+                    fluid_item_id=item_id,
+                    fluid_name=display_name,
+                    is_base=is_base,
+                )
 
             self.app.conn.commit()
         except Exception as exc:
@@ -1137,6 +1148,47 @@ class AddItemDialog(_ItemDialogBase):
         if hasattr(self.app, "_machines_load_from_db"):
             self.app._machines_load_from_db()
         self.accept()
+
+    def _next_unique_key(self, key: str) -> str:
+        cur = self.app.conn.execute("SELECT 1 FROM items WHERE key=?", (key,)).fetchone()
+        if not cur:
+            return key
+        base = key
+        n = 2
+        while self.app.conn.execute("SELECT 1 FROM items WHERE key=?", (f"{base}_{n}",)).fetchone():
+            n += 1
+        return f"{base}_{n}"
+
+    def _ensure_auto_cell_for_fluid(self, *, fluid_item_id: int, fluid_name: str, is_base: int) -> None:
+        cell_display_name = f"{fluid_name} Cell"
+        cell_key = self._slugify(cell_display_name)
+        existing = self.app.conn.execute(
+            "SELECT id FROM items WHERE key=?",
+            (cell_key,),
+        ).fetchone()
+        if existing:
+            return
+
+        self.app.conn.execute(
+            "INSERT INTO items(key, display_name, kind, is_base, is_machine, item_kind_id, material_id, "
+            "machine_type, machine_tier, is_multiblock, content_fluid_id, content_qty_liters, crafting_grid_size) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                self._next_unique_key(cell_key),
+                cell_display_name,
+                "item",
+                is_base,
+                0,
+                None,
+                None,
+                None,
+                None,
+                0,
+                fluid_item_id,
+                1,
+                None,
+            ),
+        )
 
 
 class EditItemDialog(_ItemDialogBase):
