@@ -342,14 +342,19 @@ class PlannerTab(QtWidgets.QWidget):
 
         required_base = getattr(result, "required_base_list", [])
         if self.use_inventory_checkbox.isChecked() and required_base:
-            lines = []
-            for name, required_qty, missing_qty, unit in required_base:
+            missing_lines = []
+            available_lines = []
+            for name, required_qty, missing_qty, unit in sorted(required_base, key=lambda row: (row[0] or "").lower()):
                 available_qty = max(required_qty - missing_qty, 0)
-                status = "❌" if missing_qty > 0 else "✅"
-                lines.append(
-                    f"{status} {name}: need {required_qty} {unit}, have {available_qty} {unit}, missing {missing_qty} {unit}"
-                )
-            self._set_text(self.shopping_text, "\n".join(lines))
+                if missing_qty > 0:
+                    missing_lines.append(
+                        f"❌ {name}: need {required_qty} {unit}, have {available_qty} {unit}, missing {missing_qty} {unit} - Missing from Inventory"
+                    )
+                else:
+                    available_lines.append(
+                        f"✅ {name}: need {required_qty} {unit}, have {available_qty} {unit}, missing {missing_qty} {unit}"
+                    )
+            self._set_text(self.shopping_text, "\n".join(missing_lines + available_lines))
         elif not result.shopping_list:
             self._set_text(self.shopping_text, "Nothing needed. Inventory already covers this request.")
         else:
