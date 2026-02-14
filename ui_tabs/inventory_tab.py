@@ -368,6 +368,7 @@ class InventoryTab(QtWidgets.QWidget):
         tree.blockSignals(True)
         try:
             tree.clear()
+            query = self.search_entry.text().strip()
             kind_filter = tree.property("kind_filter")
             items = self._filtered_items(kind_filter)
             kind_nodes: dict[str, QtWidgets.QTreeWidgetItem] = {}
@@ -454,6 +455,11 @@ class InventoryTab(QtWidgets.QWidget):
 
             if selected_id is not None and selected_id in id_nodes:
                 tree.setCurrentItem(id_nodes[selected_id])
+
+            if query:
+                tree.expandAll()
+            else:
+                tree.collapseAll()
         finally:
             tree.blockSignals(False)
 
