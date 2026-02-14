@@ -265,6 +265,47 @@ def test_plan_aggregates_duplicate_inputs_before_inventory_usage():
     assert result.shopping_list == [("Gravel", 6, "count")]
 
 
+def test_plan_aggregates_duplicate_probabilistic_inputs_before_rounding():
+    conn = _setup_conn()
+    profile_conn = connect_profile(":memory:")
+
+    catalyst = _insert_item(conn, key="catalyst", name="Catalyst", is_base=1)
+    output = _insert_item(conn, key="output", name="Output")
+
+    recipe = _insert_recipe(conn, name="Chance Recipe")
+    _insert_line(conn, recipe_id=recipe, direction="out", item_id=output, qty_count=1)
+    _insert_line(
+        conn,
+        recipe_id=recipe,
+        direction="in",
+        item_id=catalyst,
+        qty_count=1,
+        consumption_chance=0.1,
+    )
+    _insert_line(
+        conn,
+        recipe_id=recipe,
+        direction="in",
+        item_id=catalyst,
+        qty_count=1,
+        consumption_chance=0.1,
+    )
+
+    planner = PlannerService(conn, profile_conn)
+    result = planner.plan(
+        output,
+        1,
+        use_inventory=True,
+        enabled_tiers=[],
+        crafting_6x6_unlocked=True,
+    )
+
+    assert result.errors == []
+    assert result.missing_recipes == []
+    assert result.shopping_list == [("Catalyst", 2, "count")]
+    assert result.steps[0].inputs == [(catalyst, "Catalyst", 2, "count")]
+
+
 def test_plan_reports_required_and_missing_base_items_with_inventory():
     conn = _setup_conn()
     profile_conn = connect_profile(":memory:")

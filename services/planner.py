@@ -269,7 +269,7 @@ class PlannerService:
             multiplier = max(1, math.ceil(qty_needed / output_qty))
             inputs = []
             input_frames = []
-            input_requirements: dict[int, dict[str, int | str]] = {}
+            input_requirements: dict[int, dict[str, int | float | str]] = {}
             reusable_requirements: dict[int, int] = {}
             input_lines = self._recipe_inputs(recipe["id"])
             for line in input_lines:
@@ -280,29 +280,31 @@ class PlannerService:
                 if input_qty <= 0:
                     continue
                 consumption_chance = self._normalize_consumption_chance(line["consumption_chance"])
-                total_qty = self._required_input_qty(
-                    input_qty=input_qty,
-                    multiplier=multiplier,
-                    consumption_chance=consumption_chance,
-                )
                 if consumption_chance <= 0:
                     reusable_requirements[input_item["id"]] = reusable_requirements.get(input_item["id"], 0) + input_qty
                 existing = input_requirements.get(input_item["id"])
                 if existing:
-                    existing["qty"] = int(existing["qty"]) + total_qty
+                    existing["minimum_qty"] = int(existing["minimum_qty"]) + input_qty
+                    existing["expected_consumed"] = float(existing["expected_consumed"]) + (input_qty * consumption_chance)
                 else:
                     input_requirements[input_item["id"]] = {
                         "id": input_item["id"],
                         "name": input_item["name"],
-                        "qty": total_qty,
+                        "minimum_qty": input_qty,
+                        "expected_consumed": input_qty * consumption_chance,
                         "unit": self._unit_for_kind(input_item["kind"]),
                     }
             for requirement in input_requirements.values():
+                total_qty = self._required_input_qty(
+                    minimum_qty=int(requirement["minimum_qty"]),
+                    multiplier=multiplier,
+                    expected_consumed_per_craft=float(requirement["expected_consumed"]),
+                )
                 inputs.append(
                     (
                         requirement["id"],
                         requirement["name"],
-                        int(requirement["qty"]),
+                        total_qty,
                         requirement["unit"],
                     )
                 )
@@ -310,7 +312,7 @@ class PlannerService:
                     {
                         "state": "enter",
                         "item_id": requirement["id"],
-                        "qty_needed": int(requirement["qty"]),
+                        "qty_needed": total_qty,
                     }
                 )
 
@@ -959,16 +961,16 @@ class PlannerService:
     def _required_input_qty(
         self,
         *,
-        input_qty: int,
+        minimum_qty: int,
         multiplier: int,
-        consumption_chance: float,
+        expected_consumed_per_craft: float,
     ) -> int:
-        if input_qty <= 0:
+        if minimum_qty <= 0:
             return 0
-        if consumption_chance <= 0:
-            return input_qty
-        expected_consumed = math.ceil(input_qty * multiplier * consumption_chance)
-        return max(input_qty, expected_consumed)
+        if expected_consumed_per_craft <= 0:
+            return minimum_qty
+        expected_consumed = math.ceil(multiplier * expected_consumed_per_craft)
+        return max(minimum_qty, expected_consumed)
 
     def _container_byproducts(
         self,
