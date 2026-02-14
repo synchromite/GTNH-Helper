@@ -141,6 +141,41 @@ def test_plan_inserts_emptying_step_for_fluid_container():
     assert result.steps[0].byproducts == [(empty_cell, "Cell", 2, "count", 100.0)]
 
 
+def test_plan_inserts_filling_step_for_fluid_container_output():
+    conn = _setup_conn()
+    profile_conn = connect_profile(":memory:")
+
+    water = _insert_item(conn, key="water", name="Water", kind="fluid")
+    empty_cell = _insert_item(conn, key="cell", name="Cell", kind="item")
+    water_cell = _insert_item(
+        conn,
+        key="water_cell",
+        name="Water Cell",
+        kind="item",
+        content_fluid_id=water,
+        content_qty_liters=1,
+    )
+
+    planner = PlannerService(conn, profile_conn)
+    result = planner.plan(
+        water_cell,
+        2,
+        use_inventory=True,
+        enabled_tiers=[],
+        crafting_6x6_unlocked=True,
+        inventory_override={water: 2, empty_cell: 2},
+    )
+
+    assert result.errors == []
+    assert result.missing_recipes == []
+    assert result.shopping_list == []
+    assert [step.recipe_name for step in result.steps] == ["Filling"]
+    assert result.steps[0].inputs == [
+        (water, "Water", 2, "L"),
+        (empty_cell, "Cell", 2, "count"),
+    ]
+
+
 def test_plan_accounts_for_non_consumed_inputs():
     conn = _setup_conn()
     profile_conn = connect_profile(":memory:")
