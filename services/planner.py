@@ -417,6 +417,9 @@ class PlannerService:
             missing_recipes=missing_recipes,
         )
 
+    def clear_cache(self) -> None:
+        self._machine_availability_cache = None
+
     def _merge_plan_steps(self, steps: list[PlanStep]) -> list[PlanStep]:
         merged: list[PlanStep] = []
         step_index_by_key: dict[tuple, int] = {}

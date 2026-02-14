@@ -756,6 +756,9 @@ class App(QtWidgets.QMainWindow):
 
     def set_machine_availability(self, rows: list[tuple[str, str, int, int]]) -> None:
         self.db.set_machine_availability(rows)
+        planner_widget = self.tab_widgets.get("planner")
+        if planner_widget and hasattr(planner_widget, "clear_planner_cache"):
+            planner_widget.clear_planner_cache()
 
     def notify_inventory_change(self) -> None:
         widget = self.tab_widgets.get("planner")

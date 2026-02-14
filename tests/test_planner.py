@@ -417,6 +417,57 @@ def test_plan_falls_back_when_no_machines_online():
     assert [step.recipe_name for step in result.steps] == ["Make Output LV"]
 
 
+
+def test_plan_refreshes_machine_availability_after_cache_clear():
+    conn = _setup_conn()
+    profile_conn = connect_profile(":memory:")
+
+    item_input = _insert_item(conn, key="input_item", name="Input Item", is_base=1)
+    item_output = _insert_item(conn, key="output_item", name="Output Item")
+
+    recipe_lv = _insert_recipe(conn, name="Make Output LV", method="machine", duration_ticks=120)
+    _set_recipe_machine(conn, recipe_id=recipe_lv, machine="lathe", tier="LV")
+    _insert_line(conn, recipe_id=recipe_lv, direction="out", item_id=item_output, qty_count=1)
+    _insert_line(conn, recipe_id=recipe_lv, direction="in", item_id=item_input, qty_count=1)
+
+    recipe_mv = _insert_recipe(conn, name="Make Output MV", method="machine", duration_ticks=400)
+    _set_recipe_machine(conn, recipe_id=recipe_mv, machine="macerator", tier="MV")
+    _insert_line(conn, recipe_id=recipe_mv, direction="out", item_id=item_output, qty_count=1)
+    _insert_line(conn, recipe_id=recipe_mv, direction="in", item_id=item_input, qty_count=1)
+
+    planner = PlannerService(conn, profile_conn)
+
+    initial_result = planner.plan(
+        item_output,
+        1,
+        use_inventory=False,
+        enabled_tiers=["LV", "MV"],
+        crafting_6x6_unlocked=True,
+    )
+    assert [step.recipe_name for step in initial_result.steps] == ["Make Output LV"]
+
+    _set_machine_availability(profile_conn, machine_type="macerator", tier="MV", owned=1, online=1)
+    profile_conn.commit()
+
+    stale_result = planner.plan(
+        item_output,
+        1,
+        use_inventory=False,
+        enabled_tiers=["LV", "MV"],
+        crafting_6x6_unlocked=True,
+    )
+    assert [step.recipe_name for step in stale_result.steps] == ["Make Output LV"]
+
+    planner.clear_cache()
+    refreshed_result = planner.plan(
+        item_output,
+        1,
+        use_inventory=False,
+        enabled_tiers=["LV", "MV"],
+        crafting_6x6_unlocked=True,
+    )
+    assert [step.recipe_name for step in refreshed_result.steps] == ["Make Output MV"]
+
 def test_apply_overclock_scales_duration_and_power():
     scaled_duration, scaled_eu = apply_overclock(200, 32, "LV", "MV")
 
