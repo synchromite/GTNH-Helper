@@ -1,4 +1,5 @@
 import sqlite3
+import pytest
 
 from services import db
 from services import materials
@@ -87,3 +88,36 @@ def test_materials_crud():
     materials.delete_material(conn, material_id)
     missing = conn.execute("SELECT 1 FROM materials WHERE id=?", (material_id,)).fetchone()
     assert missing is None
+
+
+def test_connect_read_only_applies_schema_migrations(tmp_path):
+    db_path = tmp_path / "legacy.db"
+
+    legacy = sqlite3.connect(db_path)
+    legacy.execute(
+        """
+        CREATE TABLE items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            key TEXT NOT NULL UNIQUE,
+            kind TEXT NOT NULL,
+            is_base INTEGER NOT NULL DEFAULT 0
+        )
+        """
+    )
+    legacy.execute("INSERT INTO items(key, kind, is_base) VALUES('foo', 'item', 0)")
+    legacy.commit()
+    legacy.close()
+
+    conn = db.connect(db_path, read_only=True)
+    try:
+        # Regression check: old DBs must be migrated even in client mode.
+        cols = _table_columns(conn, "items")
+        assert "needs_review" in cols
+
+        query_only = conn.execute("PRAGMA query_only").fetchone()[0]
+        assert query_only == 1
+
+        with pytest.raises(sqlite3.OperationalError):
+            conn.execute("INSERT INTO items(key, kind, is_base) VALUES('bar', 'item', 0)")
+    finally:
+        conn.close()

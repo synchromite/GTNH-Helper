@@ -97,19 +97,22 @@ def connect(db_path: Path | str = DEFAULT_DB_PATH, *, read_only: bool = False) -
     """Connect to a GTNH Recipe *content* DB.
 
     In client mode, pass read_only=True to prevent content edits.
-    NOTE: When read_only=True, schema migrations are NOT performed.
+    Schema migrations are still applied so older DB files remain readable.
     """
     db_path = Path(db_path)
     if read_only:
-        # Open as read-only (fails if the file doesn't exist).
-        uri = f"file:{db_path.as_posix()}?mode=ro"
+        # Open read/write to allow schema migrations, but require the DB file
+        # to exist (same failure behavior as strict read-only mode).
+        uri = f"file:{db_path.as_posix()}?mode=rw"
         conn = sqlite3.connect(uri, uri=True)
     else:
         conn = sqlite3.connect(str(db_path))
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys=ON")
-    if not read_only:
-        ensure_schema(conn)
+    ensure_schema(conn)
+    if read_only:
+        # Enforce read-only behavior for the remainder of this connection.
+        conn.execute("PRAGMA query_only=ON")
     return conn
 
 
