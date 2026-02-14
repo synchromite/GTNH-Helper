@@ -293,6 +293,47 @@ def test_plan_reports_required_and_missing_base_items_with_inventory():
     assert result.shopping_list == [("Ore", 4, "count")]
 
 
+def test_plan_merges_duplicate_created_item_steps_across_branches():
+    conn = _setup_conn()
+    profile_conn = connect_profile(":memory:")
+
+    steel_ingot = _insert_item(conn, key="steel_ingot", name="Steel Ingot", is_base=1)
+    steel_rod = _insert_item(conn, key="steel_rod", name="Steel Rod")
+    assembly_a = _insert_item(conn, key="assembly_a", name="Assembly A")
+    assembly_b = _insert_item(conn, key="assembly_b", name="Assembly B")
+    final = _insert_item(conn, key="final_build", name="Final Build")
+
+    rod_recipe = _insert_recipe(conn, name="Make Steel Rod")
+    _insert_line(conn, recipe_id=rod_recipe, direction="out", item_id=steel_rod, qty_count=2)
+    _insert_line(conn, recipe_id=rod_recipe, direction="in", item_id=steel_ingot, qty_count=2)
+
+    assembly_a_recipe = _insert_recipe(conn, name="Make Assembly A")
+    _insert_line(conn, recipe_id=assembly_a_recipe, direction="out", item_id=assembly_a, qty_count=1)
+    _insert_line(conn, recipe_id=assembly_a_recipe, direction="in", item_id=steel_rod, qty_count=10)
+
+    assembly_b_recipe = _insert_recipe(conn, name="Make Assembly B")
+    _insert_line(conn, recipe_id=assembly_b_recipe, direction="out", item_id=assembly_b, qty_count=1)
+    _insert_line(conn, recipe_id=assembly_b_recipe, direction="in", item_id=steel_rod, qty_count=15)
+
+    final_recipe = _insert_recipe(conn, name="Make Final Build")
+    _insert_line(conn, recipe_id=final_recipe, direction="out", item_id=final, qty_count=1)
+    _insert_line(conn, recipe_id=final_recipe, direction="in", item_id=assembly_a, qty_count=1)
+    _insert_line(conn, recipe_id=final_recipe, direction="in", item_id=assembly_b, qty_count=1)
+
+    planner = PlannerService(conn, profile_conn)
+    result = planner.plan(
+        final,
+        1,
+        use_inventory=True,
+        enabled_tiers=[],
+        crafting_6x6_unlocked=True,
+    )
+
+    rod_steps = [step for step in result.steps if step.output_item_id == steel_rod]
+    assert len(rod_steps) == 1
+
+
+
 def test_plan_missing_recipe_reports_error():
     conn = _setup_conn()
     profile_conn = connect_profile(":memory:")

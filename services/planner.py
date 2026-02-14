@@ -406,14 +406,86 @@ class PlannerService:
         required_base_list.sort(key=lambda row: (row[0] or "").lower())
         storage_requirements.sort(key=lambda row: (row[2] == 0, (row[0] or "").lower()))
 
+        merged_steps = self._merge_plan_steps(steps)
+
         return PlanResult(
             shopping_list=shopping_list,
             required_base_list=required_base_list,
             storage_requirements=storage_requirements,
-            steps=steps,
+            steps=merged_steps,
             errors=errors,
             missing_recipes=missing_recipes,
         )
+
+    def _merge_plan_steps(self, steps: list[PlanStep]) -> list[PlanStep]:
+        merged: list[PlanStep] = []
+        step_index_by_key: dict[tuple, int] = {}
+
+        for step in steps:
+            key = (
+                step.recipe_id,
+                step.output_item_id,
+                step.method,
+                step.machine,
+                step.machine_item_id,
+                step.grid_size,
+                step.station_item_id,
+                step.circuit,
+                step.output_qty,
+                step.output_unit,
+            )
+            existing_index = step_index_by_key.get(key)
+            if existing_index is None:
+                merged.append(
+                    PlanStep(
+                        recipe_id=step.recipe_id,
+                        recipe_name=step.recipe_name,
+                        method=step.method,
+                        machine=step.machine,
+                        machine_item_id=step.machine_item_id,
+                        machine_item_name=step.machine_item_name,
+                        grid_size=step.grid_size,
+                        station_item_id=step.station_item_id,
+                        station_item_name=step.station_item_name,
+                        circuit=step.circuit,
+                        output_item_id=step.output_item_id,
+                        output_item_name=step.output_item_name,
+                        output_qty=step.output_qty,
+                        output_unit=step.output_unit,
+                        multiplier=step.multiplier,
+                        inputs=list(step.inputs),
+                        byproducts=list(step.byproducts),
+                    )
+                )
+                step_index_by_key[key] = len(merged) - 1
+                continue
+
+            existing = merged[existing_index]
+            existing.multiplier += step.multiplier
+
+            input_map: dict[tuple[int, str, str], int] = {
+                (item_id, name, unit): qty for item_id, name, qty, unit in existing.inputs
+            }
+            for item_id, name, qty, unit in step.inputs:
+                input_key = (item_id, name, unit)
+                input_map[input_key] = input_map.get(input_key, 0) + qty
+            existing.inputs = [
+                (item_id, name, qty, unit)
+                for (item_id, name, unit), qty in sorted(input_map.items(), key=lambda row: (row[0][1] or "").lower())
+            ]
+
+            byproduct_map: dict[tuple[int, str, str, float], int] = {
+                (item_id, name, unit, chance): qty for item_id, name, qty, unit, chance in existing.byproducts
+            }
+            for item_id, name, qty, unit, chance in step.byproducts:
+                byproduct_key = (item_id, name, unit, chance)
+                byproduct_map[byproduct_key] = byproduct_map.get(byproduct_key, 0) + qty
+            existing.byproducts = [
+                (item_id, name, qty, unit, chance)
+                for (item_id, name, unit, chance), qty in sorted(byproduct_map.items(), key=lambda row: (row[0][1] or "").lower())
+            ]
+
+        return merged
 
     # ---------- Data loaders ----------
     def _load_items(self) -> dict[int, dict]:
