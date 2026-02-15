@@ -225,52 +225,37 @@ class ItemPickerDialog(QtWidgets.QDialog):
         if self.machines_only:
             p_machines = QtWidgets.QTreeWidgetItem(self.tree, ["Machines"])
             p_machines.setExpanded(True)
-            added_any = False
             for row in self._items:
                 if not _matches(row):
                     continue
                 child = QtWidgets.QTreeWidgetItem(p_machines, [self._label_for(row)])
                 self._display_map[child] = row
-                added_any = True
-            if not added_any:
-                QtWidgets.QTreeWidgetItem(p_machines, ["(no matches)"])
             self._select_first_child(p_machines)
+            if p_machines.childCount() == 0:
+                self.tree.takeTopLevelItem(self.tree.indexOfTopLevelItem(p_machines))
             return
         if self.crafting_grids_only:
             p_grids = QtWidgets.QTreeWidgetItem(self.tree, ["Crafting Grids"])
             p_grids.setExpanded(True)
-            added_any = False
             for row in self._items:
                 if not _matches(row):
                     continue
                 child = QtWidgets.QTreeWidgetItem(p_grids, [self._label_for(row)])
                 self._display_map[child] = row
-                added_any = True
-            if not added_any:
-                QtWidgets.QTreeWidgetItem(p_grids, ["(no matches)"])
             self._select_first_child(p_grids)
+            if p_grids.childCount() == 0:
+                self.tree.takeTopLevelItem(self.tree.indexOfTopLevelItem(p_grids))
             return
 
         active_kinds = self._active_kinds()
-        show_items = "item" in active_kinds
-        show_fluids = "fluid" in active_kinds
-        show_gases = "gas" in active_kinds
-        show_machines = "machine" in active_kinds
-        show_grids = "crafting_grid" in active_kinds
+        kind_labels = {
+            "item": "Items",
+            "fluid": "Fluids",
+            "gas": "Gases",
+            "machine": "Machines",
+            "crafting_grid": "Crafting Grids",
+        }
 
-        p_items = QtWidgets.QTreeWidgetItem(self.tree, ["Items"]) if show_items else None
-        p_fluids = QtWidgets.QTreeWidgetItem(self.tree, ["Fluids"]) if show_fluids else None
-        p_gases = QtWidgets.QTreeWidgetItem(self.tree, ["Gases"]) if show_gases else None
-        p_machines = QtWidgets.QTreeWidgetItem(self.tree, ["Machines"]) if show_machines else None
-        p_grids = QtWidgets.QTreeWidgetItem(self.tree, ["Crafting Grids"]) if show_grids else None
-
-        if p_items: p_items.setExpanded(True)
-        if p_fluids: p_fluids.setExpanded(True)
-        if p_gases: p_gases.setExpanded(True)
-        if p_machines: p_machines.setExpanded(True)
-        if p_grids: p_grids.setExpanded(True)
-
-        added_any = {"item": False, "fluid": False, "gas": False, "machine": False, "crafting_grid": False}
         grouped: dict[str, dict[str | None, list]] = {
             "item": {},
             "fluid": {},
@@ -296,16 +281,20 @@ class ItemPickerDialog(QtWidgets.QDialog):
             if not _matches(row):
                 continue
             kind = row["kind"]
+            if kind not in active_kinds:
+                continue
             category = _category_label(row)
             grouped.setdefault(kind, {})
             grouped[kind].setdefault(category, []).append(row)
 
-        def _add_group(parent_item: QtWidgets.QTreeWidgetItem | None, kind: str) -> None:
-            if parent_item is None:
-                return
+        for kind in ("item", "fluid", "gas", "machine", "crafting_grid"):
+            if kind not in active_kinds:
+                continue
             categories = grouped.get(kind, {})
             if not categories:
-                return
+                continue
+            parent_item = QtWidgets.QTreeWidgetItem(self.tree, [kind_labels[kind]])
+            parent_item.setExpanded(True)
             for category in sorted(categories.keys(), key=lambda val: "" if val is None else val.casefold()):
                 rows = categories[category]
                 if category is None:
@@ -316,31 +305,11 @@ class ItemPickerDialog(QtWidgets.QDialog):
                 for row in sorted(rows, key=lambda r: self._label_for(r).casefold()):
                     child = QtWidgets.QTreeWidgetItem(category_item, [self._label_for(row)])
                     self._display_map[child] = row
-                    added_any[row["kind"]] = True
 
-        _add_group(p_items, "item")
-        _add_group(p_fluids, "fluid")
-        _add_group(p_gases, "gas")
-        _add_group(p_machines, "machine")
-        _add_group(p_grids, "crafting_grid")
-
-        if p_items and not added_any["item"]:
-            QtWidgets.QTreeWidgetItem(p_items, ["(no matches)"])
-        if p_fluids and not added_any["fluid"]:
-            QtWidgets.QTreeWidgetItem(p_fluids, ["(no matches)"])
-        if p_gases and not added_any["gas"]:
-            QtWidgets.QTreeWidgetItem(p_gases, ["(no matches)"])
-        if p_machines and not added_any["machine"]:
-            QtWidgets.QTreeWidgetItem(p_machines, ["(no matches)"])
-        if p_grids and not added_any["crafting_grid"]:
-            QtWidgets.QTreeWidgetItem(p_grids, ["(no matches)"])
-
-        for p in [p_items, p_fluids, p_gases, p_machines, p_grids]:
-            if p is not None:
-                for k_parent in self._children(p):
-                    if self._select_first_child(k_parent):
-                        return
-                self._select_first_child(p)
+        for idx in range(self.tree.topLevelItemCount()):
+            p = self.tree.topLevelItem(idx)
+            if p is not None and self._select_first_child(p):
+                return
 
     def _children(self, item: QtWidgets.QTreeWidgetItem) -> list[QtWidgets.QTreeWidgetItem]:
         return [item.child(i) for i in range(item.childCount())]

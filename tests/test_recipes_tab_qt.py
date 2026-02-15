@@ -65,6 +65,7 @@ def _seed_conn() -> sqlite3.Connection:
             (1, "ingotIron", "Iron Ingot", "item", 1, 1),
             (2, "dustIron", "Iron Dust", "item", 2, 1),
             (3, "dustCopper", "Copper Dust", "item", 2, 2),
+            (4, "chlorine", "Chlorine", "gas", None, None),
         ],
     )
     conn.executemany(
@@ -73,6 +74,7 @@ def _seed_conn() -> sqlite3.Connection:
             (100, 1, "out"),
             (100, 2, "in"),
             (200, 3, "out"),
+            (300, 4, "out"),
         ],
     )
     return conn
@@ -109,6 +111,27 @@ def test_filter_recipes_by_item_name_matches_output_metadata_fields() -> None:
     assert [recipe["id"] for recipe in filtered] == [100]
     tab.deleteLater()
 
+
+
+def test_render_recipes_gases_skip_no_kind_group() -> None:
+    _get_app()
+
+    class DummyApp:
+        editor_enabled = False
+        conn = _seed_conn()
+
+    tab = RecipesTab(DummyApp())
+    recipes = [{"id": 300, "name": "Chlorine", "duplicate_of_recipe_id": None}]
+
+    tab.render_recipes(recipes)
+
+    assert tab.recipe_tree.topLevelItemCount() == 1
+    gases_node = tab.recipe_tree.topLevelItem(0)
+    assert gases_node.text(0) == "Gases"
+    assert gases_node.childCount() == 1
+    assert gases_node.child(0).text(0) == "Chlorine"
+
+    tab.deleteLater()
 
 def test_filter_recipes_by_item_name_keeps_all_for_blank_search() -> None:
     _get_app()

@@ -89,7 +89,7 @@ class RecipesTab(QtWidgets.QWidget):
         self.recipe_item_node_map = {}
         item_nodes: dict[int, QtWidgets.QTreeWidgetItem] = {}
         output_rows = self._fetch_recipe_outputs(normal)
-        grouped: dict[str, dict[str, dict[str | None, dict[int, dict]]]] = {
+        grouped: dict[str, dict[str | None, dict[str | None, dict[int, dict]]]] = {
             "item": {},
             "fluid": {},
             "gas": {},
@@ -130,12 +130,15 @@ class RecipesTab(QtWidgets.QWidget):
             kind = (row["kind"] or "item").strip().lower()
             if kind not in grouped:
                 kind = "item"
-            item_kind_label = _label(row["item_kind_name"], "(No kind)")
+            use_item_kind_grouping = kind != "gas"
+            item_kind_label = _label(row["item_kind_name"], "(No kind)") if use_item_kind_grouping else None
             material_label = row["material_name"]
             if material_label is not None:
                 material_label = material_label.strip()
                 if not material_label:
                     material_label = None
+            if not use_item_kind_grouping:
+                material_label = None
             grouped.setdefault(kind, {})
             grouped[kind].setdefault(item_kind_label, {})
             grouped[kind][item_kind_label].setdefault(material_label, {})
@@ -152,9 +155,15 @@ class RecipesTab(QtWidgets.QWidget):
             parent = QtWidgets.QTreeWidgetItem([label])
             parent.setExpanded(True)
             self.recipe_tree.addTopLevelItem(parent)
-            for item_kind_label in sorted(kind_groups.keys(), key=lambda val: val.casefold()):
-                item_kind_node = QtWidgets.QTreeWidgetItem([item_kind_label])
-                parent.addChild(item_kind_node)
+            for item_kind_label in sorted(
+                kind_groups.keys(),
+                key=lambda val: "" if val is None else val.casefold(),
+            ):
+                if item_kind_label is None:
+                    item_kind_node = parent
+                else:
+                    item_kind_node = QtWidgets.QTreeWidgetItem([item_kind_label])
+                    parent.addChild(item_kind_node)
                 material_groups = kind_groups[item_kind_label]
                 for material_label in sorted(
                     material_groups.keys(),
