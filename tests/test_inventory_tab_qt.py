@@ -384,3 +384,80 @@ def test_inventory_container_item_can_set_placed_count_for_storage() -> None:
 
     tab.deleteLater()
     conn.close()
+
+
+def test_inventory_container_item_can_be_assigned_to_custom_storage_from_main_owned() -> None:
+    app = _get_app()
+
+    class DummyStatusBar:
+        def showMessage(self, _msg: str) -> None:
+            return None
+
+    class DummyApp:
+        def __init__(self) -> None:
+            self.profile_conn = connect_profile(":memory:")
+            self.status_bar = DummyStatusBar()
+
+        def notify_inventory_change(self) -> None:
+            return None
+
+        def list_storage_units(self):
+            rows = self.profile_conn.execute("SELECT * FROM storage_units ORDER BY id").fetchall()
+            return [dict(r) for r in rows]
+
+    tab = InventoryTab(DummyApp())
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    row = conn.execute(
+        "SELECT 1 AS id, 'Diamond Chest' AS name, 'item' AS kind, 'storage' AS item_kind_name, "
+        "NULL AS material_name, NULL AS machine_type, NULL AS machine_tier, 0 AS is_machine, "
+        "NULL AS crafting_grid_size, 64 AS max_stack_size, 1 AS is_storage_container, 108 AS storage_slot_count"
+    ).fetchone()
+
+    # Create custom storage and render inventory items.
+    tab.app.profile_conn.execute("INSERT INTO storage_units(name, kind) VALUES('Ore Storage', 'ore')")
+    tab.app.profile_conn.commit()
+    tab.render_items([row])
+
+    tree = tab.inventory_trees["All"]
+    leaf = tree.topLevelItem(0).child(0).child(0)
+    tree.setCurrentItem(leaf)
+
+    # Record globally owned containers in Main Storage.
+    tab.storage_selector.setCurrentIndex(1)
+    tab.inventory_qty_entry.setText("4")
+    tab.save_inventory_item()
+    app.processEvents()
+
+    # Switch to custom storage and assign 2 placed containers without entering local qty first.
+    tab.storage_selector.setCurrentIndex(2)
+    app.processEvents()
+    tab.container_placed_spin.setValue(2)
+    tab._apply_container_placement()
+    app.processEvents()
+
+    ore_storage = tab.app.profile_conn.execute(
+        "SELECT id, container_item_id, placed_count, slot_count FROM storage_units WHERE name='Ore Storage'"
+    ).fetchone()
+    assert ore_storage is not None
+    assert ore_storage["container_item_id"] == 1
+    assert ore_storage["placed_count"] == 2
+    assert ore_storage["slot_count"] == 216
+
+    assigned = tab.app.profile_conn.execute(
+        "SELECT qty_count FROM storage_assignments WHERE storage_id=? AND item_id=?",
+        (ore_storage["id"], 1),
+    ).fetchone()
+    assert assigned is not None
+    assert assigned["qty_count"] == 2
+
+    main_storage_id = tab.app.profile_conn.execute("SELECT id FROM storage_units WHERE name='Main Storage'").fetchone()["id"]
+    main_owned = tab.app.profile_conn.execute(
+        "SELECT qty_count FROM storage_assignments WHERE storage_id=? AND item_id=?",
+        (main_storage_id, 1),
+    ).fetchone()
+    assert main_owned is not None
+    assert main_owned["qty_count"] == 4
+
+    tab.deleteLater()
+    conn.close()

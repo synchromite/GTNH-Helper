@@ -4,6 +4,7 @@ from PySide6 import QtCore, QtWidgets
 
 from services.storage import (
     aggregate_assignment_for_item,
+    default_storage_id,
     delete_assignment,
     get_assignment,
     storage_inventory_totals,
@@ -454,7 +455,16 @@ class InventoryTab(QtWidgets.QWidget):
             return
 
         storage = self._storage_row_by_id(storage_id) or {}
-        owned = max(0, int(float(qty or 0)))
+        main_storage_id = default_storage_id(self.app.profile_conn)
+        main_row = None
+        if main_storage_id is not None:
+            main_row = get_assignment(self.app.profile_conn, storage_id=int(main_storage_id), item_id=int(item["id"]))
+        owned_total = max(0, int(float((main_row["qty_count"] if main_row else 0) or 0)))
+        owned_local = max(0, int(float(qty or 0)))
+
+        # For non-main storages, allow placement assignment based on globally owned containers.
+        # This lets users place a container into custom storages without first setting a local qty.
+        owned = owned_local if main_storage_id is None or int(storage_id) == int(main_storage_id) else owned_total
         linked_item_id = storage.get("container_item_id")
         is_linked = linked_item_id is not None and int(linked_item_id) == int(item["id"])
         placed_current = int(storage.get("placed_count") or 0) if is_linked else 0
@@ -470,7 +480,8 @@ class InventoryTab(QtWidgets.QWidget):
         if linked_item_id is not None and not is_linked:
             linked_msg = " This storage is currently linked to a different container item."
         self.container_placement_note.setText(
-            f"Owned in selected storage: {owned}. "
+            f"Owned total (Main Storage): {owned_total}. "
+            f"Assigned to selected storage: {owned_local}. "
             f"Slots per container: {slot_count}. "
             f"Usable slots from placed: {placed_current * slot_count}." + linked_msg
         )
@@ -510,9 +521,29 @@ class InventoryTab(QtWidgets.QWidget):
         storage_id = self._current_storage_id()
         if storage_id is None:
             return
-        owned = max(0, int(float(self.inventory_qty_entry.text().strip() or 0)))
+        main_storage_id = default_storage_id(self.app.profile_conn)
+        main_owned = 0
+        if main_storage_id is not None:
+            main_row = get_assignment(self.app.profile_conn, storage_id=int(main_storage_id), item_id=int(item["id"]))
+            main_owned = max(0, int(float((main_row["qty_count"] if main_row else 0) or 0)))
+        local_owned = max(0, int(float(self.inventory_qty_entry.text().strip() or 0)))
+        owned = local_owned if main_storage_id is None or int(storage_id) == int(main_storage_id) else main_owned
         placed = min(self.container_placed_spin.value(), owned)
         slot_count = self._container_slot_count_for_item(item)
+
+        # Ensure custom storages visibly contain assigned container items.
+        # Main Storage keeps its own explicit inventory quantity from normal Save/Clear actions.
+        if main_storage_id is None or int(storage_id) != int(main_storage_id):
+            if placed > 0:
+                upsert_assignment(
+                    self.app.profile_conn,
+                    storage_id=storage_id,
+                    item_id=int(item["id"]),
+                    qty_count=placed,
+                    qty_liters=None,
+                )
+            else:
+                delete_assignment(self.app.profile_conn, storage_id=storage_id, item_id=int(item["id"]))
 
         update_storage_unit(
             self.app.profile_conn,
