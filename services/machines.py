@@ -51,28 +51,49 @@ def _sync_machine_items(conn: sqlite3.Connection) -> None:
         """
     ).fetchall()
 
+    metadata_by_key: dict[tuple[str, str], str] = {}
     for row in metadata_rows:
         machine_type = (row["machine_type"] or "").strip()
         tier = (row["tier"] or "").strip()
+        if not machine_type or not tier:
+            continue
         machine_name = (row["machine_name"] or "").strip() or f"{tier} {machine_type}"
-        existing_rows = conn.execute(
-            """
-            SELECT id
-            FROM items
-            WHERE kind='machine' AND machine_type=? AND machine_tier=?
-            ORDER BY id
-            """,
-            (machine_type, tier),
-        ).fetchall()
-        if existing_rows:
+        metadata_by_key[(machine_type, tier)] = machine_name
+
+    existing_rows = conn.execute(
+        """
+        SELECT id, machine_type, machine_tier
+        FROM items
+        WHERE kind='machine'
+        ORDER BY id
+        """
+    ).fetchall()
+
+    existing_by_key: dict[tuple[str, str], list[int]] = {}
+    for row in existing_rows:
+        item_id = int(row["id"])
+        machine_type = (row["machine_type"] or "").strip()
+        tier = (row["machine_tier"] or "").strip()
+        key = (machine_type, tier)
+        if key not in metadata_by_key:
+            conn.execute("DELETE FROM items WHERE id=?", (item_id,))
+            continue
+        existing_by_key.setdefault(key, []).append(item_id)
+
+    for (machine_type, tier), machine_name in sorted(metadata_by_key.items()):
+        existing_ids = existing_by_key.get((machine_type, tier), [])
+        if existing_ids:
+            keep_id = existing_ids[0]
             conn.execute(
                 """
                 UPDATE items
-                SET display_name=?, is_machine=1
+                SET display_name=?, is_machine=1, machine_type=?, machine_tier=?
                 WHERE id=?
                 """,
-                (machine_name, int(existing_rows[0]["id"])),
+                (machine_name, machine_type, tier, keep_id),
             )
+            for duplicate_id in existing_ids[1:]:
+                conn.execute("DELETE FROM items WHERE id=?", (duplicate_id,))
             continue
 
         base_key = f"machine_{_slugify_key(machine_type)}_{_slugify_key(tier)}"

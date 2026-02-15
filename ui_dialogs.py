@@ -3098,6 +3098,7 @@ class MachineMetadataEditorDialog(QtWidgets.QDialog):
         self.form.addWidget(self.machine_name_edit, name_row, 1)
 
         self.slot_widgets: dict[str, tuple[QtWidgets.QCheckBox, QtWidgets.QSpinBox]] = {}
+        self._required_slot_keys: set[str] = set()
         self.capacity_widgets: dict[str, QtWidgets.QSpinBox] = {}
         self.capacity_labels: dict[str, QtWidgets.QLabel] = {}
 
@@ -3196,8 +3197,8 @@ class MachineMetadataEditorDialog(QtWidgets.QDialog):
 
     def _set_form_enabled(self, enabled: bool) -> None:
         self.machine_name_edit.setEnabled(enabled)
-        for checkbox, spin in self.slot_widgets.values():
-            checkbox.setEnabled(enabled)
+        for key, (checkbox, spin) in self.slot_widgets.items():
+            checkbox.setEnabled(enabled and key not in self._required_slot_keys)
             spin.setEnabled(enabled)
         for spin in self.capacity_widgets.values():
             spin.setEnabled(enabled)
@@ -3227,6 +3228,7 @@ class MachineMetadataEditorDialog(QtWidgets.QDialog):
         if required:
             checkbox.setChecked(True)
             checkbox.setEnabled(False)
+            self._required_slot_keys.add(key)
 
         if with_capacity:
             cap_row = self.form.rowCount()
@@ -3274,9 +3276,8 @@ class MachineMetadataEditorDialog(QtWidgets.QDialog):
         self.machine_name_edit.setText((values.get("machine_name") or "").strip())
         for key, (checkbox, spin) in self.slot_widgets.items():
             value = int(values.get(key, self._slot_defaults.get(key, 0)))
-            if checkbox.isEnabled():
-                checkbox.setChecked(value > 0)
-                spin.setVisible(value > 0)
+            checkbox.setChecked(value > 0)
+            spin.setVisible(value > 0)
             spin.setValue(max(spin.minimum(), value))
         for key, spin in self.capacity_widgets.items():
             value = int(values.get(key, self._slot_defaults.get(key, 0)))

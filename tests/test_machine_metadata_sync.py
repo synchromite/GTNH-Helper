@@ -64,3 +64,36 @@ def test_replace_machine_metadata_updates_existing_machine_item_name() -> None:
 
     assert len(rows) == 1
     assert rows[0]["display_name"] == "Basic Cutting Machine"
+
+
+def test_replace_machine_metadata_deletes_machine_items_not_in_metadata() -> None:
+    conn = _setup_conn()
+    conn.execute(
+        """
+        INSERT INTO items(key, display_name, kind, is_base, is_machine, machine_tier, machine_type, is_multiblock)
+        VALUES('machine_cutting_machine_lv', 'Basic Cutting Machine', 'machine', 0, 1, 'LV', 'Cutting Machine', 0)
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO items(key, display_name, kind, is_base, is_machine, machine_tier, machine_type, is_multiblock)
+        VALUES('machine_macerator_mv', 'Advanced Macerator', 'machine', 0, 1, 'MV', 'Macerator', 0)
+        """
+    )
+    conn.commit()
+
+    replace_machine_metadata(
+        conn,
+        [
+            ("Cutting Machine", "LV", "Basic Cutting Machine", 1, 1, 0, 0, 0, 0, 0, 0, 0, 0),
+        ],
+    )
+
+    rows = conn.execute(
+        "SELECT machine_type, machine_tier, display_name FROM items WHERE kind='machine' ORDER BY id"
+    ).fetchall()
+
+    assert len(rows) == 1
+    assert rows[0]["machine_type"] == "Cutting Machine"
+    assert rows[0]["machine_tier"] == "LV"
+    assert rows[0]["display_name"] == "Basic Cutting Machine"
