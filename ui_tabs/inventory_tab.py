@@ -192,6 +192,8 @@ class InventoryTab(QtWidgets.QWidget):
         self.inventory_qty_entry.setReadOnly(aggregate)
         self.btn_save.setEnabled(not aggregate)
         self.btn_clear.setEnabled(not aggregate)
+        for checkbox in self.machine_availability_checks:
+            checkbox.setEnabled(not aggregate)
         if aggregate:
             self.storage_mode_label.setText("Aggregate mode is read-only.")
         else:
@@ -429,11 +431,14 @@ class InventoryTab(QtWidgets.QWidget):
         if owned <= 0:
             self.machine_availability_status.setText("Set a quantity to track which machines are online.")
             return
-        self.machine_availability_status.setText(f"Online: {online} of {owned}")
+        aggregate = self._is_aggregate_mode()
+        suffix = " (read-only in aggregate mode)" if aggregate else ""
+        self.machine_availability_status.setText(f"Online: {online} of {owned}{suffix}")
         for idx in range(owned):
             checkbox = QtWidgets.QCheckBox(f"Machine {idx + 1}")
             checkbox.setChecked(idx < online)
             checkbox.toggled.connect(self._on_machine_online_changed)
+            checkbox.setEnabled(not aggregate)
             self.machine_availability_list.addWidget(checkbox)
             self.machine_availability_checks.append(checkbox)
         self.machine_availability_list.addStretch(1)
@@ -452,6 +457,8 @@ class InventoryTab(QtWidgets.QWidget):
             self.app.set_machine_availability([(machine_type, machine_tier, owned, online)])
 
     def _on_machine_online_changed(self, _checked: bool) -> None:
+        if self._is_aggregate_mode():
+            return
         if not self._machine_availability_target:
             return
         owned = len(self.machine_availability_checks)

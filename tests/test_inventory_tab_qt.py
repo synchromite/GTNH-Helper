@@ -198,3 +198,57 @@ def test_inventory_summary_panel_shows_selected_and_aggregate_totals() -> None:
 
     tab.deleteLater()
     conn.close()
+
+
+def test_inventory_aggregate_mode_disables_machine_availability_toggles() -> None:
+    app = _get_app()
+
+    class DummyStatusBar:
+        def showMessage(self, _msg: str) -> None:
+            return None
+
+    class DummyApp:
+        def __init__(self) -> None:
+            self.profile_conn = connect_profile(":memory:")
+            self.status_bar = DummyStatusBar()
+
+        def notify_inventory_change(self) -> None:
+            return None
+
+        def list_storage_units(self):
+            return [{"id": 1, "name": "Main Storage"}]
+
+        def get_active_storage_id(self):
+            return 1
+
+        def set_active_storage_id(self, _storage_id: int) -> None:
+            return None
+
+        def get_machine_availability(self, _machine_type: str, _tier: str):
+            return {"owned": 2, "online": 1}
+
+        def set_machine_availability(self, _rows):
+            raise AssertionError("aggregate mode should not persist machine availability")
+
+    tab = InventoryTab(DummyApp())
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    machine_row = conn.execute(
+        "SELECT 1 AS id, 'Assembler LV' AS name, 'machine' AS kind, 'machine' AS item_kind_name, "
+        "NULL AS material_name, 'assembler' AS machine_type, 'lv' AS machine_tier, 1 AS is_machine, NULL AS crafting_grid_size"
+    ).fetchone()
+
+    tab.render_items([machine_row])
+    tab.storage_selector.setCurrentIndex(0)
+    tree = tab.inventory_trees["All"]
+    kind_item = tree.topLevelItem(0)
+    item_kind_item = kind_item.child(0)
+    leaf = item_kind_item.child(0)
+    tree.setCurrentItem(leaf)
+    app.processEvents()
+
+    assert tab.machine_availability_checks
+    assert all(not checkbox.isEnabled() for checkbox in tab.machine_availability_checks)
+
+    tab.deleteLater()
+    conn.close()
