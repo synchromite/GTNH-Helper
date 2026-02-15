@@ -21,10 +21,21 @@ def _seed_conn() -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.executescript(
         """
+        CREATE TABLE item_kinds (
+            id INTEGER PRIMARY KEY,
+            name TEXT
+        );
+        CREATE TABLE materials (
+            id INTEGER PRIMARY KEY,
+            name TEXT
+        );
         CREATE TABLE items (
             id INTEGER PRIMARY KEY,
             key TEXT,
-            display_name TEXT
+            display_name TEXT,
+            kind TEXT,
+            item_kind_id INTEGER,
+            material_id INTEGER
         );
         CREATE TABLE recipe_lines (
             id INTEGER PRIMARY KEY,
@@ -35,11 +46,25 @@ def _seed_conn() -> sqlite3.Connection:
         """
     )
     conn.executemany(
-        "INSERT INTO items (id, key, display_name) VALUES (?, ?, ?)",
+        "INSERT INTO item_kinds (id, name) VALUES (?, ?)",
         [
-            (1, "ingotIron", "Iron Ingot"),
-            (2, "dustIron", "Iron Dust"),
-            (3, "dustCopper", "Copper Dust"),
+            (1, "Ingot"),
+            (2, "Dust"),
+        ],
+    )
+    conn.executemany(
+        "INSERT INTO materials (id, name) VALUES (?, ?)",
+        [
+            (1, "Iron"),
+            (2, "Copper"),
+        ],
+    )
+    conn.executemany(
+        "INSERT INTO items (id, key, display_name, kind, item_kind_id, material_id) VALUES (?, ?, ?, ?, ?, ?)",
+        [
+            (1, "ingotIron", "Iron Ingot", "item", 1, 1),
+            (2, "dustIron", "Iron Dust", "item", 2, 1),
+            (3, "dustCopper", "Copper Dust", "item", 2, 2),
         ],
     )
     conn.executemany(
@@ -53,7 +78,7 @@ def _seed_conn() -> sqlite3.Connection:
     return conn
 
 
-def test_filter_recipes_by_item_name_matches_any_recipe_line() -> None:
+def test_filter_recipes_by_item_name_matches_output_lines_only() -> None:
     _get_app()
 
     class DummyApp:
@@ -65,7 +90,23 @@ def test_filter_recipes_by_item_name_matches_any_recipe_line() -> None:
 
     filtered = tab._filter_recipes_by_item_name(recipes, "dust")
 
-    assert [recipe["id"] for recipe in filtered] == [100, 200]
+    assert [recipe["id"] for recipe in filtered] == [200]
+    tab.deleteLater()
+
+
+def test_filter_recipes_by_item_name_matches_output_metadata_fields() -> None:
+    _get_app()
+
+    class DummyApp:
+        editor_enabled = False
+        conn = _seed_conn()
+
+    tab = RecipesTab(DummyApp())
+    recipes = [{"id": 100}, {"id": 200}]
+
+    filtered = tab._filter_recipes_by_item_name(recipes, "ingot")
+
+    assert [recipe["id"] for recipe in filtered] == [100]
     tab.deleteLater()
 
 

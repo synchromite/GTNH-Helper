@@ -207,10 +207,18 @@ class RecipesTab(QtWidgets.QWidget):
             SELECT DISTINCT rl.recipe_id
             FROM recipe_lines rl
             JOIN items i ON i.id = rl.item_id
+            LEFT JOIN item_kinds k ON k.id = i.item_kind_id
+            LEFT JOIN materials m ON m.id = i.material_id
             WHERE rl.recipe_id IN ({placeholders})
-              AND LOWER(COALESCE(i.display_name, i.key)) LIKE ?
+              AND rl.direction='out'
+              AND (
+                LOWER(COALESCE(i.display_name, i.key, '')) LIKE ?
+                OR LOWER(COALESCE(k.name, '')) LIKE ?
+                OR LOWER(COALESCE(m.name, '')) LIKE ?
+                OR LOWER(COALESCE(i.kind, '')) LIKE ?
+              )
             """,
-            (*recipe_ids, f"%{query}%"),
+            (*recipe_ids, f"%{query}%", f"%{query}%", f"%{query}%", f"%{query}%"),
         ).fetchall()
         matched_ids = {row["recipe_id"] for row in rows}
         if not matched_ids:
