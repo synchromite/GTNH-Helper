@@ -36,6 +36,9 @@ Add first-class inventory container management (chests/drawers/barrels/tanks) wh
 - Planner output remains stable compared to current behavior.
 - Users can ignore storage complexity by using only `Main Storage`.
 - Codebase has the right architectural seam for future capacity/policy features.
+- Unset active storage defaults to `Main Storage` (name/id semantics), not lexical sort order.
+- `All Storages` aggregate mode blocks all persistence-affecting inventory actions (quantity edits, clear/save, and related inventory-write side effects).
+- Legacy `inventory` -> `storage_assignments` backfill runs only under explicit versioned migration conditions, not merely when assignments are empty.
 
 ---
 
@@ -93,6 +96,7 @@ Add first-class inventory container management (chests/drawers/barrels/tanks) wh
 ### Exit Criteria
 - Existing planner tests continue to pass.
 - New tests prove storage-aggregate parity.
+- Migration/backfill behavior is version-gated and covered by targeted migration tests.
 
 ---
 
@@ -120,6 +124,8 @@ Add first-class inventory container management (chests/drawers/barrels/tanks) wh
 ### Exit Criteria
 - Users can stay simple (single `Main Storage`) or opt into detailed storage tracking.
 - Aggregate totals remain coherent with per-storage entries.
+- Active storage default behavior is deterministic: unset always resolves to `Main Storage`.
+- Aggregate mode is verified as fully read-only for inventory persistence paths.
 
 ---
 
@@ -216,6 +222,7 @@ Label suggestions:
 - Existing test suite passes.
 - New tests cover clean DB bootstrap, storage aggregation, planner parity, and active-storage UI behavior.
 - `Main Storage`-only usage path remains straightforward.
+- Acceptance tests explicitly verify: (1) unset active storage defaults to `Main Storage`, (2) aggregate mode prevents all inventory persistence writes, and (3) legacy backfill is versioned-migration gated.
 
 ---
 
