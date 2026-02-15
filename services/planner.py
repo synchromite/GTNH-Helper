@@ -1135,9 +1135,23 @@ class PlannerService:
             )
             if match:
                 return match
+            normalized_key = key.lower()
+            match = _match_item(
+                lambda item: (self._row_value(item, "key") or "").strip().lower()
+                in (f"empty_{normalized_key}", f"{normalized_key}_empty")
+            )
+            if match:
+                return match
         for name in candidate_names:
             match = _match_item(
                 lambda item: (self._row_value(item, "name") or "").strip().lower() == name.lower()
+            )
+            if match:
+                return match
+            normalized_name = name.lower()
+            match = _match_item(
+                lambda item: (self._row_value(item, "name") or "").strip().lower()
+                in (f"empty {normalized_name}", f"{normalized_name} empty")
             )
             if match:
                 return match

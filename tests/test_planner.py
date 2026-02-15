@@ -248,6 +248,48 @@ def test_plan_recipe_requiring_cell_uses_fluid_and_empty_cell_from_inventory():
     assert [step.recipe_name for step in result.steps] == ["Filling", "Make Bleach"]
 
 
+def test_plan_recipe_requiring_cell_matches_empty_cell_name_and_key_variants():
+    conn = _setup_conn()
+    profile_conn = connect_profile(":memory:")
+
+    chlorine = _insert_item(conn, key="chlorine", name="Chlorine", kind="gas")
+    empty_cell = _insert_item(conn, key="empty_cell", name="Empty Cell", kind="item", is_base=1)
+    chlorine_cell = _insert_item(
+        conn,
+        key="chlorine_cell",
+        name="Chlorine Cell",
+        kind="item",
+        content_fluid_id=chlorine,
+        content_qty_liters=1000,
+    )
+    acid = _insert_item(conn, key="hydrochloric_acid", name="Hydrochloric Acid", kind="fluid")
+
+    make_chlorine = _insert_recipe(conn, name="Make Chlorine")
+    _insert_line(conn, recipe_id=make_chlorine, direction="out", item_id=chlorine, qty_liters=1000)
+
+    make_acid = _insert_recipe(conn, name="Make Hydrochloric Acid")
+    _insert_line(conn, recipe_id=make_acid, direction="out", item_id=acid, qty_liters=1000)
+    _insert_line(conn, recipe_id=make_acid, direction="in", item_id=chlorine_cell, qty_count=1)
+
+    planner = PlannerService(conn, profile_conn)
+    result = planner.plan(
+        acid,
+        12000,
+        use_inventory=True,
+        enabled_tiers=[],
+        crafting_6x6_unlocked=True,
+    )
+
+    assert result.errors == []
+    assert result.missing_recipes == []
+    assert [step.recipe_name for step in result.steps] == [
+        "Make Chlorine",
+        "Filling",
+        "Make Hydrochloric Acid",
+    ]
+    assert ("Empty Cell", 12, "count") in result.shopping_list
+
+
 def test_plan_accounts_for_non_consumed_inputs():
     conn = _setup_conn()
     profile_conn = connect_profile(":memory:")
