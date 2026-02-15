@@ -1102,7 +1102,7 @@ class AddItemDialog(_ItemDialogBase):
             )
             item_id = cur.lastrowid
 
-            if kind in ("fluid", "gas") and self.has_cell_check.isVisible() and self.has_cell_check.isChecked():
+            if kind in ("fluid", "gas") and self.has_cell_check.isChecked():
                 self._ensure_auto_cell_for_fluid(
                     fluid_item_id=item_id,
                     fluid_name=display_name,
@@ -1163,8 +1163,8 @@ class AddItemDialog(_ItemDialogBase):
         cell_display_name = f"{fluid_name} Cell"
         cell_key = self._slugify(cell_display_name)
         existing = self.app.conn.execute(
-            "SELECT id FROM items WHERE key=?",
-            (cell_key,),
+            "SELECT id FROM items WHERE content_fluid_id=? AND content_qty_liters=1 AND kind='item' LIMIT 1",
+            (fluid_item_id,),
         ).fetchone()
         if existing:
             return
