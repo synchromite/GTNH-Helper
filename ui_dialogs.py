@@ -3463,7 +3463,8 @@ class MaterialManagerDialog(QtWidgets.QDialog):
             self._add_row()
 
     def _add_row(self, row=None) -> None:
-        if isinstance(row, bool):
+        focus_new_row = isinstance(row, bool)
+        if focus_new_row:
             row = None
         row_idx = self.table.rowCount()
         self.table.insertRow(row_idx)
@@ -3475,6 +3476,10 @@ class MaterialManagerDialog(QtWidgets.QDialog):
 
         attributes_item = QtWidgets.QTableWidgetItem((row["attributes"] or "").strip() if row else "")
         self.table.setItem(row_idx, 1, attributes_item)
+
+        if focus_new_row:
+            self.table.setCurrentCell(row_idx, 0)
+            self.table.editItem(name_item)
 
     def _remove_selected_rows(self) -> None:
         rows = sorted({idx.row() for idx in self.table.selectionModel().selectedRows()}, reverse=True)
