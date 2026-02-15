@@ -76,7 +76,7 @@ Add first-class inventory container management (chests/drawers/barrels/tanks) wh
 **Outcome:** Planner can consume aggregated storage inventory while preserving current outputs.
 
 ### Issues
-1. **Aggregate inventory loader**
+1. **Aggregate inventory loader - COMPLETE**
    - Update planner load path (`services/planner.py`) to aggregate storage assignments into the existing planner inventory map shape.
 
 2. **Unit-aware aggregation parity**
