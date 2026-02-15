@@ -53,7 +53,7 @@ Add first-class inventory container management (chests/drawers/barrels/tanks) wh
      - `id`, `name`, `kind`, `slot_count`, `liter_capacity`, `priority`, `allow_planner_use`, `notes`.
    - Keep `PRAGMA foreign_keys=ON` and define FK behavior deliberately.
 
-2. **Per-storage inventory assignments**
+2. **Per-storage inventory assignments - COMPLETE**
    - Add `storage_assignments` table:
      - `(storage_id, item_id, qty_count, qty_liters, locked)`.
    - Composite PK `(storage_id, item_id)`, and FK with `ON DELETE CASCADE` on storage rows.

@@ -82,11 +82,21 @@ def connect_profile(db_path: Path | str) -> sqlite3.Connection:
             item_id INTEGER NOT NULL,
             qty_count REAL,
             qty_liters REAL,
+            locked INTEGER NOT NULL DEFAULT 0 CHECK(locked IN (0, 1)),
             PRIMARY KEY (storage_id, item_id),
             FOREIGN KEY(storage_id) REFERENCES storage_units(id) ON DELETE CASCADE
         )
         """
     )
+
+    assignment_cols = {
+        row["name"]
+        for row in conn.execute("PRAGMA table_info(storage_assignments)").fetchall()
+    }
+    if "locked" not in assignment_cols:
+        conn.execute(
+            "ALTER TABLE storage_assignments ADD COLUMN locked INTEGER NOT NULL DEFAULT 0 CHECK(locked IN (0, 1))"
+        )
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS machine_availability (

@@ -1,4 +1,5 @@
 import sqlite3
+import pytest
 
 from services import db
 
@@ -47,7 +48,23 @@ def test_connect_profile_creates_tables(tmp_path):
             row["name"]
             for row in conn.execute("PRAGMA table_info(storage_assignments)").fetchall()
         }
-        assert {"storage_id", "item_id", "qty_count", "qty_liters"}.issubset(assignment_cols)
+        assert {"storage_id", "item_id", "qty_count", "qty_liters", "locked"}.issubset(assignment_cols)
+
+        conn.execute(
+            """
+            INSERT INTO storage_assignments(storage_id, item_id, qty_count, qty_liters, locked)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (storage_rows[0]["id"], 1, 1, None, 0),
+        )
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute(
+                """
+                INSERT INTO storage_assignments(storage_id, item_id, qty_count, qty_liters, locked)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (storage_rows[0]["id"], 1, 2, None, 1),
+            )
 
         assignment_fks = {
             (row["from"], row["table"], row["on_delete"])
