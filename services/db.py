@@ -64,6 +64,7 @@ def connect_profile(db_path: Path | str) -> sqlite3.Connection:
         CREATE TABLE IF NOT EXISTS machine_metadata (
             machine_type TEXT NOT NULL,
             tier TEXT NOT NULL,
+            machine_name TEXT,
             input_slots INTEGER,
             output_slots INTEGER,
             byproduct_slots INTEGER,
@@ -149,6 +150,7 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
     CREATE TABLE IF NOT EXISTS machine_metadata (
         machine_type TEXT NOT NULL,
         tier TEXT NOT NULL,
+        machine_name TEXT,
         input_slots INTEGER,
         output_slots INTEGER,
         byproduct_slots INTEGER,
@@ -184,6 +186,9 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
         return any(r["name"] == col for r in rows)
 
     # Machine tagging for items (so recipes can pick from known machines)
+    if not _has_col("machine_metadata", "machine_name"):
+        conn.execute("ALTER TABLE machine_metadata ADD COLUMN machine_name TEXT")
+
     if not _has_col("items", "is_machine"):
         conn.execute("ALTER TABLE items ADD COLUMN is_machine INTEGER NOT NULL DEFAULT 0")
     if not _has_col("items", "machine_tier"):

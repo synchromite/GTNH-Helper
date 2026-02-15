@@ -3032,7 +3032,7 @@ class MachineMetadataEditorDialog(QtWidgets.QDialog):
         self.setModal(True)
         self.resize(960, 520)
 
-        self._metadata: dict[tuple[str, str], dict[str, int]] = {}
+        self._metadata: dict[tuple[str, str], dict[str, object]] = {}
         self._current_key: tuple[str, str] | None = None
         self._loading = False
 
@@ -3089,6 +3089,14 @@ class MachineMetadataEditorDialog(QtWidgets.QDialog):
         self.form = QtWidgets.QGridLayout()
         right.addLayout(self.form)
 
+        name_row = self.form.rowCount()
+        self.machine_name_label = QtWidgets.QLabel("Machine Name")
+        self.machine_name_edit = QtWidgets.QLineEdit()
+        self.machine_name_edit.setPlaceholderText("e.g. Basic Cutting Machine")
+        self.machine_name_edit.textChanged.connect(lambda _=None: self._on_value_changed("machine_name"))
+        self.form.addWidget(self.machine_name_label, name_row, 0)
+        self.form.addWidget(self.machine_name_edit, name_row, 1)
+
         self.slot_widgets: dict[str, tuple[QtWidgets.QCheckBox, QtWidgets.QSpinBox]] = {}
         self.capacity_widgets: dict[str, QtWidgets.QSpinBox] = {}
         self.capacity_labels: dict[str, QtWidgets.QLabel] = {}
@@ -3127,6 +3135,7 @@ class MachineMetadataEditorDialog(QtWidgets.QDialog):
             if not machine_type or not tier:
                 continue
             self._metadata[(machine_type, tier)] = {
+                "machine_name": (row["machine_name"] or "").strip(),
                 "input_slots": int(row["input_slots"] or 1),
                 "output_slots": int(row["output_slots"] or 1),
                 "storage_slots": int(row["storage_slots"] or 0),
@@ -3186,6 +3195,7 @@ class MachineMetadataEditorDialog(QtWidgets.QDialog):
         self._load_form_values(self._metadata.get(self._current_key, {}))
 
     def _set_form_enabled(self, enabled: bool) -> None:
+        self.machine_name_edit.setEnabled(enabled)
         for checkbox, spin in self.slot_widgets.values():
             checkbox.setEnabled(enabled)
             spin.setEnabled(enabled)
@@ -3259,8 +3269,9 @@ class MachineMetadataEditorDialog(QtWidgets.QDialog):
             return
         self._update_current_metadata()
 
-    def _load_form_values(self, values: dict[str, int]) -> None:
+    def _load_form_values(self, values: dict[str, object]) -> None:
         self._loading = True
+        self.machine_name_edit.setText((values.get("machine_name") or "").strip())
         for key, (checkbox, spin) in self.slot_widgets.items():
             value = int(values.get(key, self._slot_defaults.get(key, 0)))
             if checkbox.isEnabled():
@@ -3281,7 +3292,9 @@ class MachineMetadataEditorDialog(QtWidgets.QDialog):
     def _update_current_metadata(self) -> None:
         if self._current_key is None:
             return
-        values: dict[str, int] = {}
+        values: dict[str, object] = {
+            "machine_name": (self.machine_name_edit.text() or "").strip()
+        }
         for key, (checkbox, spin) in self.slot_widgets.items():
             if checkbox.isEnabled() and not checkbox.isChecked():
                 values[key] = 0
@@ -3306,7 +3319,7 @@ class MachineMetadataEditorDialog(QtWidgets.QDialog):
         if key in self._metadata:
             QtWidgets.QMessageBox.information(self, "Tier exists", f"{machine_type} already has tier '{tier}'.")
             return
-        self._metadata[key] = dict(self._slot_defaults)
+        self._metadata[key] = {"machine_name": f"{tier} {machine_type}", **dict(self._slot_defaults)}
         self._refresh_machine_types()
         self._select_tier(machine_type, tier)
 
@@ -3367,12 +3380,21 @@ class MachineMetadataEditorDialog(QtWidgets.QDialog):
         for (machine_type, tier), values in sorted(self._metadata.items()):
             if not machine_type or not tier:
                 continue
+            machine_name = (values.get("machine_name") or "").strip()
+            if not machine_name:
+                QtWidgets.QMessageBox.warning(
+                    self,
+                    "Missing machine name",
+                    f"Enter a machine name for {machine_type} ({tier}).",
+                )
+                return None
             input_slots = max(1, int(values.get("input_slots", 1)))
             output_slots = max(1, int(values.get("output_slots", 1)))
             rows.append(
                 (
                     machine_type,
                     tier,
+                    machine_name,
                     input_slots,
                     output_slots,
                     0,

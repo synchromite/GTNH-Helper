@@ -49,6 +49,7 @@ def test_ensure_schema_creates_tables_and_defaults():
     for column in (
         "machine_type",
         "tier",
+        "machine_name",
         "input_slots",
         "output_slots",
         "byproduct_slots",
