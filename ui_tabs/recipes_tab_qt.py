@@ -273,7 +273,7 @@ class RecipesTab(QtWidgets.QWidget):
         return self.app.conn.execute(
             """
             SELECT r.id, r.name, r.method, r.machine, r.machine_item_id, r.grid_size,
-                   r.station_item_id, r.tier, r.circuit, r.duration_ticks, r.eu_per_tick
+                   r.station_item_id, r.tier, r.circuit, r.duration_ticks, r.eu_per_tick, r.notes
             FROM recipes r
             JOIN recipe_lines rl ON rl.recipe_id = r.id
             WHERE rl.direction='out' AND rl.item_id=?
@@ -371,19 +371,24 @@ class RecipesTab(QtWidgets.QWidget):
                     machine_line = f"{machine_line} (output slots: {mos})"
             method_lines.append(machine_line)
 
+        details_lines = [
+            f"Recipe {index}:",
+            f"Name: {recipe['name']}",
+            *method_lines,
+            f"Tier: {recipe['tier'] or ''}",
+            f"Circuit: {'' if recipe['circuit'] is None else recipe['circuit']}",
+            f"Duration: {'' if duration_s is None else str(duration_s) + 's'}",
+            f"EU/t: {'' if recipe['eu_per_tick'] is None else recipe['eu_per_tick']}",
+        ]
+        notes = (recipe["notes"] or "").strip()
+        if notes:
+            details_lines.append(f"Notes: {notes}")
+
         return (
-            f"Recipe {index}:\n"
-            f"Name: {recipe['name']}\n"
-            + "\n".join(method_lines)
-            + "\n"
-            f"Tier: {recipe['tier'] or ''}\n"
-            f"Circuit: {'' if recipe['circuit'] is None else recipe['circuit']}\n"
-            f"Duration: {'' if duration_s is None else str(duration_s) + 's'}\n"
-            f"EU/t: {'' if recipe['eu_per_tick'] is None else recipe['eu_per_tick']}\n\n"
-            "Inputs:\n  "
+            "\n".join(details_lines)
+            + "\n\nInputs:\n  "
             + ("\n  ".join(ins) if ins else "(none)")
-            + "\n\n"
-            "Outputs:\n  "
+            + "\n\nOutputs:\n  "
             + ("\n  ".join(outs) if outs else "(none)")
             + "\n"
         )

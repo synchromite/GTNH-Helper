@@ -1789,16 +1789,21 @@ class _RecipeDialogBase(QtWidgets.QDialog):
         self.eut_edit.setValidator(QtGui.QIntValidator(0, 10**9))
         form.addWidget(self.eut_edit, 4, 3)
 
+        self.additional_notes_check = QtWidgets.QCheckBox("Additional Notes")
+        self.additional_notes_check.setChecked(False)
+        form.addWidget(self.additional_notes_check, 5, 0, 1, 2)
+
         splitter = QtWidgets.QSplitter(QtCore.Qt.Orientation.Vertical)
         layout.addWidget(splitter, stretch=1)
 
-        notes_widget = QtWidgets.QWidget()
-        notes_layout = QtWidgets.QVBoxLayout(notes_widget)
+        self.notes_widget = QtWidgets.QWidget()
+        notes_layout = QtWidgets.QVBoxLayout(self.notes_widget)
         notes_layout.setContentsMargins(0, 0, 0, 0)
         notes_layout.addWidget(QtWidgets.QLabel("Notes"))
         self.notes_edit = QtWidgets.QTextEdit()
         notes_layout.addWidget(self.notes_edit)
-        splitter.addWidget(notes_widget)
+        splitter.addWidget(self.notes_widget)
+        self.notes_widget.setVisible(False)
 
         lists_widget = QtWidgets.QWidget()
         lists_layout = QtWidgets.QHBoxLayout(lists_widget)
@@ -1846,11 +1851,17 @@ class _RecipeDialogBase(QtWidgets.QDialog):
 
         self.method_combo.currentTextChanged.connect(self._toggle_method_fields)
         self.grid_combo.currentTextChanged.connect(self._refresh_crafting_grid)
+        self.additional_notes_check.toggled.connect(self._toggle_notes_editor)
         self._toggle_method_fields()
 
     def _set_variant_visible(self, visible: bool) -> None:
         self.variant_label.setVisible(visible)
         self.variant_combo.setVisible(visible)
+
+    def _toggle_notes_editor(self, checked: bool) -> None:
+        self.notes_widget.setVisible(checked)
+        if not checked:
+            self.notes_edit.clear()
 
     def _toggle_method_fields(self) -> None:
         method = (self.method_combo.currentText() or "Machine").strip().lower()
@@ -2614,6 +2625,8 @@ class AddRecipeDialog(_RecipeDialogBase):
         tier_raw = (self.tier_combo.currentText() or "").strip()
         tier = None if (tier_raw == "" or tier_raw == NONE_TIER_LABEL) else tier_raw
         notes = self.notes_edit.toPlainText().strip() or None
+        if not self.additional_notes_check.isChecked():
+            notes = None
 
         try:
             circuit = self._parse_int_opt(self.circuit_edit.text())
@@ -2744,7 +2757,9 @@ class EditRecipeDialog(_RecipeDialogBase):
         seconds = "" if r["duration_ticks"] is None else f"{(r['duration_ticks'] / TPS):g}"
         self.duration_edit.setText(seconds)
         self.eut_edit.setText("" if r["eu_per_tick"] is None else str(r["eu_per_tick"]))
-        self.notes_edit.setPlainText(r["notes"] or "")
+        notes = (r["notes"] or "").strip()
+        self.additional_notes_check.setChecked(bool(notes))
+        self.notes_edit.setPlainText(notes)
 
         self.station_item_id = r["station_item_id"]
         self.station_edit.setText("")
@@ -2932,6 +2947,8 @@ class EditRecipeDialog(_RecipeDialogBase):
         tier_raw = (self.tier_combo.currentText() or "").strip()
         tier = None if (tier_raw == "" or tier_raw == NONE_TIER_LABEL) else tier_raw
         notes = self.notes_edit.toPlainText().strip() or None
+        if not self.additional_notes_check.isChecked():
+            notes = None
 
         try:
             circuit = self._parse_int_opt(self.circuit_edit.text())

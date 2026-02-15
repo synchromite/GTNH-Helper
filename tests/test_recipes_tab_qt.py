@@ -147,3 +147,58 @@ def test_filter_recipes_by_item_name_keeps_all_for_blank_search() -> None:
 
     assert [recipe["id"] for recipe in filtered] == [100, 200]
     tab.deleteLater()
+
+
+def test_format_recipe_details_includes_notes(monkeypatch) -> None:
+    _get_app()
+
+    class DummyApp:
+        editor_enabled = False
+        conn = object()
+
+    tab = RecipesTab(DummyApp())
+
+    monkeypatch.setattr("ui_tabs.recipes_tab_qt.fetch_recipe_lines", lambda _conn, _recipe_id: [
+        {
+            "direction": "in",
+            "name": "Iron Dust",
+            "qty_count": 1,
+            "qty_liters": None,
+            "chance_percent": None,
+            "consumption_chance": None,
+            "output_slot_index": None,
+            "input_slot_index": None,
+        },
+        {
+            "direction": "out",
+            "name": "Iron Ingot",
+            "qty_count": 1,
+            "qty_liters": None,
+            "chance_percent": None,
+            "consumption_chance": None,
+            "output_slot_index": None,
+            "input_slot_index": None,
+        },
+    ])
+    monkeypatch.setattr("ui_tabs.recipes_tab_qt.fetch_machine_output_slots", lambda _conn, _machine_item_id: None)
+
+    text = tab._format_recipe_details(
+        {
+            "id": 100,
+            "name": "Iron Ingot",
+            "method": "machine",
+            "machine": "Furnace",
+            "machine_item_id": None,
+            "grid_size": None,
+            "station_item_id": None,
+            "tier": None,
+            "circuit": None,
+            "duration_ticks": None,
+            "eu_per_tick": None,
+            "notes": "Use rich oxygen mix",
+        },
+        index=1,
+    )
+
+    assert "Notes: Use rich oxygen mix" in text
+    tab.deleteLater()
