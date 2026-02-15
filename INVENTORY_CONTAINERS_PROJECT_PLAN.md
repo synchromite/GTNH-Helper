@@ -72,7 +72,7 @@ Add first-class inventory container management (chests/drawers/barrels/tanks) wh
 
 ---
 
-## Milestone 2: Planner Compatibility Layer
+## Milestone 2: Planner Compatibility Layer - COMPLETE
 **Outcome:** Planner can consume aggregated storage inventory while preserving current outputs.
 
 ### Issues
@@ -86,12 +86,21 @@ Add first-class inventory container management (chests/drawers/barrels/tanks) wh
    - Runtime inventory loading now relies on `storage_assignments` aggregation only.
    - Legacy `inventory` fallback/migration behavior remains explicitly deferred as post-stabilization hardening.
 
-4. **Regression test coverage**
+4. **Regression test coverage - COMPLETE**
    - Confirm unchanged behavior for:
      - simple chain recipes,
      - inventory override,
      - fluid container emptying + byproducts,
      - non-consumed inputs.
+
+### Regression Coverage Status (Review)
+- ✅ `tests/test_planner.py::test_plan_simple_chain_with_inventory_override` validates simple chain + override behavior.
+- ✅ `tests/test_planner.py::test_plan_inserts_emptying_step_for_fluid_container` validates fluid-container emptying and byproduct handling.
+- ✅ `tests/test_planner.py::test_plan_accounts_for_non_consumed_inputs` validates non-consumed input accounting.
+- ✅ `tests/test_planner.py::test_load_inventory_sums_all_storage_units` and
+  `tests/test_planner.py::test_load_inventory_preserves_unit_column_by_item_kind` validate storage aggregate parity.
+- ✅ `tests/test_planner.py::test_load_inventory_does_not_fallback_to_legacy_inventory_table` and
+  `tests/test_profile_db.py::test_connect_profile_does_not_backfill_storage_assignments_from_inventory` confirm migration/backfill remains deferred.
 
 ### Exit Criteria
 - Existing planner tests continue to pass.
