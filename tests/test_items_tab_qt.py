@@ -60,3 +60,48 @@ def test_render_items_handles_sqlite_rows_and_preserves_selection() -> None:
     assert "Test Item" in tab.item_details.toPlainText()
 
     tab.deleteLater()
+
+
+def test_search_expands_all_nodes() -> None:
+    app = _get_app()
+
+    class DummyApp:
+        editor_enabled = False
+
+    tab = ItemsTab(DummyApp())
+    items = [
+        {
+            "id": 1,
+            "name": "Copper Wire",
+            "kind": "item",
+            "item_kind_name": "Component",
+            "material_name": "Copper",
+            "is_base": 0,
+            "is_machine": 0,
+        },
+        {
+            "id": 2,
+            "name": "Copper Plate",
+            "kind": "item",
+            "item_kind_name": "Component",
+            "material_name": "Copper",
+            "is_base": 0,
+            "is_machine": 0,
+        },
+    ]
+
+    tab.render_items(items)
+    app.processEvents()
+
+    top = tab.item_tree.topLevelItem(0)
+    assert top is not None
+    assert not top.isExpanded()
+
+    tab.search_edit.setText("copper")
+    app.processEvents()
+
+    top = tab.item_tree.topLevelItem(0)
+    assert top is not None
+    assert top.isExpanded()
+
+    tab.deleteLater()

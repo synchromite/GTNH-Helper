@@ -190,7 +190,10 @@ class BaseItemTab(QtWidgets.QWidget):
             parent_node.addChild(item_node)
             id_nodes[it["id"]] = item_node
 
-        self._restore_expanded_paths(expanded_paths)
+        if search_text:
+            self.item_tree.expandAll()
+        else:
+            self._restore_expanded_paths(expanded_paths)
 
         target_id = selected_id
         if new_item_id is not None and new_item_id in id_nodes:
