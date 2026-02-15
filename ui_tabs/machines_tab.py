@@ -6,70 +6,6 @@ from services.db import ALL_TIERS
 from ui_dialogs import MachineMetadataEditorDialog
 
 
-class MachineAvailabilityDialog(QtWidgets.QDialog):
-    def __init__(self, app, machine: dict[str, object], parent=None):
-        super().__init__(parent)
-        self.app = app
-        self.machine = machine
-        self.setWindowTitle("Machine Availability")
-        self.setModal(True)
-        self.setMinimumWidth(360)
-
-        layout = QtWidgets.QVBoxLayout(self)
-        name = machine.get("name") or machine.get("machine_type") or "(Unknown)"
-        tier = machine.get("machine_tier") or ""
-        layout.addWidget(QtWidgets.QLabel(f"{name} — {tier}"))
-
-        form = QtWidgets.QGridLayout()
-        layout.addLayout(form)
-
-        form.addWidget(QtWidgets.QLabel("Owned"), 0, 0)
-        self.owned_check = QtWidgets.QCheckBox()
-        form.addWidget(self.owned_check, 0, 1)
-
-        form.addWidget(QtWidgets.QLabel("Online"), 1, 0)
-        self.online_check = QtWidgets.QCheckBox()
-        form.addWidget(self.online_check, 1, 1)
-
-        availability = self.app.get_machine_availability(machine["machine_type"], machine["machine_tier"])
-        owned = int(availability.get("owned", 0))
-        online = int(availability.get("online", 0))
-        self.owned_check.setChecked(owned > 0)
-        self.online_check.setChecked(online > 0 and owned > 0)
-        self.owned_check.toggled.connect(self._on_owned_changed)
-        self.online_check.toggled.connect(self._on_online_changed)
-
-        buttons = QtWidgets.QDialogButtonBox(
-            QtWidgets.QDialogButtonBox.StandardButton.Save
-            | QtWidgets.QDialogButtonBox.StandardButton.Cancel
-        )
-        buttons.accepted.connect(self._save)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
-
-    def _on_owned_changed(self, checked: bool) -> None:
-        if not checked:
-            prev = self.online_check.blockSignals(True)
-            self.online_check.setChecked(False)
-            self.online_check.blockSignals(prev)
-
-    def _on_online_changed(self, checked: bool) -> None:
-        if checked and not self.owned_check.isChecked():
-            prev = self.owned_check.blockSignals(True)
-            self.owned_check.setChecked(True)
-            self.owned_check.blockSignals(prev)
-
-    def _save(self) -> None:
-        owned = 1 if self.owned_check.isChecked() else 0
-        online = 1 if self.online_check.isChecked() else 0
-        if online > owned:
-            online = owned
-        self.app.set_machine_availability(
-            [(self.machine["machine_type"], self.machine["machine_tier"], owned, online)]
-        )
-        self.accept()
-
-
 class MachinesTab(QtWidgets.QWidget):
     def __init__(self, app, parent=None):
         super().__init__(parent)
@@ -84,7 +20,7 @@ class MachinesTab(QtWidgets.QWidget):
 
         layout.addWidget(
             QtWidgets.QLabel(
-                "Select a machine to view its specs. Double-click to update availability (owned/online)."
+                "Select a machine to view its metadata and specs."
             )
         )
 
@@ -112,7 +48,6 @@ class MachinesTab(QtWidgets.QWidget):
         self.machine_list = QtWidgets.QListWidget()
         self.machine_list.setMinimumWidth(260)
         self.machine_list.currentRowChanged.connect(self._on_machine_selected)
-        self.machine_list.itemDoubleClicked.connect(self._open_availability_dialog)
         content.addWidget(self.machine_list, stretch=0)
 
         right = QtWidgets.QVBoxLayout()
@@ -483,10 +418,6 @@ class MachinesTab(QtWidgets.QWidget):
         label = machine.get("label") or machine_type or ""
         row = (machine.get("tier_rows") or {}).get(tier, {})
         item_name = row.get("name") or label
-        availability = self.app.get_machine_availability(machine_type, tier)
-        owned = availability.get("owned", 0)
-        online = availability.get("online", 0)
-
         def _as_int(value, default=0):
             try:
                 return int(value)
@@ -499,8 +430,6 @@ class MachinesTab(QtWidgets.QWidget):
             f"Machine Type: {machine_type}\n"
             f"Tier: {tier}\n"
             f"Multi-block: {'Yes' if row.get('is_multiblock') else 'No'}\n"
-            f"Owned: {owned}\n"
-            f"Online: {online}\n"
             "\nMachine Specs\n"
             f"Input Slots: {_as_int(row.get('machine_input_slots'), default=1) or 1}\n"
             f"Output Slots: {_as_int(row.get('machine_output_slots'), default=1) or 1}\n"
@@ -515,32 +444,6 @@ class MachinesTab(QtWidgets.QWidget):
             "EU/t: —\n"
         )
         self.details.setPlainText(text)
-
-    def _open_availability_dialog(self, item: QtWidgets.QListWidgetItem) -> None:
-        machine = item.data(QtCore.Qt.ItemDataRole.UserRole) if item else None
-        tier = self.detail_tier_combo.currentText() if hasattr(self, "detail_tier_combo") else ""
-        if not machine or not tier:
-            QtWidgets.QMessageBox.information(
-                self,
-                "Missing tier",
-                "Select a machine tier before updating availability.",
-            )
-            return
-        if not machine.get("machine_type"):
-            QtWidgets.QMessageBox.information(
-                self,
-                "Missing machine info",
-                "This machine is missing a type.",
-            )
-            return
-        dialog = MachineAvailabilityDialog(
-            self.app,
-            {"machine_type": machine.get("machine_type"), "machine_tier": tier, "name": machine.get("label")},
-            parent=self,
-        )
-        if dialog.exec() == QtWidgets.QDialog.DialogCode.Accepted:
-            self._render_machine_details(machine, tier)
-
 
     def _get_tier_list(self) -> list[str]:
         if hasattr(self.app, "get_all_tiers"):
