@@ -702,3 +702,20 @@ def test_load_inventory_sums_all_storage_units():
     planner = PlannerService(conn, profile_conn)
     inventory = planner.load_inventory()
     assert inventory[item] == 5
+
+
+def test_load_inventory_does_not_fallback_to_legacy_inventory_table():
+    conn = _setup_conn()
+    profile_conn = connect_profile(":memory:")
+
+    item = _insert_item(conn, key="item_a", name="Item A", is_base=1)
+    profile_conn.execute(
+        "INSERT INTO inventory(item_id, qty_count, qty_liters) VALUES(?,?,?)",
+        (item, 99, None),
+    )
+    profile_conn.commit()
+
+    planner = PlannerService(conn, profile_conn)
+    inventory = planner.load_inventory()
+
+    assert inventory == {}
