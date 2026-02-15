@@ -62,7 +62,7 @@ Add first-class inventory container management (chests/drawers/barrels/tanks) wh
    - Seed a default storage unit (`Main Storage`) on fresh profile init.
    - Do not add legacy migration complexity while schema is changing.
 
-4. **Storage service abstraction**
+4. **Storage service abstraction - COMPLETE**
    - Add `services/storage.py` for storage CRUD, assignment CRUD, and quantity aggregation helpers.
    - Keep fit/capacity math out of UI widgets.
 
