@@ -61,6 +61,26 @@ def connect_profile(db_path: Path | str) -> sqlite3.Connection:
     )
     conn.execute(
         """
+        CREATE TABLE IF NOT EXISTS storage_units (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS storage_assignments (
+            storage_id INTEGER NOT NULL,
+            item_id INTEGER NOT NULL,
+            qty_count REAL,
+            qty_liters REAL,
+            PRIMARY KEY (storage_id, item_id),
+            FOREIGN KEY(storage_id) REFERENCES storage_units(id) ON DELETE CASCADE
+        )
+        """
+    )
+    conn.execute(
+        """
         CREATE TABLE IF NOT EXISTS machine_availability (
             machine_type TEXT NOT NULL,
             tier TEXT NOT NULL,
@@ -70,6 +90,30 @@ def connect_profile(db_path: Path | str) -> sqlite3.Connection:
         )
         """
     )
+
+    default_storage = conn.execute(
+        "SELECT id FROM storage_units WHERE name=?",
+        ("Main Storage",),
+    ).fetchone()
+    if default_storage is None:
+        conn.execute("INSERT INTO storage_units(name) VALUES(?)", ("Main Storage",))
+        default_storage_id = conn.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
+    else:
+        default_storage_id = default_storage["id"]
+
+    existing_assignments = conn.execute(
+        "SELECT COUNT(1) AS c FROM storage_assignments"
+    ).fetchone()["c"]
+    if int(existing_assignments or 0) == 0:
+        conn.execute(
+            """
+            INSERT INTO storage_assignments(storage_id, item_id, qty_count, qty_liters)
+            SELECT ?, item_id, qty_count, qty_liters
+            FROM inventory
+            WHERE qty_count IS NOT NULL OR qty_liters IS NOT NULL
+            """,
+            (default_storage_id,),
+        )
     conn.commit()
     return conn
 

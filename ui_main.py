@@ -782,6 +782,16 @@ class App(QtWidgets.QMainWindow):
         if widget and hasattr(widget, "load_from_db"):
             widget.load_from_db()
 
+
+    def list_storage_units(self) -> list[dict[str, int | str]]:
+        return self.db.list_storage_units()
+
+    def get_active_storage_id(self) -> int | None:
+        return self.db.get_active_storage_id()
+
+    def set_active_storage_id(self, storage_id: int) -> None:
+        self.db.set_active_storage_id(storage_id)
+
     def get_machine_availability(self, machine_type: str, tier: str) -> dict[str, int]:
         return self.db.get_machine_availability(machine_type, tier)
 

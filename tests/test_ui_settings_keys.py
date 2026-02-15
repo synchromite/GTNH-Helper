@@ -2,6 +2,7 @@ from services.db_lifecycle import DbLifecycle
 from ui_constants import (
     SETTINGS_CRAFT_6X6_UNLOCKED,
     SETTINGS_ENABLED_TIERS,
+    SETTINGS_ACTIVE_STORAGE_ID,
     SETTINGS_MACHINE_SEARCH,
     SETTINGS_MACHINE_SORT_MODE,
     SETTINGS_MACHINE_TIER_FILTER,
@@ -20,6 +21,7 @@ def test_ui_settings_keys_are_preserved():
     assert SETTINGS_MACHINE_SORT_MODE == "machine_sort_mode"
     assert SETTINGS_MACHINE_SEARCH == "machine_search"
     assert SETTINGS_TIER_LIST == "tier_list"
+    assert SETTINGS_ACTIVE_STORAGE_ID == "active_storage_id"
 
 
 def test_qt_ui_uses_settings_keys(tmp_path):

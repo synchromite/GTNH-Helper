@@ -27,6 +27,7 @@ from ui_constants import (
     SETTINGS_MACHINE_UNLOCKED_ONLY,
     SETTINGS_TIER_LIST,
     SETTINGS_THEME,
+    SETTINGS_ACTIVE_STORAGE_ID,
 )
 
 
@@ -173,6 +174,38 @@ class DbLifecycle:
 
     def set_machine_search(self, value: str) -> None:
         set_setting(self.profile_conn, SETTINGS_MACHINE_SEARCH, value)
+
+
+    def list_storage_units(self) -> list[dict[str, int | str]]:
+        if self.profile_conn is None:
+            return []
+        rows = self.profile_conn.execute(
+            "SELECT id, name FROM storage_units ORDER BY LOWER(name), id"
+        ).fetchall()
+        return [{"id": int(row["id"]), "name": row["name"]} for row in rows]
+
+    def get_active_storage_id(self) -> int | None:
+        storages = self.list_storage_units()
+        if not storages:
+            return None
+        raw = (get_setting(self.profile_conn, SETTINGS_ACTIVE_STORAGE_ID, "") or "").strip()
+        if raw:
+            try:
+                selected = int(raw)
+            except ValueError:
+                selected = None
+            else:
+                if any(storage["id"] == selected for storage in storages):
+                    return selected
+        default_id = storages[0]["id"]
+        set_setting(self.profile_conn, SETTINGS_ACTIVE_STORAGE_ID, str(default_id))
+        return default_id
+
+    def set_active_storage_id(self, storage_id: int) -> None:
+        storages = self.list_storage_units()
+        if not any(storage["id"] == storage_id for storage in storages):
+            return
+        set_setting(self.profile_conn, SETTINGS_ACTIVE_STORAGE_ID, str(storage_id))
 
     def get_machine_availability(self, machine_type: str, tier: str) -> dict[str, int]:
         if self.profile_conn is None:

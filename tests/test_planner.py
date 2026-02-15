@@ -679,3 +679,26 @@ def test_get_calculated_tier_uses_first_configured_tier_for_non_eu_recipe(monkey
     row = {"tier": "", "method": "machine", "eu_per_tick": 0}
 
     assert planner_module.get_calculated_tier(row) == "Primitive"
+
+
+def test_load_inventory_sums_all_storage_units():
+    conn = _setup_conn()
+    profile_conn = connect_profile(":memory:")
+
+    item = _insert_item(conn, key="item_a", name="Item A", is_base=1)
+    main_storage = profile_conn.execute("SELECT id FROM storage_units WHERE name='Main Storage'").fetchone()["id"]
+    profile_conn.execute("INSERT INTO storage_units(name) VALUES('Overflow')")
+    overflow_storage = profile_conn.execute("SELECT id FROM storage_units WHERE name='Overflow'").fetchone()["id"]
+    profile_conn.execute(
+        "INSERT INTO storage_assignments(storage_id, item_id, qty_count, qty_liters) VALUES(?,?,?,?)",
+        (main_storage, item, 2, None),
+    )
+    profile_conn.execute(
+        "INSERT INTO storage_assignments(storage_id, item_id, qty_count, qty_liters) VALUES(?,?,?,?)",
+        (overflow_storage, item, 3, None),
+    )
+    profile_conn.commit()
+
+    planner = PlannerService(conn, profile_conn)
+    inventory = planner.load_inventory()
+    assert inventory[item] == 5

@@ -11,6 +11,8 @@ class InventoryTab(QtWidgets.QWidget):
         self.items_by_id: dict[int, dict] = {}
         self._machine_availability_target: dict[str, str] | None = None
         self.machine_availability_checks: list[QtWidgets.QCheckBox] = []
+        self.storage_units: list[dict[str, int | str]] = []
+
 
         root_layout = QtWidgets.QHBoxLayout(self)
         root_layout.setContentsMargins(8, 8, 8, 8)
@@ -60,6 +62,18 @@ class InventoryTab(QtWidgets.QWidget):
         header = QtWidgets.QLabel("Track what you currently have in storage.")
         right.addWidget(header)
 
+        storage_row = QtWidgets.QHBoxLayout()
+        right.addLayout(storage_row)
+        storage_row.addWidget(QtWidgets.QLabel("Storage:"))
+        self.storage_selector = QtWidgets.QComboBox()
+        self.storage_selector.currentIndexChanged.connect(self._on_storage_changed)
+        storage_row.addWidget(self.storage_selector)
+        storage_row.addStretch(1)
+
+        self.storage_mode_label = QtWidgets.QLabel("")
+        self.storage_mode_label.setStyleSheet("color: #666;")
+        right.addWidget(self.storage_mode_label)
+
         self.inventory_item_name = QtWidgets.QLabel("")
         font = self.inventory_item_name.font()
         font.setBold(True)
@@ -108,6 +122,7 @@ class InventoryTab(QtWidgets.QWidget):
         right.addStretch(1)
 
     def render_items(self, items: list) -> None:
+        self._refresh_storage_selector()
         self.items = list(items)
         self.items_by_id = {it["id"]: it for it in self.items}
         selected_id = self._selected_item_id()
@@ -122,6 +137,62 @@ class InventoryTab(QtWidgets.QWidget):
             self.inventory_qty_entry.setText("")
         else:
             self.on_inventory_select(current_item, None)
+
+    def _refresh_storage_selector(self) -> None:
+        if hasattr(self.app, "list_storage_units"):
+            self.storage_units = list(self.app.list_storage_units())
+        else:
+            self.storage_units = [{"id": 1, "name": "Main Storage"}]
+
+        self.storage_selector.blockSignals(True)
+        self.storage_selector.clear()
+        self.storage_selector.addItem("All Storages (Aggregate)", None)
+        for storage in self.storage_units:
+            self.storage_selector.addItem(str(storage["name"]), int(storage["id"]))
+
+        active_storage_id = self.app.get_active_storage_id() if hasattr(self.app, "get_active_storage_id") else None
+        index = 0
+        if active_storage_id is not None:
+            for idx in range(self.storage_selector.count()):
+                if self.storage_selector.itemData(idx) == active_storage_id:
+                    index = idx
+                    break
+        self.storage_selector.setCurrentIndex(index)
+        self.storage_selector.blockSignals(False)
+        self._set_inventory_edit_mode()
+
+    def _current_storage_id(self) -> int | None:
+        value = self.storage_selector.currentData()
+        if value is None:
+            return None
+        return int(value)
+
+    def _is_aggregate_mode(self) -> bool:
+        return self._current_storage_id() is None
+
+    def _set_inventory_edit_mode(self) -> None:
+        aggregate = self._is_aggregate_mode()
+        self.inventory_qty_entry.setReadOnly(aggregate)
+        self.btn_save.setEnabled(not aggregate)
+        self.btn_clear.setEnabled(not aggregate)
+        if aggregate:
+            self.storage_mode_label.setText("Aggregate mode is read-only.")
+        else:
+            self.storage_mode_label.setText("")
+
+    def _has_storage_tables(self) -> bool:
+        row = self.app.profile_conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='storage_assignments'"
+        ).fetchone()
+        return row is not None
+
+    def _on_storage_changed(self, _index: int) -> None:
+        storage_id = self._current_storage_id()
+        if storage_id is not None and hasattr(self.app, "set_active_storage_id"):
+            self.app.set_active_storage_id(storage_id)
+        self._set_inventory_edit_mode()
+        current = self._current_tree().currentItem()
+        self.on_inventory_select(current, None)
 
     def _inventory_selected_item(self):
         item_id = self._selected_item_id()
@@ -178,10 +249,26 @@ class InventoryTab(QtWidgets.QWidget):
         unit = self._inventory_unit_for_item(item)
         self.inventory_unit_label.setText(unit)
 
-        db_row = self.app.profile_conn.execute(
-            "SELECT qty_count, qty_liters FROM inventory WHERE item_id=?",
-            (item["id"],),
-        ).fetchone()
+        storage_id = self._current_storage_id()
+        if not self._has_storage_tables():
+            db_row = self.app.profile_conn.execute(
+                "SELECT qty_count, qty_liters FROM inventory WHERE item_id=?",
+                (item["id"],),
+            ).fetchone()
+        elif storage_id is None:
+            db_row = self.app.profile_conn.execute(
+                """
+                SELECT SUM(qty_count) AS qty_count, SUM(qty_liters) AS qty_liters
+                FROM storage_assignments
+                WHERE item_id=?
+                """,
+                (item["id"],),
+            ).fetchone()
+        else:
+            db_row = self.app.profile_conn.execute(
+                "SELECT qty_count, qty_liters FROM storage_assignments WHERE storage_id=? AND item_id=?",
+                (storage_id, item["id"]),
+            ).fetchone()
         if unit == "L":
             qty = db_row["qty_liters"] if db_row else None
         else:
@@ -196,15 +283,47 @@ class InventoryTab(QtWidgets.QWidget):
             return ""
         return str(int(round(qty_f)))
 
+    def _sync_legacy_inventory_row(self, item_id: int) -> None:
+        row = self.app.profile_conn.execute(
+            """
+            SELECT SUM(qty_count) AS qty_count, SUM(qty_liters) AS qty_liters
+            FROM storage_assignments
+            WHERE item_id=?
+            """,
+            (item_id,),
+        ).fetchone()
+        qty_count = row["qty_count"] if row and row["qty_count"] is not None else None
+        qty_liters = row["qty_liters"] if row and row["qty_liters"] is not None else None
+        if qty_count is None and qty_liters is None:
+            self.app.profile_conn.execute("DELETE FROM inventory WHERE item_id=?", (item_id,))
+            return
+        self.app.profile_conn.execute(
+            "INSERT INTO inventory(item_id, qty_count, qty_liters) VALUES(?, ?, ?) "
+            "ON CONFLICT(item_id) DO UPDATE SET qty_count=excluded.qty_count, qty_liters=excluded.qty_liters",
+            (item_id, qty_count, qty_liters),
+        )
+
     def save_inventory_item(self) -> None:
         item = self._inventory_selected_item()
         if not item:
             QtWidgets.QMessageBox.information(self, "Select an item", "Click an item first.")
             return
 
+        if self._is_aggregate_mode():
+            QtWidgets.QMessageBox.information(self, "Aggregate mode", "Switch to a specific storage to edit quantities.")
+            return
+
+        storage_id = self._current_storage_id()
         raw = self.inventory_qty_entry.text().strip()
         if raw == "":
-            self.app.profile_conn.execute("DELETE FROM inventory WHERE item_id=?", (item["id"],))
+            if self._has_storage_tables():
+                self.app.profile_conn.execute(
+                    "DELETE FROM storage_assignments WHERE storage_id=? AND item_id=?",
+                    (storage_id, item["id"]),
+                )
+                self._sync_legacy_inventory_row(item["id"])
+            else:
+                self.app.profile_conn.execute("DELETE FROM inventory WHERE item_id=?", (item["id"],))
             self.app.profile_conn.commit()
             self.app.status_bar.showMessage(f"Cleared inventory for: {item['name']}")
             self.app.notify_inventory_change()
@@ -227,11 +346,19 @@ class InventoryTab(QtWidgets.QWidget):
         unit = self._inventory_unit_for_item(item)
         qty_count = qty if unit == "count" else None
         qty_liters = qty if unit == "L" else None
-        self.app.profile_conn.execute(
-            "INSERT INTO inventory(item_id, qty_count, qty_liters) VALUES(?, ?, ?) "
-            "ON CONFLICT(item_id) DO UPDATE SET qty_count=excluded.qty_count, qty_liters=excluded.qty_liters",
-            (item["id"], qty_count, qty_liters),
-        )
+        if self._has_storage_tables():
+            self.app.profile_conn.execute(
+                "INSERT INTO storage_assignments(storage_id, item_id, qty_count, qty_liters) VALUES(?, ?, ?, ?) "
+                "ON CONFLICT(storage_id, item_id) DO UPDATE SET qty_count=excluded.qty_count, qty_liters=excluded.qty_liters",
+                (storage_id, item["id"], qty_count, qty_liters),
+            )
+            self._sync_legacy_inventory_row(item["id"])
+        else:
+            self.app.profile_conn.execute(
+                "INSERT INTO inventory(item_id, qty_count, qty_liters) VALUES(?, ?, ?) "
+                "ON CONFLICT(item_id) DO UPDATE SET qty_count=excluded.qty_count, qty_liters=excluded.qty_liters",
+                (item["id"], qty_count, qty_liters),
+            )
         self.app.profile_conn.commit()
         self.inventory_qty_entry.setText(str(qty))
         self.app.status_bar.showMessage(f"Saved inventory for: {item['name']}")

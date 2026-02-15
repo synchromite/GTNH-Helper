@@ -7,6 +7,7 @@ SETTINGS_MACHINE_TIER_FILTER = "machine_tier_filter"
 SETTINGS_MACHINE_UNLOCKED_ONLY = "machine_unlocked_only"
 SETTINGS_MACHINE_SORT_MODE = "machine_sort_mode"
 SETTINGS_MACHINE_SEARCH = "machine_search"
+SETTINGS_ACTIVE_STORAGE_ID = "active_storage_id"
 
 DARK_STYLESHEET = """
 QWidget {

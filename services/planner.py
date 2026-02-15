@@ -566,7 +566,20 @@ class PlannerService:
         return {row["id"]: row for row in rows}
 
     def _load_inventory(self, items: dict[int, dict] | None = None) -> dict[int, int]:
-        rows = self.profile_conn.execute("SELECT item_id, qty_count, qty_liters FROM inventory").fetchall()
+        tables = {
+            row["name"]
+            for row in self.profile_conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+        }
+        if "storage_assignments" in tables:
+            rows = self.profile_conn.execute(
+                """
+                SELECT item_id, SUM(qty_count) AS qty_count, SUM(qty_liters) AS qty_liters
+                FROM storage_assignments
+                GROUP BY item_id
+                """
+            ).fetchall()
+        else:
+            rows = self.profile_conn.execute("SELECT item_id, qty_count, qty_liters FROM inventory").fetchall()
         inventory: dict[int, int] = {}
         for row in rows:
             item_id = row["item_id"]

@@ -14,6 +14,8 @@ def test_connect_profile_creates_tables(tmp_path):
         assert "app_settings" in tables
         assert "inventory" in tables
         assert "machine_availability" in tables
+        assert "storage_units" in tables
+        assert "storage_assignments" in tables
         assert "machine_metadata" not in tables
 
         inventory_cols = {
@@ -21,6 +23,16 @@ def test_connect_profile_creates_tables(tmp_path):
             for row in conn.execute("PRAGMA table_info(inventory)").fetchall()
         }
         assert {"item_id", "qty_count", "qty_liters"}.issubset(inventory_cols)
+
+        storage_rows = conn.execute("SELECT id, name FROM storage_units").fetchall()
+        assert len(storage_rows) == 1
+        assert storage_rows[0]["name"] == "Main Storage"
+
+        assignment_cols = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(storage_assignments)").fetchall()
+        }
+        assert {"storage_id", "item_id", "qty_count", "qty_liters"}.issubset(assignment_cols)
 
         availability_cols = {
             row["name"]
