@@ -2,6 +2,14 @@ from __future__ import annotations
 
 from PySide6 import QtCore, QtWidgets
 
+from services.storage import (
+    aggregate_assignment_for_item,
+    delete_assignment,
+    get_assignment,
+    has_storage_tables,
+    upsert_assignment,
+)
+
 
 class InventoryTab(QtWidgets.QWidget):
     def __init__(self, app, parent=None):
@@ -181,10 +189,7 @@ class InventoryTab(QtWidgets.QWidget):
             self.storage_mode_label.setText("")
 
     def _has_storage_tables(self) -> bool:
-        row = self.app.profile_conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='storage_assignments'"
-        ).fetchone()
-        return row is not None
+        return has_storage_tables(self.app.profile_conn)
 
     def _on_storage_changed(self, _index: int) -> None:
         storage_id = self._current_storage_id()
@@ -256,19 +261,9 @@ class InventoryTab(QtWidgets.QWidget):
                 (item["id"],),
             ).fetchone()
         elif storage_id is None:
-            db_row = self.app.profile_conn.execute(
-                """
-                SELECT SUM(qty_count) AS qty_count, SUM(qty_liters) AS qty_liters
-                FROM storage_assignments
-                WHERE item_id=?
-                """,
-                (item["id"],),
-            ).fetchone()
+            db_row = aggregate_assignment_for_item(self.app.profile_conn, item["id"])
         else:
-            db_row = self.app.profile_conn.execute(
-                "SELECT qty_count, qty_liters FROM storage_assignments WHERE storage_id=? AND item_id=?",
-                (storage_id, item["id"]),
-            ).fetchone()
+            db_row = get_assignment(self.app.profile_conn, storage_id=storage_id, item_id=item["id"])
         if unit == "L":
             qty = db_row["qty_liters"] if db_row else None
         else:
@@ -284,14 +279,7 @@ class InventoryTab(QtWidgets.QWidget):
         return str(int(round(qty_f)))
 
     def _sync_legacy_inventory_row(self, item_id: int) -> None:
-        row = self.app.profile_conn.execute(
-            """
-            SELECT SUM(qty_count) AS qty_count, SUM(qty_liters) AS qty_liters
-            FROM storage_assignments
-            WHERE item_id=?
-            """,
-            (item_id,),
-        ).fetchone()
+        row = aggregate_assignment_for_item(self.app.profile_conn, item_id)
         qty_count = row["qty_count"] if row and row["qty_count"] is not None else None
         qty_liters = row["qty_liters"] if row and row["qty_liters"] is not None else None
         if qty_count is None and qty_liters is None:
@@ -317,10 +305,7 @@ class InventoryTab(QtWidgets.QWidget):
         raw = self.inventory_qty_entry.text().strip()
         if raw == "":
             if self._has_storage_tables():
-                self.app.profile_conn.execute(
-                    "DELETE FROM storage_assignments WHERE storage_id=? AND item_id=?",
-                    (storage_id, item["id"]),
-                )
+                delete_assignment(self.app.profile_conn, storage_id=storage_id, item_id=item["id"])
                 self._sync_legacy_inventory_row(item["id"])
             else:
                 self.app.profile_conn.execute("DELETE FROM inventory WHERE item_id=?", (item["id"],))
@@ -347,10 +332,12 @@ class InventoryTab(QtWidgets.QWidget):
         qty_count = qty if unit == "count" else None
         qty_liters = qty if unit == "L" else None
         if self._has_storage_tables():
-            self.app.profile_conn.execute(
-                "INSERT INTO storage_assignments(storage_id, item_id, qty_count, qty_liters) VALUES(?, ?, ?, ?) "
-                "ON CONFLICT(storage_id, item_id) DO UPDATE SET qty_count=excluded.qty_count, qty_liters=excluded.qty_liters",
-                (storage_id, item["id"], qty_count, qty_liters),
+            upsert_assignment(
+                self.app.profile_conn,
+                storage_id=storage_id,
+                item_id=item["id"],
+                qty_count=qty_count,
+                qty_liters=qty_liters,
             )
             self._sync_legacy_inventory_row(item["id"])
         else:

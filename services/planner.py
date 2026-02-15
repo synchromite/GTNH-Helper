@@ -6,6 +6,7 @@ import sqlite3
 from typing import Iterable
 
 from services.db import ALL_TIERS
+from services.storage import aggregated_assignment_rows, has_storage_tables
 
 GT_VOLTAGES = [
     (8, "ULV"), (32, "LV"), (128, "MV"), (512, "HV"), (2048, "EV"),
@@ -566,18 +567,8 @@ class PlannerService:
         return {row["id"]: row for row in rows}
 
     def _load_inventory(self, items: dict[int, dict] | None = None) -> dict[int, int]:
-        tables = {
-            row["name"]
-            for row in self.profile_conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
-        }
-        if "storage_assignments" in tables:
-            rows = self.profile_conn.execute(
-                """
-                SELECT item_id, SUM(qty_count) AS qty_count, SUM(qty_liters) AS qty_liters
-                FROM storage_assignments
-                GROUP BY item_id
-                """
-            ).fetchall()
+        if has_storage_tables(self.profile_conn):
+            rows = aggregated_assignment_rows(self.profile_conn)
         else:
             rows = self.profile_conn.execute("SELECT item_id, qty_count, qty_liters FROM inventory").fetchall()
         inventory: dict[int, int] = {}

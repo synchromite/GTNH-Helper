@@ -17,6 +17,7 @@ from services.db import (
     set_all_tiers,
     set_setting,
 )
+from services.storage import default_storage_id, list_storage_units
 from ui_constants import (
     SETTINGS_CRAFT_6X6_UNLOCKED,
     SETTINGS_CRAFTING_GRIDS,
@@ -179,10 +180,8 @@ class DbLifecycle:
     def list_storage_units(self) -> list[dict[str, int | str]]:
         if self.profile_conn is None:
             return []
-        rows = self.profile_conn.execute(
-            "SELECT id, name FROM storage_units ORDER BY LOWER(name), id"
-        ).fetchall()
-        return [{"id": int(row["id"]), "name": row["name"]} for row in rows]
+        rows = list_storage_units(self.profile_conn)
+        return [{"id": int(row["id"]), "name": str(row["name"])} for row in rows]
 
     def get_active_storage_id(self) -> int | None:
         storages = self.list_storage_units()
@@ -197,7 +196,9 @@ class DbLifecycle:
             else:
                 if any(storage["id"] == selected for storage in storages):
                     return selected
-        default_id = storages[0]["id"]
+        default_id = default_storage_id(self.profile_conn)
+        if default_id is None:
+            return None
         set_setting(self.profile_conn, SETTINGS_ACTIVE_STORAGE_ID, str(default_id))
         return default_id
 
