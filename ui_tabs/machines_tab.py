@@ -146,16 +146,12 @@ class MachinesTab(QtWidgets.QWidget):
         self.edit_machine_btn.setEnabled(False)
         btns.addWidget(self.edit_machine_btn)
 
-        self.edit_metadata_btn = QtWidgets.QPushButton("Edit Specs…")
-        self.edit_metadata_btn.clicked.connect(self._open_metadata_editor)
-        btns.addWidget(self.edit_metadata_btn)
         btns.addStretch(1)
         right.addLayout(btns)
 
         if not self.app.editor_enabled:
             self.add_machine_type_btn.setEnabled(False)
             self.edit_machine_btn.setEnabled(False)
-            self.edit_metadata_btn.setEnabled(False)
 
     def load_from_db(self) -> None:
         rows = self.app.conn.execute(
@@ -545,19 +541,6 @@ class MachinesTab(QtWidgets.QWidget):
         if dialog.exec() == QtWidgets.QDialog.DialogCode.Accepted:
             self._render_machine_details(machine, tier)
 
-    def _open_metadata_editor(self) -> None:
-        if not self.app.editor_enabled:
-            QtWidgets.QMessageBox.information(
-                self,
-                "Editor locked",
-                "Editing machine metadata is only available in editor mode.",
-            )
-            return
-        dialog = MachineMetadataEditorDialog(self.app, parent=self)
-        if dialog.exec() == QtWidgets.QDialog.DialogCode.Accepted:
-            self.load_from_db()
-            if hasattr(self.app, "status_bar"):
-                self.app.status_bar.showMessage("Updated machine metadata.")
 
     def _get_tier_list(self) -> list[str]:
         if hasattr(self.app, "get_all_tiers"):
