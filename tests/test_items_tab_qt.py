@@ -3,7 +3,7 @@ import sqlite3
 
 import pytest
 
-QtWidgets = pytest.importorskip("PySide6.QtWidgets")
+QtWidgets = pytest.importorskip("PySide6.QtWidgets", exc_type=ImportError)
 from PySide6 import QtCore
 
 from ui_tabs.items_tab_qt import ItemsTab

@@ -3,7 +3,7 @@ import sqlite3
 
 import pytest
 
-QtWidgets = pytest.importorskip("PySide6.QtWidgets")
+QtWidgets = pytest.importorskip("PySide6.QtWidgets", exc_type=ImportError)
 from services.db import ensure_schema
 from ui_dialogs import MaterialManagerDialog
 
