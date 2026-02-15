@@ -109,26 +109,37 @@ Add first-class inventory container management (chests/drawers/barrels/tanks) wh
 
 ---
 
-## Milestone 3: Inventory UI – Storage-Aware Workflows
+## Milestone 3: Inventory UI – Storage-Aware Workflows - COMPLETE
 **Outcome:** Users can manage specific storages without forcing strict bookkeeping.
 
 ### Issues
-1. **Active storage selector in inventory tab**
+1. **Active storage selector in inventory tab - COMPLETE**
    - Add a `QComboBox` in `ui_tabs/inventory_tab.py`:
      - `Main Storage` and other named storages,
      - `All Storages` aggregate option.
 
-2. **Edit rules by selection**
+2. **Edit rules by selection - COMPLETE**
    - Editing applies to selected concrete storage only.
    - `All Storages` is read-only to avoid ambiguous/phantom writes.
 
-3. **Storage CRUD dialogs**
+3. **Storage CRUD dialogs - COMPLETE**
    - Add create/edit/delete storage unit flows in `ui_dialogs.py`.
    - Validate unique names and non-negative capacities.
 
-4. **Baseline summary panel**
+4. **Baseline summary panel - COMPLETE**
    - Display per-storage totals and aggregate totals.
    - Keep advanced capacity visualizations optional until M4.
+
+
+### Milestone 3 Coverage Status (Review)
+- ✅ Inventory tab includes an active `Storage` selector with concrete storages plus `All Storages (Aggregate)`.
+- ✅ Selection-based edit behavior is enforced:
+  - concrete storage selection enables quantity edits,
+  - aggregate mode blocks inventory quantity writes,
+  - aggregate mode also blocks machine-availability persistence side effects.
+- ✅ Storage CRUD dialog flows exist (create/edit/delete) with unique-name validation, non-negative capacity validation, and `Main Storage` delete protection.
+- ✅ Baseline summary panel reports selected-storage totals and aggregate totals.
+- ✅ Active storage fallback remains deterministic (`Main Storage` when unset/invalid).
 
 ### Exit Criteria
 - Users can stay simple (single `Main Storage`) or opt into detailed storage tracking.
