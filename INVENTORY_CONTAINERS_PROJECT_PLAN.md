@@ -23,7 +23,7 @@ Add first-class inventory container management (chests/drawers/barrels/tanks) wh
 
 ---
 
-## Phase 0 (Recommended): Minimal Architecture Slice
+## Phase 0 (Recommended): Minimal Architecture Slice - COMPLETE
 **Purpose:** Prove value and avoid scope creep before full M1–M6 rollout.
 
 ### Deliverables
@@ -48,7 +48,7 @@ Add first-class inventory container management (chests/drawers/barrels/tanks) wh
 **Outcome:** Storage-aware schema works in current clean-reset development workflow.
 
 ### Issues
-1. **Profile DB schema for storage units**
+1. **Profile DB schema for storage units - COMPLETE**
    - Add `storage_units` in `services/db.py` via `connect_profile()`:
      - `id`, `name`, `kind`, `slot_count`, `liter_capacity`, `priority`, `allow_planner_use`, `notes`.
    - Keep `PRAGMA foreign_keys=ON` and define FK behavior deliberately.
