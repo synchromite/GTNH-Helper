@@ -79,7 +79,7 @@ Add first-class inventory container management (chests/drawers/barrels/tanks) wh
 1. **Aggregate inventory loader - COMPLETE**
    - Update planner load path (`services/planner.py`) to aggregate storage assignments into the existing planner inventory map shape.
 
-2. **Unit-aware aggregation parity**
+2. **Unit-aware aggregation parity - COMPLETE**
    - Preserve current count/liter semantics by item kind.
 
 3. **Temporary compatibility simplification**

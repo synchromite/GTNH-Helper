@@ -568,18 +568,31 @@ class PlannerService:
 
     def _load_inventory(self, items: dict[int, dict] | None = None) -> dict[int, int]:
         rows = aggregated_assignment_rows(self.profile_conn)
+        item_kinds: dict[int, str] = {}
+        if items is not None:
+            item_kinds = {
+                int(item_id): ((((item["kind"] if item and "kind" in item.keys() else "") or "").strip().lower()))
+                for item_id, item in items.items()
+            }
+        elif rows:
+            item_ids = [int(row["item_id"]) for row in rows]
+            placeholders = ",".join("?" for _ in item_ids)
+            kind_rows = self.conn.execute(
+                f"SELECT id, kind FROM items WHERE id IN ({placeholders})",
+                item_ids,
+            ).fetchall()
+            item_kinds = {
+                int(kind_row["id"]): (((kind_row["kind"] or "").strip().lower()))
+                for kind_row in kind_rows
+            }
         inventory: dict[int, int] = {}
         for row in rows:
             item_id = row["item_id"]
-            if items is not None:
-                item = items.get(item_id)
-                kind = ((item["kind"] if item else "") or "").strip().lower()
-                if kind in ("fluid", "gas"):
-                    qty = row["qty_liters"] if row["qty_liters"] is not None else row["qty_count"]
-                else:
-                    qty = row["qty_count"] if row["qty_count"] is not None else row["qty_liters"]
-            else:
+            kind = item_kinds.get(item_id, "")
+            if kind in ("fluid", "gas"):
                 qty = row["qty_liters"] if row["qty_liters"] is not None else row["qty_count"]
+            else:
+                qty = row["qty_count"] if row["qty_count"] is not None else row["qty_liters"]
             if qty is None:
                 continue
             try:

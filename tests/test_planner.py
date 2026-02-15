@@ -719,3 +719,27 @@ def test_load_inventory_does_not_fallback_to_legacy_inventory_table():
     inventory = planner.load_inventory()
 
     assert inventory == {}
+
+
+def test_load_inventory_preserves_unit_column_by_item_kind():
+    conn = _setup_conn()
+    profile_conn = connect_profile(":memory:")
+
+    item_solid = _insert_item(conn, key="item_a", name="Item A", kind="item", is_base=1)
+    item_fluid = _insert_item(conn, key="fluid_a", name="Fluid A", kind="fluid", is_base=1)
+    main_storage = profile_conn.execute("SELECT id FROM storage_units WHERE name='Main Storage'").fetchone()["id"]
+    profile_conn.execute(
+        "INSERT INTO storage_assignments(storage_id, item_id, qty_count, qty_liters) VALUES(?,?,?,?)",
+        (main_storage, item_solid, 7, 700),
+    )
+    profile_conn.execute(
+        "INSERT INTO storage_assignments(storage_id, item_id, qty_count, qty_liters) VALUES(?,?,?,?)",
+        (main_storage, item_fluid, 8, 800),
+    )
+    profile_conn.commit()
+
+    planner = PlannerService(conn, profile_conn)
+    inventory = planner.load_inventory()
+
+    assert inventory[item_solid] == 7
+    assert inventory[item_fluid] == 800
