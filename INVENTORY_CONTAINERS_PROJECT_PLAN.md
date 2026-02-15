@@ -58,7 +58,7 @@ Add first-class inventory container management (chests/drawers/barrels/tanks) wh
      - `(storage_id, item_id, qty_count, qty_liters, locked)`.
    - Composite PK `(storage_id, item_id)`, and FK with `ON DELETE CASCADE` on storage rows.
 
-3. **Reset-friendly bootstrap (no migration yet)**
+3. **Reset-friendly bootstrap (no migration yet) - COMPLETE**
    - Seed a default storage unit (`Main Storage`) on fresh profile init.
    - Do not add legacy migration complexity while schema is changing.
 
