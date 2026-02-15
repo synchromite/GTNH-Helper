@@ -61,26 +61,6 @@ def connect_profile(db_path: Path | str) -> sqlite3.Connection:
     )
     conn.execute(
         """
-        CREATE TABLE IF NOT EXISTS machine_metadata (
-            machine_type TEXT NOT NULL,
-            tier TEXT NOT NULL,
-            machine_name TEXT,
-            input_slots INTEGER,
-            output_slots INTEGER,
-            byproduct_slots INTEGER,
-            storage_slots INTEGER,
-            power_slots INTEGER,
-            circuit_slots INTEGER,
-            input_tanks INTEGER,
-            input_tank_capacity_l INTEGER,
-            output_tanks INTEGER,
-            output_tank_capacity_l INTEGER,
-            PRIMARY KEY (machine_type, tier)
-        )
-        """
-    )
-    conn.execute(
-        """
         CREATE TABLE IF NOT EXISTS machine_availability (
             machine_type TEXT NOT NULL,
             tier TEXT NOT NULL,

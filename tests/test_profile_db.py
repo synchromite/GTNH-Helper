@@ -13,11 +13,19 @@ def test_connect_profile_creates_tables(tmp_path):
         }
         assert "app_settings" in tables
         assert "inventory" in tables
+        assert "machine_availability" in tables
+        assert "machine_metadata" not in tables
 
         inventory_cols = {
             row["name"]
             for row in conn.execute("PRAGMA table_info(inventory)").fetchall()
         }
         assert {"item_id", "qty_count", "qty_liters"}.issubset(inventory_cols)
+
+        availability_cols = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(machine_availability)").fetchall()
+        }
+        assert {"machine_type", "tier", "owned", "online"}.issubset(availability_cols)
     finally:
         conn.close()
