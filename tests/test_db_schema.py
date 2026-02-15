@@ -33,6 +33,7 @@ def test_ensure_schema_creates_tables_and_defaults():
         "item_kind_id",
         "material_id",
         "is_machine",
+        "max_stack_size",
         "machine_tier",
         "machine_type",
         "content_fluid_id",

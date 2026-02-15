@@ -199,6 +199,7 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
         display_name TEXT,
         kind TEXT NOT NULL CHECK(kind IN ('item','fluid','gas','machine','crafting_grid')),
         is_base INTEGER NOT NULL DEFAULT 0,
+        max_stack_size INTEGER NOT NULL DEFAULT 64,
         material_id INTEGER,
         FOREIGN KEY(material_id) REFERENCES materials(id) ON DELETE SET NULL
     )
@@ -242,6 +243,8 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
 
     if not _has_col("items", "content_qty_liters"):
         conn.execute("ALTER TABLE items ADD COLUMN content_qty_liters INTEGER")
+    if not _has_col("items", "max_stack_size"):
+        conn.execute("ALTER TABLE items ADD COLUMN max_stack_size INTEGER NOT NULL DEFAULT 64")
     if not _has_col("items", "crafting_grid_size"):
         conn.execute("ALTER TABLE items ADD COLUMN crafting_grid_size TEXT")
 
@@ -274,6 +277,7 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
             "display_name",
             "kind",
             "is_base",
+            "max_stack_size",
             "material_id",
             "is_machine",
             "machine_tier",
@@ -299,6 +303,7 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
                 display_name TEXT,
                 kind TEXT NOT NULL CHECK(kind IN ('item','fluid','gas','machine','crafting_grid')),
                 is_base INTEGER NOT NULL DEFAULT 0,
+                max_stack_size INTEGER NOT NULL DEFAULT 64,
                 material_id INTEGER,
                 is_machine INTEGER NOT NULL DEFAULT 0,
                 machine_tier TEXT,
@@ -780,7 +785,7 @@ def merge_db(
 
         # ---- Items ----
         src_items = src.execute(
-            "SELECT id, key, display_name, kind, is_base, is_machine, machine_tier, machine_type, "
+            "SELECT id, key, display_name, kind, is_base, max_stack_size, is_machine, machine_tier, machine_type, "
             "       item_kind_id, material_id, crafting_grid_size, content_fluid_id, content_qty_liters "
             "FROM items ORDER BY id"
         ).fetchall()
@@ -835,7 +840,7 @@ def merge_db(
                 continue
 
             dest_row = dest_conn.execute(
-                "SELECT id, display_name, kind, is_base, is_machine, machine_tier, machine_type, "
+                "SELECT id, display_name, kind, is_base, max_stack_size, is_machine, machine_tier, machine_type, "
                 "       item_kind_id, material_id, crafting_grid_size, content_fluid_id, content_qty_liters "
                 "FROM items WHERE key=?",
                 (key,),
@@ -857,9 +862,9 @@ def merge_db(
 
             if not dest_row:
                 insert_sql = (
-                    "INSERT INTO items(key, display_name, kind, is_base, is_machine, machine_tier, machine_type, "
+                    "INSERT INTO items(key, display_name, kind, is_base, max_stack_size, is_machine, machine_tier, machine_type, "
                     "item_kind_id, material_id, crafting_grid_size, content_fluid_id, content_qty_liters, needs_review) "
-                    "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)"
+                    "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
                 )
                 needs_review = _needs_review_for_item(
                     kind=it["kind"],
@@ -874,6 +879,7 @@ def merge_db(
                     it["display_name"],
                     it["kind"],
                     int(it["is_base"] or 0),
+                    max(1, int(it["max_stack_size"] or 64)),
                     int(it["is_machine"] or 0),
                     it["machine_tier"],
                     it["machine_type"],
@@ -904,6 +910,8 @@ def merge_db(
                 updates["material_id"] = mapped_material_id
             if int(it["is_base"] or 0) and not int(dest_row["is_base"] or 0):
                 updates["is_base"] = 1
+            if int(dest_row["max_stack_size"] or 64) == 64 and int(it["max_stack_size"] or 64) != 64:
+                updates["max_stack_size"] = max(1, int(it["max_stack_size"] or 64))
             if dest_row["content_fluid_id"] is None and mapped_content_fluid_id is not None:
                 updates["content_fluid_id"] = mapped_content_fluid_id
                 if dest_row["content_qty_liters"] is None and it["content_qty_liters"] is not None:

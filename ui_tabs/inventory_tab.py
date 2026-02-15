@@ -8,6 +8,7 @@ from services.storage import (
     get_assignment,
     storage_inventory_totals,
     upsert_assignment,
+    validate_storage_fit_for_item,
 )
 from ui_dialogs import StorageUnitsDialog
 
@@ -350,6 +351,39 @@ class InventoryTab(QtWidgets.QWidget):
         unit = self._inventory_unit_for_item(item)
         qty_count = qty if unit == "count" else None
         qty_liters = qty if unit == "L" else None
+
+        stack_sizes = {
+            int(candidate["id"]): max(1, int(self._item_value(candidate, "max_stack_size") or 64))
+            for candidate in self.items
+        }
+        fit = validate_storage_fit_for_item(
+            self.app.profile_conn,
+            storage_id=storage_id,
+            item_id=item["id"],
+            qty_count=qty_count,
+            qty_liters=qty_liters,
+            item_max_stack_size=max(1, int(self._item_value(item, "max_stack_size") or 64)),
+            known_item_stack_sizes=stack_sizes,
+        )
+        if not fit["fits"]:
+            reasons: list[str] = []
+            if not fit["fits_slots"]:
+                reasons.append(
+                    f"slots {fit['slot_usage']}/{fit['slot_count']} (overflow +{fit['slot_overflow']})"
+                )
+            if not fit["fits_liters"]:
+                reasons.append(
+                    f"liters {int(round(float(fit['liter_usage'])))}"
+                    f"/{int(round(float(fit['liter_capacity'])))}"
+                    f" (overflow +{int(round(float(fit['liter_overflow'])))} L)"
+                )
+            QtWidgets.QMessageBox.warning(
+                self,
+                "Storage capacity exceeded",
+                "Cannot save inventory for this storage:\n- " + "\n- ".join(reasons),
+            )
+            return
+
         upsert_assignment(
             self.app.profile_conn,
             storage_id=storage_id,

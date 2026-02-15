@@ -4,6 +4,7 @@ from services.db import connect_profile
 from services.storage import (
     MAIN_STORAGE_NAME,
     aggregate_assignment_for_item,
+    assignment_slot_usage,
     aggregated_assignment_rows,
     create_storage_unit,
     default_storage_id,
@@ -13,6 +14,7 @@ from services.storage import (
     has_storage_tables,
     list_storage_units,
     storage_inventory_totals,
+    validate_storage_fit_for_item,
     update_storage_unit,
     upsert_assignment,
 )
@@ -83,5 +85,69 @@ def test_default_storage_id_prefers_main_storage_name(tmp_path) -> None:
 
     try:
         assert default_storage_id(conn) == 2
+    finally:
+        conn.close()
+
+
+def test_assignment_slot_usage_handles_non_stackables() -> None:
+    assert assignment_slot_usage(0, 64) == 0
+    assert assignment_slot_usage(1, 1) == 1
+    assert assignment_slot_usage(2, 1) == 2
+    assert assignment_slot_usage(65, 64) == 2
+
+
+def test_validate_storage_fit_for_item_boundary_cases(tmp_path) -> None:
+    conn = connect_profile(tmp_path / "profile.db")
+    try:
+        main_storage = default_storage_id(conn)
+        assert main_storage is not None
+        conn.execute(
+            "UPDATE storage_units SET slot_count=?, liter_capacity=? WHERE id=?",
+            (2, 1000, main_storage),
+        )
+        conn.execute(
+            "INSERT INTO storage_assignments(storage_id, item_id, qty_count, qty_liters) VALUES(?, ?, ?, ?)",
+            (main_storage, 100, 64, None),
+        )
+        conn.execute(
+            "INSERT INTO storage_assignments(storage_id, item_id, qty_count, qty_liters) VALUES(?, ?, ?, ?)",
+            (main_storage, 101, None, 1000),
+        )
+
+        exact_fit = validate_storage_fit_for_item(
+            conn,
+            storage_id=main_storage,
+            item_id=100,
+            qty_count=128,
+            qty_liters=None,
+            item_max_stack_size=64,
+            known_item_stack_sizes={100: 64},
+        )
+        assert exact_fit["fits"] is True
+        assert exact_fit["slot_usage"] == 2
+
+        slot_overflow = validate_storage_fit_for_item(
+            conn,
+            storage_id=main_storage,
+            item_id=102,
+            qty_count=2,
+            qty_liters=None,
+            item_max_stack_size=1,
+            known_item_stack_sizes={100: 64, 102: 1},
+        )
+        assert slot_overflow["fits_slots"] is False
+        assert slot_overflow["slot_overflow"] == 1
+
+        liter_overflow = validate_storage_fit_for_item(
+            conn,
+            storage_id=main_storage,
+            item_id=101,
+            qty_count=None,
+            qty_liters=1001,
+            item_max_stack_size=64,
+            known_item_stack_sizes={100: 64},
+        )
+        assert liter_overflow["fits_liters"] is False
+        assert int(liter_overflow["liter_overflow"]) == 1
     finally:
         conn.close()

@@ -12,6 +12,7 @@ def fetch_items(conn: sqlite3.Connection) -> list[sqlite3.Row]:
             COALESCE(i.display_name, i.key) AS name, 
             i.kind, 
             i.is_base, 
+            i.max_stack_size,
             i.is_machine, 
             i.machine_tier, 
             i.machine_type,

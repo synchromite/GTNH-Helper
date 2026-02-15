@@ -149,21 +149,27 @@ Add first-class inventory container management (chests/drawers/barrels/tanks) wh
 
 ---
 
-## Milestone 4: Capacity & Fit Validation (Optional After Phase 0/M3)
+## Milestone 4: Capacity & Fit Validation (Optional After Phase 0/M3) - COMPLETE
 **Outcome:** Prevent impossible storage states and report overflow clearly.
 
 ### Issues
-1. **Item stack-size metadata**
-   - Add `max_stack_size` to `items` schema (default 64).
+1. **Item stack-size metadata - COMPLETE**
+   - Added `max_stack_size` to `items` schema with default `64` and compatibility migration support.
 
-2. **Capacity math helpers in service layer**
-   - Implement slot/liter fit checks in `services/storage.py`.
+2. **Capacity math helpers in service layer - COMPLETE**
+   - Implemented deterministic slot/liter fit helpers in `services/storage.py`, including stack-aware slot math.
 
-3. **Save-time validation/warnings**
-   - Validate against storage limits before persisting.
+3. **Save-time validation/warnings - COMPLETE**
+   - Inventory save now validates selected-storage fit before persisting and reports overflow details.
 
-4. **Automated edge-case tests**
-   - Cover stack size 1/non-stackables and boundary cases.
+4. **Automated edge-case tests - COMPLETE**
+   - Added tests for stack size `1` non-stackables and slot/liter boundary overflow conditions.
+
+### Milestone 4 Coverage Status (Review)
+- ✅ Item schema now includes stack-size metadata (`max_stack_size`) with migration-safe defaults.
+- ✅ Storage service exposes slot-usage math and per-storage fit validation for pending writes.
+- ✅ Inventory tab blocks impossible saves and surfaces clear overflow warnings instead of persisting invalid states.
+- ✅ Automated tests cover non-stackables (`max_stack_size=1`), exact-fit boundaries, and slot/liter overflow cases.
 
 ### Exit Criteria
 - Capacity behavior is deterministic and covered by tests.

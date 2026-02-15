@@ -20,7 +20,7 @@ def _get_app() -> QtWidgets.QApplication:
 def _item_row(conn: sqlite3.Connection, *, name: str) -> sqlite3.Row:
     return conn.execute(
         "SELECT 1 AS id, ? AS name, 'item' AS kind, 'plate' AS item_kind_name, 'iron' AS material_name, "
-        "NULL AS machine_type, NULL AS machine_tier, 0 AS is_machine, NULL AS crafting_grid_size",
+        "NULL AS machine_type, NULL AS machine_tier, 0 AS is_machine, NULL AS crafting_grid_size, 64 AS max_stack_size",
         (name,),
     ).fetchone()
 
@@ -113,6 +113,74 @@ def test_inventory_save_writes_storage_assignment_only() -> None:
     tab.deleteLater()
     conn.close()
 
+
+
+def test_inventory_save_blocks_capacity_overflow(monkeypatch) -> None:
+    app = _get_app()
+
+    class DummyStatusBar:
+        def showMessage(self, _msg: str) -> None:
+            return None
+
+    class DummyApp:
+        def __init__(self) -> None:
+            self.profile_conn = connect_profile(":memory:")
+            self.status_bar = DummyStatusBar()
+
+        def notify_inventory_change(self) -> None:
+            return None
+
+    tab = InventoryTab(DummyApp())
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    row = conn.execute(
+        "SELECT 1 AS id, 'Quantum Chest Upgrade' AS name, 'item' AS kind, 'component' AS item_kind_name, "
+        "'steel' AS material_name, NULL AS machine_type, NULL AS machine_tier, 0 AS is_machine, "
+        "NULL AS crafting_grid_size, 1 AS max_stack_size"
+    ).fetchone()
+
+    storage_id = tab.app.profile_conn.execute(
+        "SELECT id FROM storage_units WHERE name='Main Storage'"
+    ).fetchone()["id"]
+    tab.app.profile_conn.execute(
+        "UPDATE storage_units SET slot_count=? WHERE id=?",
+        (1, storage_id),
+    )
+    tab.app.profile_conn.execute(
+        "INSERT INTO storage_assignments(storage_id, item_id, qty_count, qty_liters) VALUES(?, ?, ?, ?)",
+        (storage_id, 99, 64, None),
+    )
+    tab.app.profile_conn.commit()
+
+    warnings: list[str] = []
+
+    def _capture_warning(_parent, _title: str, message: str):
+        warnings.append(message)
+        return QtWidgets.QMessageBox.StandardButton.Ok
+
+    monkeypatch.setattr(QtWidgets.QMessageBox, "warning", _capture_warning)
+
+    tab.render_items([row])
+    tab.storage_selector.setCurrentIndex(1)
+    tree = tab.inventory_trees["All"]
+    kind_item = tree.topLevelItem(0)
+    leaf = kind_item.child(0).child(0).child(0)
+    tree.setCurrentItem(leaf)
+
+    tab.inventory_qty_entry.setText("2")
+    tab.save_inventory_item()
+    app.processEvents()
+
+    blocked = tab.app.profile_conn.execute(
+        "SELECT 1 FROM storage_assignments WHERE storage_id=? AND item_id=?",
+        (storage_id, 1),
+    ).fetchone()
+    assert blocked is None
+    assert warnings
+    assert "overflow" in warnings[0].lower()
+
+    tab.deleteLater()
+    conn.close()
 
 def test_inventory_aggregate_mode_is_read_only() -> None:
     app = _get_app()
@@ -235,7 +303,7 @@ def test_inventory_aggregate_mode_disables_machine_availability_toggles() -> Non
     conn.row_factory = sqlite3.Row
     machine_row = conn.execute(
         "SELECT 1 AS id, 'Assembler LV' AS name, 'machine' AS kind, 'machine' AS item_kind_name, "
-        "NULL AS material_name, 'assembler' AS machine_type, 'lv' AS machine_tier, 1 AS is_machine, NULL AS crafting_grid_size"
+        "NULL AS material_name, 'assembler' AS machine_type, 'lv' AS machine_tier, 1 AS is_machine, NULL AS crafting_grid_size, 64 AS max_stack_size"
     ).fetchone()
 
     tab.render_items([machine_row])
