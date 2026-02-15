@@ -1162,6 +1162,7 @@ class AddItemDialog(_ItemDialogBase):
     def _ensure_auto_cell_for_fluid(self, *, fluid_item_id: int, fluid_name: str, is_base: int) -> None:
         cell_display_name = f"{fluid_name} Cell"
         cell_key = self._slugify(cell_display_name)
+        cell_item_kind_id = self._get_or_create_cell_item_kind_id()
         existing = self.app.conn.execute(
             "SELECT id FROM items WHERE content_fluid_id=? AND content_qty_liters=1 AND kind='item' LIMIT 1",
             (fluid_item_id,),
@@ -1179,7 +1180,7 @@ class AddItemDialog(_ItemDialogBase):
                 "item",
                 is_base,
                 0,
-                None,
+                cell_item_kind_id,
                 None,
                 None,
                 None,
@@ -1189,6 +1190,24 @@ class AddItemDialog(_ItemDialogBase):
                 None,
             ),
         )
+
+    def _get_or_create_cell_item_kind_id(self) -> int | None:
+        row = self.app.conn.execute(
+            "SELECT id FROM item_kinds WHERE LOWER(name)='cell' AND LOWER(COALESCE(applies_to, 'item'))='item' LIMIT 1"
+        ).fetchone()
+        if row:
+            return int(row["id"])
+
+        canonical_name = self._ensure_item_kind("Cell", "item")
+        if not canonical_name:
+            return None
+        row = self.app.conn.execute(
+            "SELECT id FROM item_kinds WHERE LOWER(name)=LOWER(?) LIMIT 1",
+            (canonical_name,),
+        ).fetchone()
+        if not row:
+            return None
+        return int(row["id"])
 
 
 class EditItemDialog(_ItemDialogBase):
