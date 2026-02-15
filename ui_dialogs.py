@@ -3420,6 +3420,13 @@ class MachineMetadataEditorDialog(QtWidgets.QDialog):
         except Exception as exc:
             QtWidgets.QMessageBox.critical(self, "Save failed", str(exc))
             return
+
+        if hasattr(self.app, "refresh_items"):
+            self.app.refresh_items()
+        if hasattr(self.app, "refresh_recipes"):
+            self.app.refresh_recipes()
+        if hasattr(self.app, "_machines_load_from_db"):
+            self.app._machines_load_from_db()
         self.accept()
 
 
