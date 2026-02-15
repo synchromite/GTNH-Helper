@@ -28,11 +28,32 @@ def test_connect_profile_creates_tables(tmp_path):
         assert len(storage_rows) == 1
         assert storage_rows[0]["name"] == "Main Storage"
 
+        storage_unit_cols = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(storage_units)").fetchall()
+        }
+        assert {
+            "id",
+            "name",
+            "kind",
+            "slot_count",
+            "liter_capacity",
+            "priority",
+            "allow_planner_use",
+            "notes",
+        }.issubset(storage_unit_cols)
+
         assignment_cols = {
             row["name"]
             for row in conn.execute("PRAGMA table_info(storage_assignments)").fetchall()
         }
         assert {"storage_id", "item_id", "qty_count", "qty_liters"}.issubset(assignment_cols)
+
+        assignment_fks = {
+            (row["from"], row["table"], row["on_delete"])
+            for row in conn.execute("PRAGMA foreign_key_list(storage_assignments)").fetchall()
+        }
+        assert ("storage_id", "storage_units", "CASCADE") in assignment_fks
 
         availability_cols = {
             row["name"]

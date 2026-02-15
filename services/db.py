@@ -63,7 +63,15 @@ def connect_profile(db_path: Path | str) -> sqlite3.Connection:
         """
         CREATE TABLE IF NOT EXISTS storage_units (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL UNIQUE
+            name TEXT NOT NULL UNIQUE,
+            kind TEXT NOT NULL DEFAULT 'generic',
+            slot_count INTEGER,
+            liter_capacity REAL,
+            priority INTEGER NOT NULL DEFAULT 0,
+            allow_planner_use INTEGER NOT NULL DEFAULT 1 CHECK(allow_planner_use IN (0, 1)),
+            notes TEXT,
+            CHECK(slot_count IS NULL OR slot_count >= 0),
+            CHECK(liter_capacity IS NULL OR liter_capacity >= 0)
         )
         """
     )
@@ -96,7 +104,7 @@ def connect_profile(db_path: Path | str) -> sqlite3.Connection:
         ("Main Storage",),
     ).fetchone()
     if default_storage is None:
-        conn.execute("INSERT INTO storage_units(name) VALUES(?)", ("Main Storage",))
+        conn.execute("INSERT INTO storage_units(name, kind) VALUES(?, ?)", ("Main Storage", "generic"))
         default_storage_id = conn.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
     else:
         default_storage_id = default_storage["id"]
