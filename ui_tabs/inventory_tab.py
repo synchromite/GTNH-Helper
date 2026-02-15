@@ -8,6 +8,7 @@ from services.storage import (
     get_assignment,
     storage_inventory_totals,
     upsert_assignment,
+    update_storage_unit,
     validate_storage_fit_for_item,
 )
 from ui_dialogs import StorageUnitsDialog
@@ -132,6 +133,22 @@ class InventoryTab(QtWidgets.QWidget):
         availability_layout.addWidget(availability_scroll)
         self.machine_availability_group.setVisible(False)
         right.addWidget(self.machine_availability_group)
+
+        self.container_placement_group = QtWidgets.QGroupBox("Container Placement")
+        container_layout = QtWidgets.QGridLayout(self.container_placement_group)
+        self.container_placement_note = QtWidgets.QLabel("")
+        self.container_placement_note.setWordWrap(True)
+        self.container_placement_note.setStyleSheet("color: #666;")
+        container_layout.addWidget(self.container_placement_note, 0, 0, 1, 3)
+        container_layout.addWidget(QtWidgets.QLabel("Placed:"), 1, 0)
+        self.container_placed_spin = QtWidgets.QSpinBox()
+        self.container_placed_spin.setRange(0, 1_000_000)
+        container_layout.addWidget(self.container_placed_spin, 1, 1)
+        self.container_apply_button = QtWidgets.QPushButton("Apply placement")
+        self.container_apply_button.clicked.connect(self._apply_container_placement)
+        container_layout.addWidget(self.container_apply_button, 1, 2)
+        self.container_placement_group.setVisible(False)
+        right.addWidget(self.container_placement_group)
 
         tip = QtWidgets.QLabel("Tip: items use counts; fluids and gases use liters (L).")
         tip.setStyleSheet("color: #666;")
@@ -276,6 +293,7 @@ class InventoryTab(QtWidgets.QWidget):
             self.inventory_unit_label.setText("")
             self.inventory_qty_entry.setText("")
             self._set_machine_availability_target(None)
+            self.container_placement_group.setVisible(False)
             return
         item_id = current.data(0, QtCore.Qt.UserRole)
         if item_id is None:
@@ -283,6 +301,7 @@ class InventoryTab(QtWidgets.QWidget):
             self.inventory_unit_label.setText("")
             self.inventory_qty_entry.setText("")
             self._set_machine_availability_target(None)
+            self.container_placement_group.setVisible(False)
             return
         item = self.items_by_id.get(int(item_id))
         if item is None:
@@ -290,6 +309,7 @@ class InventoryTab(QtWidgets.QWidget):
             self.inventory_unit_label.setText("")
             self.inventory_qty_entry.setText("")
             self._set_machine_availability_target(None)
+            self.container_placement_group.setVisible(False)
             return
         self.inventory_item_name.setText(item["name"])
         unit = self._inventory_unit_for_item(item)
@@ -306,6 +326,7 @@ class InventoryTab(QtWidgets.QWidget):
             qty = db_row["qty_count"] if db_row else None
         self.inventory_qty_entry.setText("" if qty is None else self._format_inventory_qty(qty))
         self._sync_machine_availability(item, qty)
+        self._refresh_container_placement_panel(item, qty)
 
     def _format_inventory_qty(self, qty: float | int) -> str:
         try:
@@ -334,6 +355,8 @@ class InventoryTab(QtWidgets.QWidget):
             self._refresh_summary_panel()
             if self._is_machine_item(item):
                 self._save_machine_availability(item, owned=0, online=0)
+            self._sync_container_storage_after_inventory_save(item, qty=0)
+            self._refresh_container_placement_panel(item, 0)
             return
 
         try:
@@ -400,10 +423,113 @@ class InventoryTab(QtWidgets.QWidget):
             online = min(self._current_online_count(), qty)
             self._save_machine_availability(item, owned=qty, online=online)
             self._render_machine_availability(item, qty, online)
+        self._sync_container_storage_after_inventory_save(item, qty=qty)
+        self._refresh_container_placement_panel(item, qty)
 
     def clear_inventory_item(self) -> None:
         self.inventory_qty_entry.setText("")
         self.save_inventory_item()
+
+
+    def _storage_row_by_id(self, storage_id: int | None) -> dict | None:
+        if storage_id is None:
+            return None
+        for row in self.storage_units:
+            if int(row.get("id") or 0) == int(storage_id):
+                return row
+        return None
+
+    def _is_storage_container_item(self, item: dict | None) -> bool:
+        if not item:
+            return False
+        return bool(int(self._item_value(item, "is_storage_container") or 0))
+
+    def _container_slot_count_for_item(self, item: dict) -> int:
+        return max(0, int(self._item_value(item, "storage_slot_count") or 0))
+
+    def _refresh_container_placement_panel(self, item: dict | None, qty) -> None:
+        storage_id = self._current_storage_id()
+        if storage_id is None or not self._is_storage_container_item(item):
+            self.container_placement_group.setVisible(False)
+            return
+
+        storage = self._storage_row_by_id(storage_id) or {}
+        owned = max(0, int(float(qty or 0)))
+        linked_item_id = storage.get("container_item_id")
+        is_linked = linked_item_id is not None and int(linked_item_id) == int(item["id"])
+        placed_current = int(storage.get("placed_count") or 0) if is_linked else 0
+        placed_current = min(placed_current, owned)
+
+        self.container_placed_spin.blockSignals(True)
+        self.container_placed_spin.setMaximum(owned)
+        self.container_placed_spin.setValue(placed_current)
+        self.container_placed_spin.blockSignals(False)
+
+        slot_count = self._container_slot_count_for_item(item)
+        linked_msg = ""
+        if linked_item_id is not None and not is_linked:
+            linked_msg = " This storage is currently linked to a different container item."
+        self.container_placement_note.setText(
+            f"Owned in selected storage: {owned}. "
+            f"Slots per container: {slot_count}. "
+            f"Usable slots from placed: {placed_current * slot_count}." + linked_msg
+        )
+        self.container_apply_button.setEnabled(not self._is_aggregate_mode())
+        self.container_placement_group.setVisible(True)
+
+    def _sync_container_storage_after_inventory_save(self, item: dict, *, qty: int) -> None:
+        if not self._is_storage_container_item(item):
+            return
+        storage_id = self._current_storage_id()
+        if storage_id is None:
+            return
+        storage = self._storage_row_by_id(storage_id) or {}
+        linked_item_id = storage.get("container_item_id")
+        if linked_item_id not in (None, item["id"]):
+            return
+
+        placed_current = min(int(storage.get("placed_count") or 0), max(0, qty))
+        slot_count = self._container_slot_count_for_item(item)
+        update_storage_unit(
+            self.app.profile_conn,
+            storage_id,
+            container_item_id=int(item["id"]),
+            owned_count=max(0, qty),
+            placed_count=placed_current,
+            slot_count=max(0, placed_current * slot_count),
+        )
+        self.app.profile_conn.commit()
+        self.storage_units = list(self.app.list_storage_units()) if hasattr(self.app, "list_storage_units") else self.storage_units
+        self._refresh_summary_panel()
+
+    def _apply_container_placement(self) -> None:
+        item = self._inventory_selected_item()
+        if not self._is_storage_container_item(item):
+            self.container_placement_group.setVisible(False)
+            return
+        storage_id = self._current_storage_id()
+        if storage_id is None:
+            return
+        owned = max(0, int(float(self.inventory_qty_entry.text().strip() or 0)))
+        placed = min(self.container_placed_spin.value(), owned)
+        slot_count = self._container_slot_count_for_item(item)
+
+        update_storage_unit(
+            self.app.profile_conn,
+            storage_id,
+            container_item_id=int(item["id"]),
+            owned_count=owned,
+            placed_count=placed,
+            slot_count=max(0, placed * slot_count),
+        )
+        self.app.profile_conn.commit()
+        if hasattr(self.app, "list_storage_units"):
+            self.storage_units = list(self.app.list_storage_units())
+        self._refresh_summary_panel()
+        self._refresh_container_placement_panel(item, owned)
+        self.app.status_bar.showMessage(
+            f"Updated container placement for {item['name']}: {placed}/{owned} placed"
+        )
 
     def _on_search_changed(self, _text: str) -> None:
         selected_id = self._selected_item_id()
