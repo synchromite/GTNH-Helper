@@ -137,6 +137,15 @@ class MachinesTab(QtWidgets.QWidget):
         right.addWidget(self.empty_label)
 
         btns = QtWidgets.QHBoxLayout()
+        self.add_machine_type_btn = QtWidgets.QPushButton("Add Machine Type…")
+        self.add_machine_type_btn.clicked.connect(self._open_add_machine_type_dialog)
+        btns.addWidget(self.add_machine_type_btn)
+
+        self.edit_machine_btn = QtWidgets.QPushButton("Edit Machine…")
+        self.edit_machine_btn.clicked.connect(self._open_edit_selected_machine)
+        self.edit_machine_btn.setEnabled(False)
+        btns.addWidget(self.edit_machine_btn)
+
         self.edit_metadata_btn = QtWidgets.QPushButton("Edit Specs…")
         self.edit_metadata_btn.clicked.connect(self._open_metadata_editor)
         btns.addWidget(self.edit_metadata_btn)
@@ -144,6 +153,8 @@ class MachinesTab(QtWidgets.QWidget):
         right.addLayout(btns)
 
         if not self.app.editor_enabled:
+            self.add_machine_type_btn.setEnabled(False)
+            self.edit_machine_btn.setEnabled(False)
             self.edit_metadata_btn.setEnabled(False)
 
     def load_from_db(self) -> None:
@@ -329,6 +340,8 @@ class MachinesTab(QtWidgets.QWidget):
     def _on_machine_selected(self, row: int) -> None:
         if row < 0:
             self._selected_machine = None
+            if hasattr(self, "edit_machine_btn"):
+                self.edit_machine_btn.setEnabled(False)
             self.detail_tier_combo.clear()
             self.detail_tier_combo.setEnabled(False)
             self.details.clear()
@@ -336,6 +349,8 @@ class MachinesTab(QtWidgets.QWidget):
         item = self.machine_list.item(row)
         if item is None:
             self._selected_machine = None
+            if hasattr(self, "edit_machine_btn"):
+                self.edit_machine_btn.setEnabled(False)
             self.detail_tier_combo.clear()
             self.detail_tier_combo.setEnabled(False)
             self.details.clear()
@@ -343,12 +358,83 @@ class MachinesTab(QtWidgets.QWidget):
         machine = item.data(QtCore.Qt.ItemDataRole.UserRole)
         if not machine:
             self._selected_machine = None
+            if hasattr(self, "edit_machine_btn"):
+                self.edit_machine_btn.setEnabled(False)
             self.detail_tier_combo.clear()
             self.detail_tier_combo.setEnabled(False)
             self.details.clear()
             return
         self._selected_machine = machine
+        if hasattr(self, "edit_machine_btn"):
+            self.edit_machine_btn.setEnabled(bool(self.app.editor_enabled and machine.get("machine_type")))
         self._populate_detail_tiers(machine)
+
+    def _open_add_machine_type_dialog(self) -> None:
+        if not self.app.editor_enabled:
+            QtWidgets.QMessageBox.information(
+                self,
+                "Editor locked",
+                "Editing machine metadata is only available in editor mode.",
+            )
+            return
+
+        dialog = AddMachineTypeDialog(self._get_tier_list(), parent=self)
+        if dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted:
+            return
+
+        machine_type = dialog.machine_type
+        tiers = dialog.selected_tiers
+        if not machine_type:
+            return
+        editor = MachineMetadataEditorDialog(
+            self.app,
+            parent=self,
+            initial_machine_type=machine_type,
+            initial_tiers=tiers,
+        )
+        if editor.exec() == QtWidgets.QDialog.DialogCode.Accepted:
+            self.load_from_db()
+            self._select_machine_by_type(machine_type)
+            if hasattr(self.app, "status_bar"):
+                self.app.status_bar.showMessage("Updated machine metadata.")
+
+    def _open_edit_selected_machine(self) -> None:
+        if not self.app.editor_enabled:
+            QtWidgets.QMessageBox.information(
+                self,
+                "Editor locked",
+                "Editing machine metadata is only available in editor mode.",
+            )
+            return
+        machine = self._selected_machine
+        machine_type = (machine or {}).get("machine_type") if machine else ""
+        machine_type = (machine_type or "").strip()
+        if not machine_type:
+            QtWidgets.QMessageBox.information(
+                self,
+                "No machine selected",
+                "Select a machine type first.",
+            )
+            return
+        editor = MachineMetadataEditorDialog(self.app, parent=self, initial_machine_type=machine_type)
+        if editor.exec() == QtWidgets.QDialog.DialogCode.Accepted:
+            self.load_from_db()
+            self._select_machine_by_type(machine_type)
+            if hasattr(self.app, "status_bar"):
+                self.app.status_bar.showMessage("Updated machine metadata.")
+
+    def _select_machine_by_type(self, machine_type: str) -> None:
+        machine_type = (machine_type or "").strip()
+        if not machine_type:
+            return
+        for row in range(self.machine_list.count()):
+            item = self.machine_list.item(row)
+            if item is None or item.isHidden():
+                continue
+            data = item.data(QtCore.Qt.ItemDataRole.UserRole) or {}
+            if (data.get("machine_type") or "").strip() == machine_type:
+                self.machine_list.setCurrentRow(row)
+                return
 
     def _populate_detail_tiers(self, machine: dict[str, object]) -> None:
         tiers = self._sorted_tiers(list(machine.get("tiers", [])))
@@ -477,3 +563,58 @@ class MachinesTab(QtWidgets.QWidget):
         if hasattr(self.app, "get_all_tiers"):
             return list(self.app.get_all_tiers())
         return list(ALL_TIERS)
+
+
+class AddMachineTypeDialog(QtWidgets.QDialog):
+    def __init__(self, tiers: list[str], parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Add Machine Type")
+        self.setModal(True)
+        self.resize(420, 460)
+
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.addWidget(QtWidgets.QLabel("Create a new machine metadata type and select available tiers."))
+
+        form = QtWidgets.QGridLayout()
+        form.addWidget(QtWidgets.QLabel("Machine Type"), 0, 0)
+        self.machine_type_edit = QtWidgets.QLineEdit()
+        self.machine_type_edit.setPlaceholderText("e.g. Cutting Machine")
+        form.addWidget(self.machine_type_edit, 0, 1)
+        layout.addLayout(form)
+
+        layout.addWidget(QtWidgets.QLabel("Available Tiers"))
+        self.tier_list = QtWidgets.QListWidget()
+        self.tier_list.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.NoSelection)
+        for tier in tiers:
+            item = QtWidgets.QListWidgetItem(tier)
+            item.setFlags(item.flags() | QtCore.Qt.ItemFlag.ItemIsUserCheckable)
+            item.setCheckState(QtCore.Qt.CheckState.Unchecked)
+            self.tier_list.addItem(item)
+        layout.addWidget(self.tier_list, stretch=1)
+
+        btns = QtWidgets.QDialogButtonBox(
+            QtWidgets.QDialogButtonBox.StandardButton.Save | QtWidgets.QDialogButtonBox.StandardButton.Cancel
+        )
+        btns.accepted.connect(self._save)
+        btns.rejected.connect(self.reject)
+        layout.addWidget(btns)
+
+        self.machine_type: str = ""
+        self.selected_tiers: list[str] = []
+
+    def _save(self) -> None:
+        machine_type = (self.machine_type_edit.text() or "").strip()
+        if not machine_type:
+            QtWidgets.QMessageBox.warning(self, "Missing machine type", "Enter a machine type.")
+            return
+        selected_tiers: list[str] = []
+        for idx in range(self.tier_list.count()):
+            item = self.tier_list.item(idx)
+            if item and item.checkState() == QtCore.Qt.CheckState.Checked:
+                selected_tiers.append(item.text().strip())
+        if not selected_tiers:
+            QtWidgets.QMessageBox.warning(self, "No tiers selected", "Select at least one tier.")
+            return
+        self.machine_type = machine_type
+        self.selected_tiers = selected_tiers
+        self.accept()

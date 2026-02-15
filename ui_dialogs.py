@@ -3025,7 +3025,14 @@ class MachineMetadataEditorDialog(QtWidgets.QDialog):
         "output_tank_capacity_l": 0,
     }
 
-    def __init__(self, app, parent=None):
+    def __init__(
+        self,
+        app,
+        parent=None,
+        *,
+        initial_machine_type: str | None = None,
+        initial_tiers: list[str] | None = None,
+    ):
         super().__init__(parent)
         self.app = app
         self.setWindowTitle("Edit Machine Metadata")
@@ -3035,6 +3042,10 @@ class MachineMetadataEditorDialog(QtWidgets.QDialog):
         self._metadata: dict[tuple[str, str], dict[str, object]] = {}
         self._current_key: tuple[str, str] | None = None
         self._loading = False
+        self._initial_machine_type = (initial_machine_type or "").strip()
+        self._initial_tiers = [
+            (tier or "").strip() for tier in (initial_tiers or []) if (tier or "").strip()
+        ]
 
         layout = QtWidgets.QVBoxLayout(self)
         layout.addWidget(
@@ -3121,6 +3132,22 @@ class MachineMetadataEditorDialog(QtWidgets.QDialog):
         layout.addWidget(buttons)
 
         self._load_metadata()
+        self._apply_initial_selection()
+
+    def _apply_initial_selection(self) -> None:
+        machine_type = self._initial_machine_type
+        if not machine_type:
+            return
+        requested_tiers = self._sorted_tiers(list(dict.fromkeys(self._initial_tiers)))
+        for tier in requested_tiers:
+            key = (machine_type, tier)
+            if key not in self._metadata:
+                self._metadata[key] = {"machine_name": f"{tier} {machine_type}", **dict(self._slot_defaults)}
+        self._refresh_machine_types()
+        if requested_tiers:
+            self._select_tier(machine_type, requested_tiers[0])
+        else:
+            self.machine_type_combo.setCurrentText(machine_type)
 
     def _get_tier_list(self) -> list[str]:
         if hasattr(self.app, "get_all_tiers"):
