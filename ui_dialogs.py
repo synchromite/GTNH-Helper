@@ -522,6 +522,17 @@ class _ItemDialogBase(QtWidgets.QDialog):
         form.addWidget(self.has_cell_check, 10, 1)
         self.has_cell_check.hide()
 
+        self.auto_cell_size_group = QtWidgets.QGroupBox("Auto Cell Size")
+        auto_cell_size_layout = QtWidgets.QHBoxLayout(self.auto_cell_size_group)
+        self.auto_cell_144_radio = QtWidgets.QRadioButton("144 L")
+        self.auto_cell_1000_radio = QtWidgets.QRadioButton("1000 L")
+        self.auto_cell_1000_radio.setChecked(True)
+        auto_cell_size_layout.addWidget(self.auto_cell_144_radio)
+        auto_cell_size_layout.addWidget(self.auto_cell_1000_radio)
+        auto_cell_size_layout.addStretch(1)
+        form.addWidget(self.auto_cell_size_group, 11, 1)
+        self.auto_cell_size_group.hide()
+
         if self._show_availability:
             self.availability_group = QtWidgets.QGroupBox("Availability")
             availability_layout = QtWidgets.QGridLayout(self.availability_group)
@@ -535,7 +546,7 @@ class _ItemDialogBase(QtWidgets.QDialog):
             self.online_spin.setMaximum(0)
             availability_layout.addWidget(self.online_spin, 1, 1)
             self.owned_spin.valueChanged.connect(self._on_owned_changed)
-            form.addWidget(self.availability_group, 11, 0, 1, 2)
+            form.addWidget(self.availability_group, 12, 0, 1, 2)
 
         buttons = QtWidgets.QDialogButtonBox(
             QtWidgets.QDialogButtonBox.StandardButton.Save
@@ -557,6 +568,7 @@ class _ItemDialogBase(QtWidgets.QDialog):
         self.machine_type_combo.currentTextChanged.connect(self._on_machine_type_selected)
         self.has_material_check.toggled.connect(self._on_has_material_toggled)
         self.is_container_check.toggled.connect(self._on_is_container_toggled)
+        self.has_cell_check.toggled.connect(self._on_has_cell_toggled)
         self.content_fluid_combo.currentTextChanged.connect(self._on_content_fluid_selected)
         self.crafting_grid_combo.currentTextChanged.connect(self._on_crafting_grid_selected)
 
@@ -921,6 +933,7 @@ class _ItemDialogBase(QtWidgets.QDialog):
         self.has_cell_check.setVisible(show_has_cell)
         if not show_has_cell:
             self.has_cell_check.setChecked(False)
+        self._on_has_cell_toggled()
 
         if kind_high in ("machine", "gas", "crafting_grid"):
             self.item_kind_combo.setEnabled(False)
@@ -941,6 +954,10 @@ class _ItemDialogBase(QtWidgets.QDialog):
             if (self.kind_combo.itemData(idx) or "").strip().lower() == target:
                 self.kind_combo.setCurrentIndex(idx)
                 return
+
+    def _on_has_cell_toggled(self) -> None:
+        visible = self.has_cell_check.isVisible() and self.has_cell_check.isChecked()
+        self.auto_cell_size_group.setVisible(visible)
 
     def _clear_layout(self, layout: QtWidgets.QGridLayout) -> None:
         while layout.count():
@@ -1107,6 +1124,7 @@ class AddItemDialog(_ItemDialogBase):
                     fluid_item_id=item_id,
                     fluid_name=display_name,
                     is_base=is_base,
+                    liters=self._selected_auto_cell_liters(),
                 )
 
             self.app.conn.commit()
@@ -1159,13 +1177,25 @@ class AddItemDialog(_ItemDialogBase):
             n += 1
         return f"{base}_{n}"
 
-    def _ensure_auto_cell_for_fluid(self, *, fluid_item_id: int, fluid_name: str, is_base: int) -> None:
+    def _selected_auto_cell_liters(self) -> int:
+        if self.auto_cell_144_radio.isChecked():
+            return 144
+        return 1000
+
+    def _ensure_auto_cell_for_fluid(
+        self,
+        *,
+        fluid_item_id: int,
+        fluid_name: str,
+        is_base: int,
+        liters: int,
+    ) -> None:
         cell_display_name = f"{fluid_name} Cell"
         cell_key = self._slugify(cell_display_name)
         cell_item_kind_id = self._get_or_create_cell_item_kind_id()
         existing = self.app.conn.execute(
-            "SELECT id FROM items WHERE content_fluid_id=? AND content_qty_liters=1 AND kind='item' LIMIT 1",
-            (fluid_item_id,),
+            "SELECT id FROM items WHERE kind='item' AND (LOWER(key)=LOWER(?) OR content_fluid_id=?) LIMIT 1",
+            (cell_key, fluid_item_id),
         ).fetchone()
         if existing:
             return
@@ -1186,7 +1216,7 @@ class AddItemDialog(_ItemDialogBase):
                 None,
                 0,
                 fluid_item_id,
-                1,
+                liters,
                 None,
             ),
         )
