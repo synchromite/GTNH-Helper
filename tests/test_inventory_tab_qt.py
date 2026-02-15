@@ -112,3 +112,89 @@ def test_inventory_save_writes_storage_assignment_only() -> None:
 
     tab.deleteLater()
     conn.close()
+
+
+def test_inventory_aggregate_mode_is_read_only() -> None:
+    app = _get_app()
+
+    class DummyStatusBar:
+        def showMessage(self, _msg: str) -> None:
+            return None
+
+    class DummyApp:
+        def __init__(self) -> None:
+            self.profile_conn = connect_profile(":memory:")
+            self.status_bar = DummyStatusBar()
+
+        def notify_inventory_change(self) -> None:
+            return None
+
+        def list_storage_units(self):
+            return [{"id": 1, "name": "Main Storage"}]
+
+        def get_active_storage_id(self):
+            return 1
+
+        def set_active_storage_id(self, _storage_id: int) -> None:
+            return None
+
+    tab = InventoryTab(DummyApp())
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    row = _item_row(conn, name="Refined Iron Plate")
+
+    tab.render_items([row])
+    tab.storage_selector.setCurrentIndex(0)
+    app.processEvents()
+
+    assert tab.inventory_qty_entry.isReadOnly()
+    assert not tab.btn_save.isEnabled()
+    assert not tab.btn_clear.isEnabled()
+
+    tab.deleteLater()
+    conn.close()
+
+
+def test_inventory_summary_panel_shows_selected_and_aggregate_totals() -> None:
+    app = _get_app()
+
+    class DummyStatusBar:
+        def showMessage(self, _msg: str) -> None:
+            return None
+
+    class DummyApp:
+        def __init__(self) -> None:
+            self.profile_conn = connect_profile(":memory:")
+            self.status_bar = DummyStatusBar()
+
+        def notify_inventory_change(self) -> None:
+            return None
+
+    tab = InventoryTab(DummyApp())
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    row = _item_row(conn, name="Refined Iron Plate")
+
+    tab.app.profile_conn.execute(
+        "INSERT INTO storage_units(name) VALUES('Overflow')"
+    )
+    overflow_id = tab.app.profile_conn.execute(
+        "SELECT id FROM storage_units WHERE name='Overflow'"
+    ).fetchone()["id"]
+    tab.app.profile_conn.execute(
+        "INSERT INTO storage_assignments(storage_id, item_id, qty_count, qty_liters) VALUES(?, ?, ?, ?)",
+        (overflow_id, 1, 5, None),
+    )
+    tab.app.profile_conn.commit()
+
+    tab.render_items([row])
+    tab.storage_selector.setCurrentIndex(2)
+    app.processEvents()
+
+    text = tab.storage_totals_label.text()
+    assert "Selected storage" in text
+    assert "Aggregate" in text
+    assert "5 count" in text
+
+    tab.deleteLater()
+    conn.close()

@@ -6,6 +6,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 from services.db import ALL_TIERS
 from services.machines import fetch_machine_metadata, replace_machine_metadata
 from services.materials import add_material, delete_material, fetch_materials, update_material
+from services.storage import create_storage_unit, delete_storage_unit, list_storage_units, update_storage_unit
 
 
 def _row_get(row, key: str, default=None):
@@ -34,6 +35,198 @@ NONE_MATERIAL_LABEL = "(None)"
 NONE_FLUID_LABEL = "(None)"
 
 ADD_NEW_KIND_LABEL = "+ Add new…"
+
+
+class StorageUnitDialog(QtWidgets.QDialog):
+    def __init__(self, app, *, storage: dict | None = None, parent=None):
+        super().__init__(parent)
+        self.app = app
+        self.storage = storage
+        self.result_data: dict | None = None
+        self.setWindowTitle("Edit Storage" if storage else "Create Storage")
+        self.resize(420, 320)
+
+        layout = QtWidgets.QVBoxLayout(self)
+        form = QtWidgets.QFormLayout()
+        layout.addLayout(form)
+
+        self.name_edit = QtWidgets.QLineEdit((storage or {}).get("name", ""))
+        form.addRow("Name", self.name_edit)
+
+        self.kind_edit = QtWidgets.QLineEdit((storage or {}).get("kind", "generic"))
+        form.addRow("Kind", self.kind_edit)
+
+        self.slot_spin = QtWidgets.QSpinBox()
+        self.slot_spin.setRange(0, 1_000_000)
+        self.slot_spin.setSpecialValueText("(unset)")
+        self.slot_spin.setValue(int((storage or {}).get("slot_count") or 0))
+        form.addRow("Slot Count", self.slot_spin)
+
+        self.liter_spin = QtWidgets.QDoubleSpinBox()
+        self.liter_spin.setRange(0, 1_000_000_000)
+        self.liter_spin.setDecimals(1)
+        self.liter_spin.setSingleStep(1000)
+        self.liter_spin.setSpecialValueText("(unset)")
+        self.liter_spin.setValue(float((storage or {}).get("liter_capacity") or 0))
+        form.addRow("Liter Capacity", self.liter_spin)
+
+        self.priority_spin = QtWidgets.QSpinBox()
+        self.priority_spin.setRange(-10_000, 10_000)
+        self.priority_spin.setValue(int((storage or {}).get("priority") or 0))
+        form.addRow("Priority", self.priority_spin)
+
+        self.allow_planner_checkbox = QtWidgets.QCheckBox("Allow planner to consume from this storage")
+        self.allow_planner_checkbox.setChecked(bool((storage or {}).get("allow_planner_use", 1)))
+        form.addRow("", self.allow_planner_checkbox)
+
+        self.notes_edit = QtWidgets.QPlainTextEdit((storage or {}).get("notes", "") or "")
+        self.notes_edit.setPlaceholderText("Optional notes")
+        form.addRow("Notes", self.notes_edit)
+
+        btns = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.StandardButton.Cancel | QtWidgets.QDialogButtonBox.StandardButton.Save)
+        btns.accepted.connect(self._on_save)
+        btns.rejected.connect(self.reject)
+        layout.addWidget(btns)
+
+    def _on_save(self) -> None:
+        name = self.name_edit.text().strip()
+        if not name:
+            QtWidgets.QMessageBox.critical(self, "Invalid name", "Storage name is required.")
+            return
+        existing_names = {
+            str(row["name"]).strip().casefold()
+            for row in list_storage_units(self.app.profile_conn)
+            if self.storage is None or int(row["id"]) != int(self.storage["id"])
+        }
+        if name.casefold() in existing_names:
+            QtWidgets.QMessageBox.critical(self, "Duplicate name", "Storage name must be unique.")
+            return
+
+        slot_count = self.slot_spin.value() or None
+        liter_capacity = self.liter_spin.value() or None
+        if slot_count is not None and slot_count < 0:
+            QtWidgets.QMessageBox.critical(self, "Invalid slot count", "Slot count cannot be negative.")
+            return
+        if liter_capacity is not None and liter_capacity < 0:
+            QtWidgets.QMessageBox.critical(self, "Invalid liter capacity", "Liter capacity cannot be negative.")
+            return
+
+        self.result_data = {
+            "name": name,
+            "kind": (self.kind_edit.text().strip() or "generic"),
+            "slot_count": slot_count,
+            "liter_capacity": liter_capacity,
+            "priority": self.priority_spin.value(),
+            "allow_planner_use": self.allow_planner_checkbox.isChecked(),
+            "notes": (self.notes_edit.toPlainText().strip() or None),
+        }
+        self.accept()
+
+
+class StorageUnitsDialog(QtWidgets.QDialog):
+    def __init__(self, app, parent=None):
+        super().__init__(parent)
+        self.app = app
+        self.setWindowTitle("Manage Storages")
+        self.resize(560, 360)
+
+        layout = QtWidgets.QVBoxLayout(self)
+        self.table = QtWidgets.QTableWidget(0, 4)
+        self.table.setHorizontalHeaderLabels(["Name", "Kind", "Slots", "Liters"])
+        self.table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.SingleSelection)
+        self.table.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.table.verticalHeader().setVisible(False)
+        self.table.horizontalHeader().setStretchLastSection(True)
+        layout.addWidget(self.table, stretch=1)
+
+        row = QtWidgets.QHBoxLayout()
+        self.btn_new = QtWidgets.QPushButton("New…")
+        self.btn_edit = QtWidgets.QPushButton("Edit…")
+        self.btn_delete = QtWidgets.QPushButton("Delete")
+        self.btn_close = QtWidgets.QPushButton("Close")
+        self.btn_new.clicked.connect(self._on_new)
+        self.btn_edit.clicked.connect(self._on_edit)
+        self.btn_delete.clicked.connect(self._on_delete)
+        self.btn_close.clicked.connect(self.accept)
+        row.addWidget(self.btn_new)
+        row.addWidget(self.btn_edit)
+        row.addWidget(self.btn_delete)
+        row.addStretch(1)
+        row.addWidget(self.btn_close)
+        layout.addLayout(row)
+
+        self.reload()
+
+    def reload(self) -> None:
+        rows = list_storage_units(self.app.profile_conn)
+        self.table.setRowCount(len(rows))
+        for idx, row in enumerate(rows):
+            self.table.setItem(idx, 0, QtWidgets.QTableWidgetItem(str(row["name"])))
+            self.table.setItem(idx, 1, QtWidgets.QTableWidgetItem(str(row.get("kind") or "generic")))
+            self.table.setItem(idx, 2, QtWidgets.QTableWidgetItem("" if row.get("slot_count") is None else str(int(row["slot_count"])) ))
+            self.table.setItem(idx, 3, QtWidgets.QTableWidgetItem("" if row.get("liter_capacity") is None else str(int(round(float(row["liter_capacity"])))) ))
+            self.table.item(idx, 0).setData(QtCore.Qt.ItemDataRole.UserRole, int(row["id"]))
+        if rows:
+            self.table.selectRow(0)
+
+    def _selected_storage_id(self) -> int | None:
+        row = self.table.currentRow()
+        if row < 0:
+            return None
+        item = self.table.item(row, 0)
+        if item is None:
+            return None
+        storage_id = item.data(QtCore.Qt.ItemDataRole.UserRole)
+        if storage_id is None:
+            return None
+        return int(storage_id)
+
+    def _selected_storage_row(self) -> dict | None:
+        storage_id = self._selected_storage_id()
+        if storage_id is None:
+            return None
+        for row in list_storage_units(self.app.profile_conn):
+            if int(row["id"]) == storage_id:
+                return row
+        return None
+
+    def _on_new(self) -> None:
+        dialog = StorageUnitDialog(self.app, parent=self)
+        if dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted or not dialog.result_data:
+            return
+        create_storage_unit(self.app.profile_conn, **dialog.result_data)
+        self.app.profile_conn.commit()
+        self.reload()
+
+    def _on_edit(self) -> None:
+        storage = self._selected_storage_row()
+        if storage is None:
+            return
+        dialog = StorageUnitDialog(self.app, storage=storage, parent=self)
+        if dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted or not dialog.result_data:
+            return
+        update_storage_unit(self.app.profile_conn, int(storage["id"]), **dialog.result_data)
+        self.app.profile_conn.commit()
+        self.reload()
+
+    def _on_delete(self) -> None:
+        storage = self._selected_storage_row()
+        if storage is None:
+            return
+        if str(storage.get("name") or "") == "Main Storage":
+            QtWidgets.QMessageBox.information(self, "Delete blocked", "Main Storage cannot be deleted.")
+            return
+        answer = QtWidgets.QMessageBox.question(
+            self,
+            "Delete storage",
+            f"Delete storage '{storage['name']}'? Assigned inventory for this storage will be removed.",
+        )
+        if answer != QtWidgets.QMessageBox.StandardButton.Yes:
+            return
+        delete_storage_unit(self.app.profile_conn, int(storage["id"]))
+        self.app.profile_conn.commit()
+        self.reload()
 
 
 class ItemPickerDialog(QtWidgets.QDialog):

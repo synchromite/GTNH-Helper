@@ -133,3 +133,34 @@ def aggregated_assignment_rows(conn: sqlite3.Connection) -> list[sqlite3.Row]:
         GROUP BY item_id
         """
     ).fetchall()
+
+
+def storage_inventory_totals(conn: sqlite3.Connection, storage_id: int | None = None) -> dict[str, float | int]:
+    """Return assignment/totals summary for one storage or all storages."""
+    if storage_id is None:
+        row = conn.execute(
+            """
+            SELECT
+                COUNT(*) AS entry_count,
+                COALESCE(SUM(qty_count), 0) AS total_count,
+                COALESCE(SUM(qty_liters), 0) AS total_liters
+            FROM storage_assignments
+            """
+        ).fetchone()
+    else:
+        row = conn.execute(
+            """
+            SELECT
+                COUNT(*) AS entry_count,
+                COALESCE(SUM(qty_count), 0) AS total_count,
+                COALESCE(SUM(qty_liters), 0) AS total_liters
+            FROM storage_assignments
+            WHERE storage_id=?
+            """,
+            (storage_id,),
+        ).fetchone()
+    return {
+        "entry_count": int(row["entry_count"] or 0),
+        "total_count": int(round(float(row["total_count"] or 0))),
+        "total_liters": int(round(float(row["total_liters"] or 0))),
+    }

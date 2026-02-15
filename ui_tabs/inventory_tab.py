@@ -6,8 +6,10 @@ from services.storage import (
     aggregate_assignment_for_item,
     delete_assignment,
     get_assignment,
+    storage_inventory_totals,
     upsert_assignment,
 )
+from ui_dialogs import StorageUnitsDialog
 
 
 class InventoryTab(QtWidgets.QWidget):
@@ -75,11 +77,18 @@ class InventoryTab(QtWidgets.QWidget):
         self.storage_selector = QtWidgets.QComboBox()
         self.storage_selector.currentIndexChanged.connect(self._on_storage_changed)
         storage_row.addWidget(self.storage_selector)
+        self.manage_storage_button = QtWidgets.QPushButton("Manage…")
+        self.manage_storage_button.clicked.connect(self._open_storage_manager)
+        storage_row.addWidget(self.manage_storage_button)
         storage_row.addStretch(1)
 
         self.storage_mode_label = QtWidgets.QLabel("")
         self.storage_mode_label.setStyleSheet("color: #666;")
         right.addWidget(self.storage_mode_label)
+
+        self.storage_totals_label = QtWidgets.QLabel("")
+        self.storage_totals_label.setStyleSheet("color: #666;")
+        right.addWidget(self.storage_totals_label)
 
         self.inventory_item_name = QtWidgets.QLabel("")
         font = self.inventory_item_name.font()
@@ -167,6 +176,7 @@ class InventoryTab(QtWidgets.QWidget):
         self.storage_selector.setCurrentIndex(index)
         self.storage_selector.blockSignals(False)
         self._set_inventory_edit_mode()
+        self._refresh_summary_panel()
 
     def _current_storage_id(self) -> int | None:
         value = self.storage_selector.currentData()
@@ -192,8 +202,40 @@ class InventoryTab(QtWidgets.QWidget):
         if storage_id is not None and hasattr(self.app, "set_active_storage_id"):
             self.app.set_active_storage_id(storage_id)
         self._set_inventory_edit_mode()
+        self._refresh_summary_panel()
         current = self._current_tree().currentItem()
         self.on_inventory_select(current, None)
+
+    def _open_storage_manager(self) -> None:
+        dialog = StorageUnitsDialog(self.app, parent=self)
+        dialog.exec()
+        self._refresh_storage_selector()
+        self._refresh_summary_panel()
+        current = self._current_tree().currentItem()
+        self.on_inventory_select(current, None)
+
+    def _refresh_summary_panel(self) -> None:
+        storage_id = self._current_storage_id()
+        aggregate_totals = storage_inventory_totals(self.app.profile_conn, None)
+        if storage_id is None:
+            self.storage_totals_label.setText(
+                "Aggregate totals: "
+                f"{aggregate_totals['entry_count']} entries, "
+                f"{aggregate_totals['total_count']} count, "
+                f"{aggregate_totals['total_liters']} L"
+            )
+            return
+        selected = storage_inventory_totals(self.app.profile_conn, storage_id)
+        self.storage_totals_label.setText(
+            "Selected storage: "
+            f"{selected['entry_count']} entries, "
+            f"{selected['total_count']} count, "
+            f"{selected['total_liters']} L "
+            "| Aggregate: "
+            f"{aggregate_totals['entry_count']} entries, "
+            f"{aggregate_totals['total_count']} count, "
+            f"{aggregate_totals['total_liters']} L"
+        )
 
     def _inventory_selected_item(self):
         item_id = self._selected_item_id()
@@ -286,6 +328,7 @@ class InventoryTab(QtWidgets.QWidget):
             self.app.profile_conn.commit()
             self.app.status_bar.showMessage(f"Cleared inventory for: {item['name']}")
             self.app.notify_inventory_change()
+            self._refresh_summary_panel()
             if self._is_machine_item(item):
                 self._save_machine_availability(item, owned=0, online=0)
             return
@@ -316,6 +359,7 @@ class InventoryTab(QtWidgets.QWidget):
         self.inventory_qty_entry.setText(str(qty))
         self.app.status_bar.showMessage(f"Saved inventory for: {item['name']}")
         self.app.notify_inventory_change()
+        self._refresh_summary_panel()
         if self._is_machine_item(item):
             online = min(self._current_online_count(), qty)
             self._save_machine_availability(item, owned=qty, online=online)

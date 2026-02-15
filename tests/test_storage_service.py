@@ -12,6 +12,7 @@ from services.storage import (
     get_assignment,
     has_storage_tables,
     list_storage_units,
+    storage_inventory_totals,
     update_storage_unit,
     upsert_assignment,
 )
@@ -54,6 +55,12 @@ def test_storage_service_crud_and_aggregation(tmp_path) -> None:
         all_rows = {int(row["item_id"]): row for row in aggregated_assignment_rows(conn)}
         assert int(all_rows[11]["qty_count"]) == 5
         assert int(all_rows[12]["qty_liters"]) == 1500
+
+        totals_all = storage_inventory_totals(conn)
+        assert totals_all == {"entry_count": 3, "total_count": 5, "total_liters": 1500}
+
+        totals_overflow = storage_inventory_totals(conn, overflow_storage)
+        assert totals_overflow == {"entry_count": 2, "total_count": 3, "total_liters": 1500}
 
         delete_assignment(conn, storage_id=overflow_storage, item_id=11)
         conn.commit()
