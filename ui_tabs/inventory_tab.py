@@ -6,7 +6,6 @@ from services.storage import (
     aggregate_assignment_for_item,
     delete_assignment,
     get_assignment,
-    has_storage_tables,
     upsert_assignment,
 )
 
@@ -188,9 +187,6 @@ class InventoryTab(QtWidgets.QWidget):
         else:
             self.storage_mode_label.setText("")
 
-    def _has_storage_tables(self) -> bool:
-        return has_storage_tables(self.app.profile_conn)
-
     def _on_storage_changed(self, _index: int) -> None:
         storage_id = self._current_storage_id()
         if storage_id is not None and hasattr(self.app, "set_active_storage_id"):
@@ -255,12 +251,7 @@ class InventoryTab(QtWidgets.QWidget):
         self.inventory_unit_label.setText(unit)
 
         storage_id = self._current_storage_id()
-        if not self._has_storage_tables():
-            db_row = self.app.profile_conn.execute(
-                "SELECT qty_count, qty_liters FROM inventory WHERE item_id=?",
-                (item["id"],),
-            ).fetchone()
-        elif storage_id is None:
+        if storage_id is None:
             db_row = aggregate_assignment_for_item(self.app.profile_conn, item["id"])
         else:
             db_row = get_assignment(self.app.profile_conn, storage_id=storage_id, item_id=item["id"])
@@ -278,19 +269,6 @@ class InventoryTab(QtWidgets.QWidget):
             return ""
         return str(int(round(qty_f)))
 
-    def _sync_legacy_inventory_row(self, item_id: int) -> None:
-        row = aggregate_assignment_for_item(self.app.profile_conn, item_id)
-        qty_count = row["qty_count"] if row and row["qty_count"] is not None else None
-        qty_liters = row["qty_liters"] if row and row["qty_liters"] is not None else None
-        if qty_count is None and qty_liters is None:
-            self.app.profile_conn.execute("DELETE FROM inventory WHERE item_id=?", (item_id,))
-            return
-        self.app.profile_conn.execute(
-            "INSERT INTO inventory(item_id, qty_count, qty_liters) VALUES(?, ?, ?) "
-            "ON CONFLICT(item_id) DO UPDATE SET qty_count=excluded.qty_count, qty_liters=excluded.qty_liters",
-            (item_id, qty_count, qty_liters),
-        )
-
     def save_inventory_item(self) -> None:
         item = self._inventory_selected_item()
         if not item:
@@ -304,11 +282,7 @@ class InventoryTab(QtWidgets.QWidget):
         storage_id = self._current_storage_id()
         raw = self.inventory_qty_entry.text().strip()
         if raw == "":
-            if self._has_storage_tables():
-                delete_assignment(self.app.profile_conn, storage_id=storage_id, item_id=item["id"])
-                self._sync_legacy_inventory_row(item["id"])
-            else:
-                self.app.profile_conn.execute("DELETE FROM inventory WHERE item_id=?", (item["id"],))
+            delete_assignment(self.app.profile_conn, storage_id=storage_id, item_id=item["id"])
             self.app.profile_conn.commit()
             self.app.status_bar.showMessage(f"Cleared inventory for: {item['name']}")
             self.app.notify_inventory_change()
@@ -331,21 +305,13 @@ class InventoryTab(QtWidgets.QWidget):
         unit = self._inventory_unit_for_item(item)
         qty_count = qty if unit == "count" else None
         qty_liters = qty if unit == "L" else None
-        if self._has_storage_tables():
-            upsert_assignment(
-                self.app.profile_conn,
-                storage_id=storage_id,
-                item_id=item["id"],
-                qty_count=qty_count,
-                qty_liters=qty_liters,
-            )
-            self._sync_legacy_inventory_row(item["id"])
-        else:
-            self.app.profile_conn.execute(
-                "INSERT INTO inventory(item_id, qty_count, qty_liters) VALUES(?, ?, ?) "
-                "ON CONFLICT(item_id) DO UPDATE SET qty_count=excluded.qty_count, qty_liters=excluded.qty_liters",
-                (item["id"], qty_count, qty_liters),
-            )
+        upsert_assignment(
+            self.app.profile_conn,
+            storage_id=storage_id,
+            item_id=item["id"],
+            qty_count=qty_count,
+            qty_liters=qty_liters,
+        )
         self.app.profile_conn.commit()
         self.inventory_qty_entry.setText(str(qty))
         self.app.status_bar.showMessage(f"Saved inventory for: {item['name']}")

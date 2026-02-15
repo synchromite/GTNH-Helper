@@ -6,6 +6,7 @@ from PySide6 import QtCore, QtWidgets
 
 from services.planner import PlannerService
 from services.db import connect, connect_profile
+from services.storage import default_storage_id, delete_assignment, get_assignment, upsert_assignment
 from ui_dialogs import AddRecipeDialog, ItemPickerDialog
 
 
@@ -840,31 +841,42 @@ class PlannerTab(QtWidgets.QWidget):
             applied.extend(dialog.selected_byproducts())
         return True, applied
 
+    def _planner_storage_id(self) -> int | None:
+        active_storage_id = self.app.get_active_storage_id() if hasattr(self.app, "get_active_storage_id") else None
+        if active_storage_id is not None:
+            return int(active_storage_id)
+        return default_storage_id(self.app.profile_conn)
+
     def _adjust_inventory_qty(self, item_id: int, delta: int, *, commit: bool = True) -> None:
         item = next((item for item in self.app.items if item["id"] == item_id), None)
         if not item:
             return
-        column = "qty_liters" if (item["kind"] or "").strip().lower() == "fluid" else "qty_count"
-        row = self.app.profile_conn.execute(
-            f"SELECT {column} FROM inventory WHERE item_id=?",
-            (item_id,),
-        ).fetchone()
+        storage_id = self._planner_storage_id()
+        if storage_id is None:
+            return
+
+        column = "qty_liters" if (item["kind"] or "").strip().lower() in ("fluid", "gas") else "qty_count"
+        row = get_assignment(self.app.profile_conn, storage_id=storage_id, item_id=item_id)
+        current_value = row[column] if row is not None else None
         current = 0
-        if row and row[column] is not None:
+        if current_value is not None:
             try:
-                current = int(float(row[column]))
+                current = int(float(current_value))
             except (TypeError, ValueError):
                 current = 0
+
         new_qty = max(current + delta, 0)
         if new_qty <= 0:
-            self.app.profile_conn.execute("DELETE FROM inventory WHERE item_id=?", (item_id,))
+            delete_assignment(self.app.profile_conn, storage_id=storage_id, item_id=item_id)
         else:
             count_val = new_qty if column == "qty_count" else None
             liter_val = new_qty if column == "qty_liters" else None
-            self.app.profile_conn.execute(
-                "INSERT INTO inventory(item_id, qty_count, qty_liters) VALUES(?, ?, ?) "
-                "ON CONFLICT(item_id) DO UPDATE SET qty_count=excluded.qty_count, qty_liters=excluded.qty_liters",
-                (item_id, count_val, liter_val),
+            upsert_assignment(
+                self.app.profile_conn,
+                storage_id=storage_id,
+                item_id=item_id,
+                qty_count=count_val,
+                qty_liters=liter_val,
             )
         if commit:
             self.app.profile_conn.commit()

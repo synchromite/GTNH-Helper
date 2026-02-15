@@ -82,9 +82,9 @@ Add first-class inventory container management (chests/drawers/barrels/tanks) wh
 2. **Unit-aware aggregation parity - COMPLETE**
    - Preserve current count/liter semantics by item kind.
 
-3. **Temporary compatibility simplification**
-   - Skip legacy fallback while app runtime assumes clean DB creation.
-   - Track migration/fallback as post-stabilization hardening.
+3. **Temporary compatibility simplification - COMPLETE**
+   - Runtime inventory loading now relies on `storage_assignments` aggregation only.
+   - Legacy `inventory` fallback/migration behavior remains explicitly deferred as post-stabilization hardening.
 
 4. **Regression test coverage**
    - Confirm unchanged behavior for:
@@ -96,7 +96,7 @@ Add first-class inventory container management (chests/drawers/barrels/tanks) wh
 ### Exit Criteria
 - Existing planner tests continue to pass.
 - New tests prove storage-aggregate parity.
-- Migration/backfill behavior is version-gated and covered by targeted migration tests.
+- Migration/backfill behavior remains deferred until schema stabilization.
 
 ---
 
