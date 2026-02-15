@@ -44,7 +44,7 @@ Add first-class inventory container management (chests/drawers/barrels/tanks) wh
 
 ## Milestones
 
-## Milestone 1: Data Model (Clean-Slate Iteration Mode)
+## Milestone 1: Data Model (Clean-Slate Iteration Mode) - COMPLETE
 **Outcome:** Storage-aware schema works in current clean-reset development workflow.
 
 ### Issues
