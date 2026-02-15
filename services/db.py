@@ -115,23 +115,6 @@ def connect_profile(db_path: Path | str) -> sqlite3.Connection:
     ).fetchone()
     if default_storage is None:
         conn.execute("INSERT INTO storage_units(name, kind) VALUES(?, ?)", ("Main Storage", "generic"))
-        default_storage_id = conn.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
-    else:
-        default_storage_id = default_storage["id"]
-
-    existing_assignments = conn.execute(
-        "SELECT COUNT(1) AS c FROM storage_assignments"
-    ).fetchone()["c"]
-    if int(existing_assignments or 0) == 0:
-        conn.execute(
-            """
-            INSERT INTO storage_assignments(storage_id, item_id, qty_count, qty_liters)
-            SELECT ?, item_id, qty_count, qty_liters
-            FROM inventory
-            WHERE qty_count IS NOT NULL OR qty_liters IS NOT NULL
-            """,
-            (default_storage_id,),
-        )
     conn.commit()
     return conn
 

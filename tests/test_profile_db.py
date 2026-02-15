@@ -79,3 +79,35 @@ def test_connect_profile_creates_tables(tmp_path):
         assert {"machine_type", "tier", "owned", "online"}.issubset(availability_cols)
     finally:
         conn.close()
+
+
+def test_connect_profile_does_not_backfill_storage_assignments_from_inventory(tmp_path):
+    profile_path = tmp_path / "profile.db"
+
+    conn = sqlite3.connect(profile_path)
+    conn.execute(
+        """
+        CREATE TABLE inventory (
+            item_id INTEGER PRIMARY KEY,
+            qty_count REAL,
+            qty_liters REAL
+        )
+        """
+    )
+    conn.execute("INSERT INTO inventory(item_id, qty_count, qty_liters) VALUES (?, ?, ?)", (1, 42, None))
+    conn.commit()
+    conn.close()
+
+    profile_conn = db.connect_profile(profile_path)
+    try:
+        assignment_count = profile_conn.execute(
+            "SELECT COUNT(1) AS c FROM storage_assignments"
+        ).fetchone()["c"]
+        assert assignment_count == 0
+
+        main_storage = profile_conn.execute(
+            "SELECT name FROM storage_units WHERE name='Main Storage'"
+        ).fetchone()
+        assert main_storage is not None
+    finally:
+        profile_conn.close()
