@@ -47,19 +47,36 @@ def create_storage_unit(
     priority: int = 0,
     allow_planner_use: bool = True,
     notes: str | None = None,
+    container_item_id: int | None = None,
+    owned_count: int | None = None,
+    placed_count: int | None = None,
 ) -> int:
     cur = conn.execute(
         """
-        INSERT INTO storage_units(name, kind, slot_count, liter_capacity, priority, allow_planner_use, notes)
-        VALUES(?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO storage_units(
+            name, kind, slot_count, liter_capacity, priority, allow_planner_use,
+            container_item_id, owned_count, placed_count, notes
+        )
+        VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        (name, kind, slot_count, liter_capacity, priority, 1 if allow_planner_use else 0, notes),
+        (
+            name,
+            kind,
+            slot_count,
+            liter_capacity,
+            priority,
+            1 if allow_planner_use else 0,
+            container_item_id,
+            owned_count,
+            placed_count,
+            notes,
+        ),
     )
     return int(cur.lastrowid)
 
 
 def update_storage_unit(conn: sqlite3.Connection, storage_id: int, **fields: Any) -> None:
-    allowed = {"name", "kind", "slot_count", "liter_capacity", "priority", "allow_planner_use", "notes"}
+    allowed = {"name", "kind", "slot_count", "liter_capacity", "priority", "allow_planner_use", "notes", "container_item_id", "owned_count", "placed_count"}
     updates: list[str] = []
     values: list[Any] = []
     for key, value in fields.items():

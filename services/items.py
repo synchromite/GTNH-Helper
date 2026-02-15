@@ -13,6 +13,8 @@ def fetch_items(conn: sqlite3.Connection) -> list[sqlite3.Row]:
             i.kind, 
             i.is_base, 
             i.max_stack_size,
+            COALESCE(i.is_storage_container, 0) AS is_storage_container,
+            i.storage_slot_count,
             i.is_machine, 
             i.machine_tier, 
             i.machine_type,

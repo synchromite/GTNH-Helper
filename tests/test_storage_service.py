@@ -151,3 +151,28 @@ def test_validate_storage_fit_for_item_boundary_cases(tmp_path) -> None:
         assert int(liter_overflow["liter_overflow"]) == 1
     finally:
         conn.close()
+
+def test_storage_service_supports_container_counts(tmp_path) -> None:
+    conn = connect_profile(tmp_path / "profile.db")
+    try:
+        storage_id = create_storage_unit(
+            conn,
+            name="Iron Chests",
+            slot_count=108,
+            container_item_id=42,
+            owned_count=4,
+            placed_count=2,
+        )
+        conn.commit()
+
+        row = conn.execute(
+            "SELECT slot_count, container_item_id, owned_count, placed_count FROM storage_units WHERE id=?",
+            (storage_id,),
+        ).fetchone()
+        assert row is not None
+        assert row["slot_count"] == 108
+        assert row["container_item_id"] == 42
+        assert row["owned_count"] == 4
+        assert row["placed_count"] == 2
+    finally:
+        conn.close()

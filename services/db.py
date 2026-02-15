@@ -69,12 +69,29 @@ def connect_profile(db_path: Path | str) -> sqlite3.Connection:
             liter_capacity REAL,
             priority INTEGER NOT NULL DEFAULT 0,
             allow_planner_use INTEGER NOT NULL DEFAULT 1 CHECK(allow_planner_use IN (0, 1)),
+            container_item_id INTEGER,
+            owned_count INTEGER,
+            placed_count INTEGER,
             notes TEXT,
             CHECK(slot_count IS NULL OR slot_count >= 0),
-            CHECK(liter_capacity IS NULL OR liter_capacity >= 0)
+            CHECK(liter_capacity IS NULL OR liter_capacity >= 0),
+            CHECK(owned_count IS NULL OR owned_count >= 0),
+            CHECK(placed_count IS NULL OR placed_count >= 0),
+            CHECK(owned_count IS NULL OR placed_count IS NULL OR placed_count <= owned_count)
         )
         """
     )
+
+    storage_unit_cols = {
+        row["name"]
+        for row in conn.execute("PRAGMA table_info(storage_units)").fetchall()
+    }
+    if "container_item_id" not in storage_unit_cols:
+        conn.execute("ALTER TABLE storage_units ADD COLUMN container_item_id INTEGER")
+    if "owned_count" not in storage_unit_cols:
+        conn.execute("ALTER TABLE storage_units ADD COLUMN owned_count INTEGER")
+    if "placed_count" not in storage_unit_cols:
+        conn.execute("ALTER TABLE storage_units ADD COLUMN placed_count INTEGER")
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS storage_assignments (
@@ -247,6 +264,10 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE items ADD COLUMN max_stack_size INTEGER NOT NULL DEFAULT 64")
     if not _has_col("items", "crafting_grid_size"):
         conn.execute("ALTER TABLE items ADD COLUMN crafting_grid_size TEXT")
+    if not _has_col("items", "is_storage_container"):
+        conn.execute("ALTER TABLE items ADD COLUMN is_storage_container INTEGER NOT NULL DEFAULT 0")
+    if not _has_col("items", "storage_slot_count"):
+        conn.execute("ALTER TABLE items ADD COLUMN storage_slot_count INTEGER")
 
     # Detailed item classification (user-editable list of kinds)
     if not _has_col("items", "item_kind_id"):
@@ -288,6 +309,8 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
             "item_kind_id",
             "needs_review",
             "crafting_grid_size",
+            "is_storage_container",
+            "storage_slot_count",
         ]
         select_cols = [
             col if col in col_set else f"NULL AS {col}"
@@ -314,6 +337,8 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
                 item_kind_id INTEGER,
                 needs_review INTEGER NOT NULL DEFAULT 0,
                 crafting_grid_size TEXT,
+                is_storage_container INTEGER NOT NULL DEFAULT 0,
+                storage_slot_count INTEGER,
                 FOREIGN KEY(material_id) REFERENCES materials(id) ON DELETE SET NULL
             )
             """

@@ -44,7 +44,7 @@ class StorageUnitDialog(QtWidgets.QDialog):
         self.storage = storage
         self.result_data: dict | None = None
         self.setWindowTitle("Edit Storage" if storage else "Create Storage")
-        self.resize(420, 320)
+        self.resize(460, 360)
 
         layout = QtWidgets.QVBoxLayout(self)
         form = QtWidgets.QFormLayout()
@@ -61,6 +61,29 @@ class StorageUnitDialog(QtWidgets.QDialog):
         self.slot_spin.setSpecialValueText("(unset)")
         self.slot_spin.setValue(int((storage or {}).get("slot_count") or 0))
         form.addRow("Slot Count", self.slot_spin)
+
+        self.container_item_combo = QtWidgets.QComboBox()
+        self.container_item_combo.addItem("(None)", None)
+        self._container_item_slots: dict[int, int] = {}
+        for row in self.app.conn.execute(
+            "SELECT id, COALESCE(display_name, key) AS name, storage_slot_count FROM items WHERE COALESCE(is_storage_container, 0)=1 ORDER BY name"
+        ).fetchall():
+            item_id = int(row["id"])
+            self.container_item_combo.addItem(str(row["name"]), item_id)
+            self._container_item_slots[item_id] = int(row["storage_slot_count"] or 0)
+        form.addRow("Container Item", self.container_item_combo)
+
+        self.owned_spin = QtWidgets.QSpinBox()
+        self.owned_spin.setRange(0, 1_000_000)
+        self.owned_spin.setSpecialValueText("(unset)")
+        self.owned_spin.setValue(int((storage or {}).get("owned_count") or 0))
+        form.addRow("Owned", self.owned_spin)
+
+        self.placed_spin = QtWidgets.QSpinBox()
+        self.placed_spin.setRange(0, 1_000_000)
+        self.placed_spin.setSpecialValueText("(unset)")
+        self.placed_spin.setValue(int((storage or {}).get("placed_count") or 0))
+        form.addRow("Placed", self.placed_spin)
 
         self.liter_spin = QtWidgets.QDoubleSpinBox()
         self.liter_spin.setRange(0, 1_000_000_000)
@@ -83,10 +106,33 @@ class StorageUnitDialog(QtWidgets.QDialog):
         self.notes_edit.setPlaceholderText("Optional notes")
         form.addRow("Notes", self.notes_edit)
 
+        if storage and storage.get("container_item_id"):
+            target = int(storage["container_item_id"])
+            for idx in range(self.container_item_combo.count()):
+                if self.container_item_combo.itemData(idx) == target:
+                    self.container_item_combo.setCurrentIndex(idx)
+                    break
+
+        self.container_item_combo.currentIndexChanged.connect(self._sync_slot_count_from_container)
+        self.placed_spin.valueChanged.connect(self._sync_slot_count_from_container)
+        self._sync_slot_count_from_container()
+
         btns = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.StandardButton.Cancel | QtWidgets.QDialogButtonBox.StandardButton.Save)
         btns.accepted.connect(self._on_save)
         btns.rejected.connect(self.reject)
         layout.addWidget(btns)
+
+    def _sync_slot_count_from_container(self) -> None:
+        item_id = self.container_item_combo.currentData()
+        if item_id is None:
+            self.slot_spin.setReadOnly(False)
+            self.slot_spin.setButtonSymbols(QtWidgets.QAbstractSpinBox.ButtonSymbols.UpDownArrows)
+            return
+        slots_per_unit = self._container_item_slots.get(int(item_id), 0)
+        placed = self.placed_spin.value()
+        self.slot_spin.setReadOnly(True)
+        self.slot_spin.setButtonSymbols(QtWidgets.QAbstractSpinBox.ButtonSymbols.NoButtons)
+        self.slot_spin.setValue(max(0, slots_per_unit * max(0, placed)))
 
     def _on_save(self) -> None:
         name = self.name_edit.text().strip()
@@ -104,6 +150,12 @@ class StorageUnitDialog(QtWidgets.QDialog):
 
         slot_count = self.slot_spin.value() or None
         liter_capacity = self.liter_spin.value() or None
+        container_item_id = self.container_item_combo.currentData()
+        owned_count = self.owned_spin.value() or None
+        placed_count = self.placed_spin.value() or None
+        if owned_count is not None and placed_count is not None and placed_count > owned_count:
+            QtWidgets.QMessageBox.critical(self, "Invalid counts", "Placed count cannot exceed owned count.")
+            return
         if slot_count is not None and slot_count < 0:
             QtWidgets.QMessageBox.critical(self, "Invalid slot count", "Slot count cannot be negative.")
             return
@@ -118,6 +170,9 @@ class StorageUnitDialog(QtWidgets.QDialog):
             "liter_capacity": liter_capacity,
             "priority": self.priority_spin.value(),
             "allow_planner_use": self.allow_planner_checkbox.isChecked(),
+            "container_item_id": container_item_id,
+            "owned_count": owned_count,
+            "placed_count": placed_count,
             "notes": (self.notes_edit.toPlainText().strip() or None),
         }
         self.accept()
@@ -131,8 +186,8 @@ class StorageUnitsDialog(QtWidgets.QDialog):
         self.resize(560, 360)
 
         layout = QtWidgets.QVBoxLayout(self)
-        self.table = QtWidgets.QTableWidget(0, 4)
-        self.table.setHorizontalHeaderLabels(["Name", "Kind", "Slots", "Liters"])
+        self.table = QtWidgets.QTableWidget(0, 6)
+        self.table.setHorizontalHeaderLabels(["Name", "Kind", "Slots", "Owned", "Placed", "Liters"])
         self.table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.SingleSelection)
         self.table.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -165,7 +220,9 @@ class StorageUnitsDialog(QtWidgets.QDialog):
             self.table.setItem(idx, 0, QtWidgets.QTableWidgetItem(str(row["name"])))
             self.table.setItem(idx, 1, QtWidgets.QTableWidgetItem(str(row.get("kind") or "generic")))
             self.table.setItem(idx, 2, QtWidgets.QTableWidgetItem("" if row.get("slot_count") is None else str(int(row["slot_count"])) ))
-            self.table.setItem(idx, 3, QtWidgets.QTableWidgetItem("" if row.get("liter_capacity") is None else str(int(round(float(row["liter_capacity"])))) ))
+            self.table.setItem(idx, 3, QtWidgets.QTableWidgetItem("" if row.get("owned_count") is None else str(int(row["owned_count"]))))
+            self.table.setItem(idx, 4, QtWidgets.QTableWidgetItem("" if row.get("placed_count") is None else str(int(row["placed_count"]))))
+            self.table.setItem(idx, 5, QtWidgets.QTableWidgetItem("" if row.get("liter_capacity") is None else str(int(round(float(row["liter_capacity"])))) ))
             self.table.item(idx, 0).setData(QtCore.Qt.ItemDataRole.UserRole, int(row["id"]))
         if rows:
             self.table.selectRow(0)
@@ -581,6 +638,8 @@ class _ItemDialogBase(QtWidgets.QDialog):
         # Safe access to new columns if they exist in _row, else None
         self.content_fluid_id_val = _row_get(row, "content_fluid_id")
         self.content_qty_val = _row_get(row, "content_qty_liters")
+        self.is_storage_container_val = int(_row_get(row, "is_storage_container", 0) or 0)
+        self.storage_slot_count_val = _row_get(row, "storage_slot_count")
 
         self._all_item_kinds: list[dict] = []
         self._kind_name_to_id: dict[str, int] = {}
@@ -677,11 +736,23 @@ class _ItemDialogBase(QtWidgets.QDialog):
         container_layout.addWidget(self.content_qty_edit, 2, 1)
         form.addWidget(self.container_group, 8, 0, 1, 2)
 
+        self.storage_container_group = QtWidgets.QGroupBox("Inventory Container")
+        storage_container_layout = QtWidgets.QGridLayout(self.storage_container_group)
+        self.is_storage_container_check = QtWidgets.QCheckBox("Is Inventory Container? (e.g. Chest, Iron Chest)")
+        storage_container_layout.addWidget(self.is_storage_container_check, 0, 0, 1, 2)
+        self.storage_slot_count_label = QtWidgets.QLabel("Storage Slots")
+        self.storage_slot_count_spin = QtWidgets.QSpinBox()
+        self.storage_slot_count_spin.setRange(1, 1_000_000)
+        self.storage_slot_count_spin.setValue(int(self.storage_slot_count_val or 27))
+        storage_container_layout.addWidget(self.storage_slot_count_label, 1, 0)
+        storage_container_layout.addWidget(self.storage_slot_count_spin, 1, 1)
+        form.addWidget(self.storage_container_group, 9, 0, 1, 2)
+
         self.is_base_check = QtWidgets.QCheckBox("Base resource (planner stops here later)")
-        form.addWidget(self.is_base_check, 9, 1)
+        form.addWidget(self.is_base_check, 10, 1)
 
         self.has_cell_check = QtWidgets.QCheckBox("Has Cell? (auto-create '<Name> Cell')")
-        form.addWidget(self.has_cell_check, 10, 1)
+        form.addWidget(self.has_cell_check, 11, 1)
         self.has_cell_check.hide()
 
         self.auto_cell_size_group = QtWidgets.QGroupBox("Auto Cell Size")
@@ -730,6 +801,7 @@ class _ItemDialogBase(QtWidgets.QDialog):
         self.machine_type_combo.currentTextChanged.connect(self._on_machine_type_selected)
         self.has_material_check.toggled.connect(self._on_has_material_toggled)
         self.is_container_check.toggled.connect(self._on_is_container_toggled)
+        self.is_storage_container_check.toggled.connect(self._on_is_storage_container_toggled)
         self.has_cell_check.toggled.connect(self._on_has_cell_toggled)
         self.content_fluid_combo.currentTextChanged.connect(self._on_content_fluid_selected)
         self.crafting_grid_combo.currentTextChanged.connect(self._on_crafting_grid_selected)
@@ -753,6 +825,8 @@ class _ItemDialogBase(QtWidgets.QDialog):
             self.has_material_check.setChecked(False)
             self.is_container_check.setChecked(False)
             self.is_multiblock_check.setChecked(False)
+            self.is_storage_container_check.setChecked(False)
+            self.storage_slot_count_spin.setValue(27)
             self.content_fluid_combo.setCurrentText(NONE_FLUID_LABEL)
             self.content_qty_edit.setText("1000")
             if self._show_availability:
@@ -802,6 +876,11 @@ class _ItemDialogBase(QtWidgets.QDialog):
             self.is_container_check.setChecked(False)
             self.content_fluid_combo.setCurrentText(NONE_FLUID_LABEL)
             self.content_qty_edit.setText("1000")
+
+        self.is_storage_container_check.setChecked(bool(self.is_storage_container_val))
+        if self.storage_slot_count_val:
+            self.storage_slot_count_spin.setValue(int(self.storage_slot_count_val))
+        self._on_is_storage_container_toggled()
 
         self.is_base_check.setChecked(bool(self._row["is_base"]))
         if self._show_availability:
@@ -986,12 +1065,17 @@ class _ItemDialogBase(QtWidgets.QDialog):
             self.container_group.setVisible(False)
             self.is_container_check.setChecked(False)
             self._on_is_container_toggled()
+            self.storage_container_group.setVisible(False)
+            self.is_storage_container_check.setChecked(False)
+            self._on_is_storage_container_toggled()
         else:
             self.has_material_check.setVisible(True)
             self._on_has_material_toggled()
 
             self.container_group.setVisible(True)
             self._on_is_container_toggled()
+            self.storage_container_group.setVisible(kind_high == "item")
+            self._on_is_storage_container_toggled()
 
         canonical = None
         if v == ADD_NEW_KIND_LABEL and show_item_kind:
@@ -1053,6 +1137,11 @@ class _ItemDialogBase(QtWidgets.QDialog):
             self.content_qty_label.setVisible(False)
             self.content_qty_edit.setVisible(False)
             self.content_fluid_id = None
+
+    def _on_is_storage_container_toggled(self) -> None:
+        checked = self.is_storage_container_check.isVisible() and self.is_storage_container_check.isChecked()
+        self.storage_slot_count_label.setVisible(checked)
+        self.storage_slot_count_spin.setVisible(checked)
 
     def _on_material_selected(self) -> None:
         if self.material_combo.isVisible():
@@ -1244,6 +1333,9 @@ class AddItemDialog(_ItemDialogBase):
                 except ValueError:
                     content_qty = 0
         
+        is_storage_container = 1 if (kind == "item" and self.is_storage_container_check.isChecked()) else 0
+        storage_slot_count = self.storage_slot_count_spin.value() if is_storage_container else None
+
         md = {}
         machine_type_val = None
         if is_machine:
@@ -1261,8 +1353,8 @@ class AddItemDialog(_ItemDialogBase):
         try:
             cur = self.app.conn.execute(
                 "INSERT INTO items(key, display_name, kind, is_base, is_machine, item_kind_id, material_id, "
-                "machine_type, machine_tier, is_multiblock, content_fluid_id, content_qty_liters, crafting_grid_size) "
-                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "machine_type, machine_tier, is_multiblock, content_fluid_id, content_qty_liters, crafting_grid_size, is_storage_container, storage_slot_count) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     key,
                     display_name,
@@ -1277,6 +1369,8 @@ class AddItemDialog(_ItemDialogBase):
                     content_fluid_id,
                     content_qty,
                     crafting_grid_size,
+                    is_storage_container,
+                    storage_slot_count,
                 ),
             )
             item_id = cur.lastrowid
@@ -1364,8 +1458,8 @@ class AddItemDialog(_ItemDialogBase):
 
         self.app.conn.execute(
             "INSERT INTO items(key, display_name, kind, is_base, is_machine, item_kind_id, material_id, "
-            "machine_type, machine_tier, is_multiblock, content_fluid_id, content_qty_liters, crafting_grid_size) "
-            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "machine_type, machine_tier, is_multiblock, content_fluid_id, content_qty_liters, crafting_grid_size, is_storage_container, storage_slot_count) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (
                 self._next_unique_key(cell_key),
                 cell_display_name,
@@ -1379,6 +1473,8 @@ class AddItemDialog(_ItemDialogBase):
                 0,
                 fluid_item_id,
                 liters,
+                None,
+                0,
                 None,
             ),
         )
@@ -1407,7 +1503,7 @@ class EditItemDialog(_ItemDialogBase):
         row = app.conn.execute(
             "SELECT i.id, i.key, COALESCE(i.display_name, i.key) AS name, i.display_name, i.kind, "
             "       i.is_base, i.is_machine, i.machine_type, i.machine_tier, i.is_multiblock, "
-            "       i.content_fluid_id, i.content_qty_liters, i.crafting_grid_size, "
+            "       i.content_fluid_id, i.content_qty_liters, i.crafting_grid_size, i.is_storage_container, i.storage_slot_count, "
             "       i.item_kind_id, i.material_id, k.name AS item_kind_name, m.name AS material_name "
             "FROM items i "
             "LEFT JOIN item_kinds k ON k.id = i.item_kind_id "
@@ -1469,6 +1565,9 @@ class EditItemDialog(_ItemDialogBase):
                 except ValueError:
                     content_qty = 0
 
+        is_storage_container = 1 if (kind == "item" and self.is_storage_container_check.isChecked()) else 0
+        storage_slot_count = self.storage_slot_count_spin.value() if is_storage_container else None
+
         md = {}
         machine_type_val = None
         if is_machine:
@@ -1484,7 +1583,7 @@ class EditItemDialog(_ItemDialogBase):
         try:
             self.app.conn.execute(
                 "UPDATE items SET display_name=?, kind=?, is_base=?, is_machine=?, item_kind_id=?, material_id=?, "
-                "machine_type=?, machine_tier=?, is_multiblock=?, content_fluid_id=?, content_qty_liters=?, crafting_grid_size=? "
+                "machine_type=?, machine_tier=?, is_multiblock=?, content_fluid_id=?, content_qty_liters=?, crafting_grid_size=?, is_storage_container=?, storage_slot_count=? "
                 "WHERE id=?",
                 (
                     display_name,
@@ -1499,6 +1598,8 @@ class EditItemDialog(_ItemDialogBase):
                     content_fluid_id,
                     content_qty,
                     crafting_grid_size,
+                    is_storage_container,
+                    storage_slot_count,
                     self.item_id,
                 ),
             )

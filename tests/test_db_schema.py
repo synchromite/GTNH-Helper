@@ -39,6 +39,8 @@ def test_ensure_schema_creates_tables_and_defaults():
         "content_fluid_id",
         "content_qty_liters",
         "needs_review",
+        "is_storage_container",
+        "storage_slot_count",
     ):
         assert column in item_columns
 

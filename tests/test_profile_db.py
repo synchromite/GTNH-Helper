@@ -41,6 +41,9 @@ def test_connect_profile_creates_tables(tmp_path):
             "liter_capacity",
             "priority",
             "allow_planner_use",
+            "container_item_id",
+            "owned_count",
+            "placed_count",
             "notes",
         }.issubset(storage_unit_cols)
 
