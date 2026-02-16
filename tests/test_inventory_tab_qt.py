@@ -154,11 +154,10 @@ def test_inventory_save_blocks_capacity_overflow(monkeypatch) -> None:
 
     warnings: list[str] = []
 
-    def _capture_warning(_parent, _title: str, message: str):
-        warnings.append(message)
-        return QtWidgets.QMessageBox.StandardButton.Ok
+    def _capture_warning(_self, reasons):
+        warnings.append("Cannot save inventory for this storage:\n- " + "\n- ".join(reasons))
 
-    monkeypatch.setattr(QtWidgets.QMessageBox, "warning", _capture_warning)
+    monkeypatch.setattr(InventoryTab, "_show_storage_capacity_warning", _capture_warning)
 
     tab.render_items([row])
     tab.storage_selector.setCurrentIndex(1)

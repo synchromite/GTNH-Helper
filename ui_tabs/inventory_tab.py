@@ -401,11 +401,7 @@ class InventoryTab(QtWidgets.QWidget):
                     f"/{int(round(float(fit['liter_capacity'])))}"
                     f" (overflow +{int(round(float(fit['liter_overflow'])))} L)"
                 )
-            QtWidgets.QMessageBox.warning(
-                self,
-                "Storage capacity exceeded",
-                "Cannot save inventory for this storage:\n- " + "\n- ".join(reasons),
-            )
+            self._show_storage_capacity_warning(reasons)
             return
 
         upsert_assignment(
@@ -426,6 +422,33 @@ class InventoryTab(QtWidgets.QWidget):
             self._render_machine_availability(item, qty, online)
         self._sync_container_storage_after_inventory_save(item, qty=qty)
         self._refresh_container_placement_panel(item, qty)
+
+    def _show_storage_capacity_warning(self, reasons: list[str]) -> None:
+        message = "Cannot save inventory for this storage:\n- " + "\n- ".join(reasons)
+        dialog = QtWidgets.QMessageBox(self)
+        dialog.setIcon(QtWidgets.QMessageBox.Icon.Warning)
+        dialog.setWindowTitle("Storage capacity exceeded")
+        dialog.setText(message)
+        dialog.setStandardButtons(QtWidgets.QMessageBox.StandardButton.Ok)
+        dialog.setTextFormat(QtCore.Qt.TextFormat.PlainText)
+
+        # Allow the dialog to size to content so multi-line warnings are readable.
+        dialog.setSizeGripEnabled(True)
+        longest_line = max((len(line) for line in message.splitlines()), default=40)
+        approx_width = max(420, min(980, int(longest_line * 7.2) + 80))
+        dialog.setMinimumWidth(approx_width)
+
+        label = dialog.findChild(QtWidgets.QLabel, "qt_msgbox_label")
+        if label is not None:
+            label.setWordWrap(True)
+            label.setMinimumWidth(approx_width - 50)
+
+        layout = dialog.layout()
+        if layout is not None:
+            layout.setSizeConstraint(QtWidgets.QLayout.SizeConstraint.SetMinimumSize)
+        dialog.adjustSize()
+        dialog.exec()
+
 
     def clear_inventory_item(self) -> None:
         self.inventory_qty_entry.setText("")
