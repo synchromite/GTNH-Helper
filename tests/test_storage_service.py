@@ -176,3 +176,37 @@ def test_storage_service_supports_container_counts(tmp_path) -> None:
         assert row["placed_count"] == 2
     finally:
         conn.close()
+
+def test_recompute_storage_slot_capacities_uses_player_slots_and_placements(tmp_path) -> None:
+    from services.storage import recompute_storage_slot_capacities, set_storage_container_placement
+
+    conn = connect_profile(tmp_path / "profile.db")
+    try:
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS items(id INTEGER PRIMARY KEY AUTOINCREMENT, key TEXT, display_name TEXT, storage_slot_count INTEGER)"
+        )
+        conn.execute(
+            "INSERT INTO items(key, display_name, storage_slot_count) VALUES(?,?,?)",
+            ("wood_chest", "Wood Chest", 27),
+        )
+        conn.execute(
+            "INSERT INTO items(key, display_name, storage_slot_count) VALUES(?,?,?)",
+            ("diamond_chest", "Diamond Chest", 104),
+        )
+        conn.execute("INSERT INTO storage_units(name, kind) VALUES('Ore Storage', 'ore')")
+        conn.commit()
+
+        main_storage = conn.execute("SELECT id FROM storage_units WHERE name='Main Storage'").fetchone()["id"]
+        ore_storage = conn.execute("SELECT id FROM storage_units WHERE name='Ore Storage'").fetchone()["id"]
+
+        set_storage_container_placement(conn, storage_id=main_storage, item_id=1, placed_count=1)
+        set_storage_container_placement(conn, storage_id=ore_storage, item_id=2, placed_count=1)
+        recompute_storage_slot_capacities(conn, player_slots=36)
+        conn.commit()
+
+        main_slots = conn.execute("SELECT slot_count FROM storage_units WHERE id=?", (main_storage,)).fetchone()["slot_count"]
+        ore_slots = conn.execute("SELECT slot_count FROM storage_units WHERE id=?", (ore_storage,)).fetchone()["slot_count"]
+        assert main_slots == 63
+        assert ore_slots == 104
+    finally:
+        conn.close()

@@ -105,6 +105,17 @@ def connect_profile(db_path: Path | str) -> sqlite3.Connection:
         )
         """
     )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS storage_container_placements (
+            storage_id INTEGER NOT NULL,
+            item_id INTEGER NOT NULL,
+            placed_count INTEGER NOT NULL DEFAULT 0 CHECK(placed_count >= 0),
+            PRIMARY KEY (storage_id, item_id),
+            FOREIGN KEY(storage_id) REFERENCES storage_units(id) ON DELETE CASCADE
+        )
+        """
+    )
 
     assignment_cols = {
         row["name"]

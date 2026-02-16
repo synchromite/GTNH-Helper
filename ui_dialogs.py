@@ -6,7 +6,15 @@ from PySide6 import QtCore, QtGui, QtWidgets
 from services.db import ALL_TIERS
 from services.machines import fetch_machine_metadata, replace_machine_metadata
 from services.materials import add_material, delete_material, fetch_materials, update_material
-from services.storage import create_storage_unit, delete_storage_unit, list_storage_units, update_storage_unit
+from services.storage import (
+    create_storage_unit,
+    delete_storage_unit,
+    list_storage_container_placements,
+    list_storage_units,
+    recompute_storage_slot_capacities,
+    set_storage_container_placement,
+    update_storage_unit,
+)
 
 
 def _row_get(row, key: str, default=None):
@@ -198,14 +206,17 @@ class StorageUnitsDialog(QtWidgets.QDialog):
         row = QtWidgets.QHBoxLayout()
         self.btn_new = QtWidgets.QPushButton("New…")
         self.btn_edit = QtWidgets.QPushButton("Edit…")
+        self.btn_containers = QtWidgets.QPushButton("Containers…")
         self.btn_delete = QtWidgets.QPushButton("Delete")
         self.btn_close = QtWidgets.QPushButton("Close")
         self.btn_new.clicked.connect(self._on_new)
         self.btn_edit.clicked.connect(self._on_edit)
+        self.btn_containers.clicked.connect(self._on_containers)
         self.btn_delete.clicked.connect(self._on_delete)
         self.btn_close.clicked.connect(self.accept)
         row.addWidget(self.btn_new)
         row.addWidget(self.btn_edit)
+        row.addWidget(self.btn_containers)
         row.addWidget(self.btn_delete)
         row.addStretch(1)
         row.addWidget(self.btn_close)
@@ -267,6 +278,14 @@ class StorageUnitsDialog(QtWidgets.QDialog):
         self.app.profile_conn.commit()
         self.reload()
 
+    def _on_containers(self) -> None:
+        storage = self._selected_storage_row()
+        if storage is None:
+            return
+        dialog = StorageContainerPlacementsDialog(self.app, storage=storage, parent=self)
+        if dialog.exec() == QtWidgets.QDialog.DialogCode.Accepted:
+            self.reload()
+
     def _on_delete(self) -> None:
         storage = self._selected_storage_row()
         if storage is None:
@@ -284,6 +303,92 @@ class StorageUnitsDialog(QtWidgets.QDialog):
         delete_storage_unit(self.app.profile_conn, int(storage["id"]))
         self.app.profile_conn.commit()
         self.reload()
+
+
+class StorageContainerPlacementsDialog(QtWidgets.QDialog):
+    def __init__(self, app, *, storage: dict, parent=None):
+        super().__init__(parent)
+        self.app = app
+        self.storage = storage
+        self.setWindowTitle(f"Container Placements — {storage['name']}")
+        self.resize(520, 420)
+
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.addWidget(QtWidgets.QLabel("Set how many container items are placed in this storage."))
+
+        self.table = QtWidgets.QTableWidget(0, 3)
+        self.table.setHorizontalHeaderLabels(["Container Item", "Slots/Container", "Placed"])
+        self.table.horizontalHeader().setStretchLastSection(True)
+        self.table.verticalHeader().setVisible(False)
+        layout.addWidget(self.table, stretch=1)
+
+        self._rows: list[dict] = []
+        self._load_rows()
+
+        btns = QtWidgets.QDialogButtonBox(
+            QtWidgets.QDialogButtonBox.StandardButton.Save | QtWidgets.QDialogButtonBox.StandardButton.Cancel
+        )
+        btns.accepted.connect(self._on_save)
+        btns.rejected.connect(self.reject)
+        layout.addWidget(btns)
+
+    def _load_rows(self) -> None:
+        placement_rows = {
+            int(row["item_id"]): int(row.get("placed_count") or 0)
+            for row in list_storage_container_placements(self.app.profile_conn, int(self.storage["id"]))
+        }
+        container_rows = self.app.conn.execute(
+            """
+            SELECT id, COALESCE(display_name, key) AS name, COALESCE(storage_slot_count, 0) AS storage_slot_count
+            FROM items
+            WHERE COALESCE(is_storage_container, 0)=1
+            ORDER BY LOWER(COALESCE(display_name, key)), id
+            """
+        ).fetchall()
+        self._rows = [dict(r) for r in container_rows]
+
+        self.table.setRowCount(len(self._rows))
+        for idx, row in enumerate(self._rows):
+            item_id = int(row["id"])
+            self.table.setItem(idx, 0, QtWidgets.QTableWidgetItem(str(row["name"])))
+            self.table.item(idx, 0).setData(QtCore.Qt.ItemDataRole.UserRole, item_id)
+            self.table.setItem(idx, 1, QtWidgets.QTableWidgetItem(str(int(row.get("storage_slot_count") or 0))))
+            spin = QtWidgets.QSpinBox()
+            spin.setRange(0, 1_000_000)
+            spin.setValue(placement_rows.get(item_id, 0))
+            self.table.setCellWidget(idx, 2, spin)
+
+    def _on_save(self) -> None:
+        storage_id = int(self.storage["id"])
+        for idx, row in enumerate(self._rows):
+            item_id = int(row["id"])
+            spin = self.table.cellWidget(idx, 2)
+            placed = int(spin.value()) if isinstance(spin, QtWidgets.QSpinBox) else 0
+            set_storage_container_placement(
+                self.app.profile_conn,
+                storage_id=storage_id,
+                item_id=item_id,
+                placed_count=placed,
+            )
+            if placed > 0:
+                self.app.profile_conn.execute(
+                    """
+                    INSERT INTO storage_assignments(storage_id, item_id, qty_count, qty_liters, locked)
+                    VALUES(?, ?, ?, NULL, 0)
+                    ON CONFLICT(storage_id, item_id)
+                    DO UPDATE SET qty_count=excluded.qty_count, qty_liters=NULL
+                    """,
+                    (storage_id, item_id, placed),
+                )
+            else:
+                self.app.profile_conn.execute(
+                    "DELETE FROM storage_assignments WHERE storage_id=? AND item_id=?",
+                    (storage_id, item_id),
+                )
+
+        recompute_storage_slot_capacities(self.app.profile_conn)
+        self.app.profile_conn.commit()
+        self.accept()
 
 
 class ItemPickerDialog(QtWidgets.QDialog):

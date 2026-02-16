@@ -273,3 +273,71 @@ def storage_inventory_totals(conn: sqlite3.Connection, storage_id: int | None = 
         "total_count": int(round(float(row["total_count"] or 0))),
         "total_liters": int(round(float(row["total_liters"] or 0))),
     }
+
+
+def list_storage_container_placements(conn: sqlite3.Connection, storage_id: int) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        """
+        SELECT
+            p.storage_id,
+            p.item_id,
+            p.placed_count,
+            COALESCE(i.display_name, i.key) AS item_name,
+            COALESCE(i.storage_slot_count, 0) AS storage_slot_count
+        FROM storage_container_placements p
+        LEFT JOIN items i ON i.id = p.item_id
+        WHERE p.storage_id=?
+        ORDER BY LOWER(COALESCE(i.display_name, i.key)), p.item_id
+        """,
+        (storage_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def set_storage_container_placement(
+    conn: sqlite3.Connection,
+    *,
+    storage_id: int,
+    item_id: int,
+    placed_count: int,
+) -> None:
+    placed = max(0, int(placed_count))
+    if placed <= 0:
+        conn.execute(
+            "DELETE FROM storage_container_placements WHERE storage_id=? AND item_id=?",
+            (storage_id, item_id),
+        )
+        return
+    conn.execute(
+        """
+        INSERT INTO storage_container_placements(storage_id, item_id, placed_count)
+        VALUES(?, ?, ?)
+        ON CONFLICT(storage_id, item_id)
+        DO UPDATE SET placed_count=excluded.placed_count
+        """,
+        (storage_id, item_id, placed),
+    )
+
+
+def recompute_storage_slot_capacities(conn: sqlite3.Connection, player_slots: int = 36) -> None:
+    storages = list_storage_units(conn)
+    for storage in storages:
+        storage_id = int(storage["id"])
+        placed_rows = conn.execute(
+            """
+            SELECT p.item_id, p.placed_count, COALESCE(i.storage_slot_count, 0) AS storage_slot_count
+            FROM storage_container_placements p
+            LEFT JOIN items i ON i.id = p.item_id
+            WHERE p.storage_id=?
+            """,
+            (storage_id,),
+        ).fetchall()
+        slots_from_containers = sum(
+            int(row["placed_count"] or 0) * int(row["storage_slot_count"] or 0)
+            for row in placed_rows
+        )
+        base_slots = int(player_slots) if str(storage.get("name") or "") == MAIN_STORAGE_NAME else 0
+        conn.execute(
+            "UPDATE storage_units SET slot_count=? WHERE id=?",
+            (base_slots + slots_from_containers, storage_id),
+        )

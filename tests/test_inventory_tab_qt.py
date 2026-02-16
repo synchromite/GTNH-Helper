@@ -143,6 +143,10 @@ def test_inventory_save_blocks_capacity_overflow(monkeypatch) -> None:
         "SELECT id FROM storage_units WHERE name='Main Storage'"
     ).fetchone()["id"]
     tab.app.profile_conn.execute(
+        "INSERT INTO app_settings(key, value) VALUES('inventory_management_enabled', '1') "
+        "ON CONFLICT(key) DO UPDATE SET value='1'"
+    )
+    tab.app.profile_conn.execute(
         "UPDATE storage_units SET slot_count=? WHERE id=?",
         (1, storage_id),
     )

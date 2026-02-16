@@ -17,6 +17,7 @@ def test_connect_profile_creates_tables(tmp_path):
         assert "machine_availability" in tables
         assert "storage_units" in tables
         assert "storage_assignments" in tables
+        assert "storage_container_placements" in tables
         assert "machine_metadata" not in tables
 
         inventory_cols = {

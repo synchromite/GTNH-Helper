@@ -9,8 +9,10 @@ from services.storage import (
     get_assignment,
     storage_inventory_totals,
     upsert_assignment,
-    update_storage_unit,
     validate_storage_fit_for_item,
+    recompute_storage_slot_capacities,
+    set_storage_container_placement,
+    list_storage_container_placements,
 )
 from ui_dialogs import StorageUnitsDialog
 
@@ -85,6 +87,10 @@ class InventoryTab(QtWidgets.QWidget):
         storage_row.addWidget(self.manage_storage_button)
         storage_row.addStretch(1)
 
+        self.enable_inventory_management = QtWidgets.QCheckBox("Enable inventory capacity management")
+        self.enable_inventory_management.toggled.connect(self._on_inventory_management_toggled)
+        right.addWidget(self.enable_inventory_management)
+
         self.storage_mode_label = QtWidgets.QLabel("")
         self.storage_mode_label.setStyleSheet("color: #666;")
         right.addWidget(self.storage_mode_label)
@@ -141,13 +147,16 @@ class InventoryTab(QtWidgets.QWidget):
         self.container_placement_note.setWordWrap(True)
         self.container_placement_note.setStyleSheet("color: #666;")
         container_layout.addWidget(self.container_placement_note, 0, 0, 1, 3)
-        container_layout.addWidget(QtWidgets.QLabel("Placed:"), 1, 0)
+        container_layout.addWidget(QtWidgets.QLabel("Target Storage:"), 1, 0)
+        self.container_target_storage = QtWidgets.QComboBox()
+        container_layout.addWidget(self.container_target_storage, 1, 1, 1, 2)
+        container_layout.addWidget(QtWidgets.QLabel("Placed:"), 2, 0)
         self.container_placed_spin = QtWidgets.QSpinBox()
         self.container_placed_spin.setRange(0, 1_000_000)
-        container_layout.addWidget(self.container_placed_spin, 1, 1)
+        container_layout.addWidget(self.container_placed_spin, 2, 1)
         self.container_apply_button = QtWidgets.QPushButton("Apply placement")
         self.container_apply_button.clicked.connect(self._apply_container_placement)
-        container_layout.addWidget(self.container_apply_button, 1, 2)
+        container_layout.addWidget(self.container_apply_button, 2, 2)
         self.container_placement_group.setVisible(False)
         right.addWidget(self.container_placement_group)
 
@@ -158,6 +167,7 @@ class InventoryTab(QtWidgets.QWidget):
 
     def render_items(self, items: list) -> None:
         self._refresh_storage_selector()
+        self._sync_inventory_management_toggle()
         self.items = list(items)
         self.items_by_id = {it["id"]: it for it in self.items}
         selected_id = self._selected_item_id()
@@ -194,8 +204,45 @@ class InventoryTab(QtWidgets.QWidget):
                     break
         self.storage_selector.setCurrentIndex(index)
         self.storage_selector.blockSignals(False)
+
+        self.container_target_storage.blockSignals(True)
+        self.container_target_storage.clear()
+        for storage in self.storage_units:
+            self.container_target_storage.addItem(str(storage["name"]), int(storage["id"]))
+        if self.container_target_storage.count() > 0 and index > 0:
+            self.container_target_storage.setCurrentIndex(min(index - 1, self.container_target_storage.count() - 1))
+        self.container_target_storage.blockSignals(False)
+
         self._set_inventory_edit_mode()
         self._refresh_summary_panel()
+
+    def _inventory_management_enabled(self) -> bool:
+        row = self.app.profile_conn.execute(
+            "SELECT value FROM app_settings WHERE key='inventory_management_enabled'"
+        ).fetchone()
+        return str((row["value"] if row else "0") or "0").strip() == "1"
+
+    def _sync_inventory_management_toggle(self) -> None:
+        enabled = self._inventory_management_enabled()
+        self.enable_inventory_management.blockSignals(True)
+        self.enable_inventory_management.setChecked(enabled)
+        self.enable_inventory_management.blockSignals(False)
+        if enabled:
+            recompute_storage_slot_capacities(self.app.profile_conn, player_slots=36)
+            self.app.profile_conn.commit()
+
+    def _on_inventory_management_toggled(self, checked: bool) -> None:
+        self.app.profile_conn.execute(
+            "INSERT INTO app_settings(key, value) VALUES('inventory_management_enabled', ?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            ("1" if checked else "0",),
+        )
+        if checked:
+            recompute_storage_slot_capacities(self.app.profile_conn, player_slots=36)
+        self.app.profile_conn.commit()
+        self._refresh_storage_selector()
+        current = self._current_tree().currentItem()
+        self.on_inventory_select(current, None)
 
     def _current_storage_id(self) -> int | None:
         value = self.storage_selector.currentData()
@@ -376,33 +423,34 @@ class InventoryTab(QtWidgets.QWidget):
         qty_count = qty if unit == "count" else None
         qty_liters = qty if unit == "L" else None
 
-        stack_sizes = {
-            int(candidate["id"]): max(1, int(self._item_value(candidate, "max_stack_size") or 64))
-            for candidate in self.items
-        }
-        fit = validate_storage_fit_for_item(
-            self.app.profile_conn,
-            storage_id=storage_id,
-            item_id=item["id"],
-            qty_count=qty_count,
-            qty_liters=qty_liters,
-            item_max_stack_size=max(1, int(self._item_value(item, "max_stack_size") or 64)),
-            known_item_stack_sizes=stack_sizes,
-        )
-        if not fit["fits"]:
-            reasons: list[str] = []
-            if not fit["fits_slots"]:
-                reasons.append(
-                    f"slots {fit['slot_usage']}/{fit['slot_count']} (overflow +{fit['slot_overflow']})"
-                )
-            if not fit["fits_liters"]:
-                reasons.append(
-                    f"liters {int(round(float(fit['liter_usage'])))}"
-                    f"/{int(round(float(fit['liter_capacity'])))}"
-                    f" (overflow +{int(round(float(fit['liter_overflow'])))} L)"
-                )
-            self._show_storage_capacity_warning(reasons)
-            return
+        if self._inventory_management_enabled():
+            stack_sizes = {
+                int(candidate["id"]): max(1, int(self._item_value(candidate, "max_stack_size") or 64))
+                for candidate in self.items
+            }
+            fit = validate_storage_fit_for_item(
+                self.app.profile_conn,
+                storage_id=storage_id,
+                item_id=item["id"],
+                qty_count=qty_count,
+                qty_liters=qty_liters,
+                item_max_stack_size=max(1, int(self._item_value(item, "max_stack_size") or 64)),
+                known_item_stack_sizes=stack_sizes,
+            )
+            if not fit["fits"]:
+                reasons: list[str] = []
+                if not fit["fits_slots"]:
+                    reasons.append(
+                        f"slots {fit['slot_usage']}/{fit['slot_count']} (overflow +{fit['slot_overflow']})"
+                    )
+                if not fit["fits_liters"]:
+                    reasons.append(
+                        f"liters {int(round(float(fit['liter_usage'])))}"
+                        f"/{int(round(float(fit['liter_capacity'])))}"
+                        f" (overflow +{int(round(float(fit['liter_overflow'])))} L)"
+                    )
+                self._show_storage_capacity_warning(reasons)
+                return
 
         upsert_assignment(
             self.app.profile_conn,
@@ -477,36 +525,37 @@ class InventoryTab(QtWidgets.QWidget):
             self.container_placement_group.setVisible(False)
             return
 
-        storage = self._storage_row_by_id(storage_id) or {}
         main_storage_id = default_storage_id(self.app.profile_conn)
         main_row = None
         if main_storage_id is not None:
             main_row = get_assignment(self.app.profile_conn, storage_id=int(main_storage_id), item_id=int(item["id"]))
         owned_total = max(0, int(float((main_row["qty_count"] if main_row else 0) or 0)))
-        owned_local = max(0, int(float(qty or 0)))
 
-        # For non-main storages, allow placement assignment based on globally owned containers.
-        # This lets users place a container into custom storages without first setting a local qty.
-        owned = owned_local if main_storage_id is None or int(storage_id) == int(main_storage_id) else owned_total
-        linked_item_id = storage.get("container_item_id")
-        is_linked = linked_item_id is not None and int(linked_item_id) == int(item["id"])
-        placed_current = int(storage.get("placed_count") or 0) if is_linked else 0
-        placed_current = min(placed_current, owned)
+        # Keep target selector synced to currently selected storage by default.
+        target_storage_id = self.container_target_storage.currentData()
+        if target_storage_id is None:
+            target_storage_id = storage_id
+        target_storage_id = int(target_storage_id)
+
+        placement_rows = {
+            int(r["item_id"]): int(r.get("placed_count") or 0)
+            for r in list_storage_container_placements(self.app.profile_conn, target_storage_id)
+        }
+        placed_current = placement_rows.get(int(item["id"]), 0)
+        placed_current = min(placed_current, owned_total)
 
         self.container_placed_spin.blockSignals(True)
-        self.container_placed_spin.setMaximum(owned)
+        self.container_placed_spin.setMaximum(owned_total)
         self.container_placed_spin.setValue(placed_current)
         self.container_placed_spin.blockSignals(False)
 
         slot_count = self._container_slot_count_for_item(item)
-        linked_msg = ""
-        if linked_item_id is not None and not is_linked:
-            linked_msg = " This storage is currently linked to a different container item."
+        target_name = self.container_target_storage.currentText() or "Selected Storage"
         self.container_placement_note.setText(
             f"Owned total (Main Storage): {owned_total}. "
-            f"Assigned to selected storage: {owned_local}. "
+            f"Target storage: {target_name}. "
             f"Slots per container: {slot_count}. "
-            f"Usable slots from placed: {placed_current * slot_count}." + linked_msg
+            f"Usable slots from placed: {placed_current * slot_count}."
         )
         self.container_apply_button.setEnabled(not self._is_aggregate_mode())
         self.container_placement_group.setVisible(True)
@@ -517,21 +566,10 @@ class InventoryTab(QtWidgets.QWidget):
         storage_id = self._current_storage_id()
         if storage_id is None:
             return
-        storage = self._storage_row_by_id(storage_id) or {}
-        linked_item_id = storage.get("container_item_id")
-        if linked_item_id not in (None, item["id"]):
-            return
 
-        placed_current = min(int(storage.get("placed_count") or 0), max(0, qty))
-        slot_count = self._container_slot_count_for_item(item)
-        update_storage_unit(
-            self.app.profile_conn,
-            storage_id,
-            container_item_id=int(item["id"]),
-            owned_count=max(0, qty),
-            placed_count=placed_current,
-            slot_count=max(0, placed_current * slot_count),
-        )
+        # Main Storage owns container inventory; ensure baseline slots when capacity management is enabled.
+        if self._inventory_management_enabled():
+            recompute_storage_slot_capacities(self.app.profile_conn, player_slots=36)
         self.app.profile_conn.commit()
         self.storage_units = list(self.app.list_storage_units()) if hasattr(self.app, "list_storage_units") else self.storage_units
         self._refresh_summary_panel()
@@ -541,48 +579,52 @@ class InventoryTab(QtWidgets.QWidget):
         if not self._is_storage_container_item(item):
             self.container_placement_group.setVisible(False)
             return
-        storage_id = self._current_storage_id()
-        if storage_id is None:
-            return
-        main_storage_id = default_storage_id(self.app.profile_conn)
-        main_owned = 0
-        if main_storage_id is not None:
-            main_row = get_assignment(self.app.profile_conn, storage_id=int(main_storage_id), item_id=int(item["id"]))
-            main_owned = max(0, int(float((main_row["qty_count"] if main_row else 0) or 0)))
-        local_owned = max(0, int(float(self.inventory_qty_entry.text().strip() or 0)))
-        owned = local_owned if main_storage_id is None or int(storage_id) == int(main_storage_id) else main_owned
-        placed = min(self.container_placed_spin.value(), owned)
-        slot_count = self._container_slot_count_for_item(item)
 
-        # Ensure custom storages visibly contain assigned container items.
-        # Main Storage keeps its own explicit inventory quantity from normal Save/Clear actions.
-        if main_storage_id is None or int(storage_id) != int(main_storage_id):
+        main_storage_id = default_storage_id(self.app.profile_conn)
+        if main_storage_id is None:
+            return
+
+        target_storage_id = self.container_target_storage.currentData()
+        if target_storage_id is None:
+            target_storage_id = self._current_storage_id()
+        if target_storage_id is None:
+            return
+        target_storage_id = int(target_storage_id)
+
+        main_row = get_assignment(self.app.profile_conn, storage_id=int(main_storage_id), item_id=int(item["id"]))
+        owned_total = max(0, int(float((main_row["qty_count"] if main_row else 0) or 0)))
+        placed = min(self.container_placed_spin.value(), owned_total)
+
+        set_storage_container_placement(
+            self.app.profile_conn,
+            storage_id=target_storage_id,
+            item_id=int(item["id"]),
+            placed_count=placed,
+        )
+
+        # Make container placement visible in that storage inventory (except main where qty is owned total).
+        if target_storage_id != int(main_storage_id):
             if placed > 0:
                 upsert_assignment(
                     self.app.profile_conn,
-                    storage_id=storage_id,
+                    storage_id=target_storage_id,
                     item_id=int(item["id"]),
                     qty_count=placed,
                     qty_liters=None,
                 )
             else:
-                delete_assignment(self.app.profile_conn, storage_id=storage_id, item_id=int(item["id"]))
+                delete_assignment(self.app.profile_conn, storage_id=target_storage_id, item_id=int(item["id"]))
 
-        update_storage_unit(
-            self.app.profile_conn,
-            storage_id,
-            container_item_id=int(item["id"]),
-            owned_count=owned,
-            placed_count=placed,
-            slot_count=max(0, placed * slot_count),
-        )
+        if self._inventory_management_enabled():
+            recompute_storage_slot_capacities(self.app.profile_conn, player_slots=36)
+
         self.app.profile_conn.commit()
         if hasattr(self.app, "list_storage_units"):
             self.storage_units = list(self.app.list_storage_units())
         self._refresh_summary_panel()
-        self._refresh_container_placement_panel(item, owned)
+        self._refresh_container_placement_panel(item, owned_total)
         self.app.status_bar.showMessage(
-            f"Updated container placement for {item['name']}: {placed}/{owned} placed"
+            f"Updated container placement for {item['name']}: {placed}/{owned_total} placed"
         )
 
     def _on_search_changed(self, _text: str) -> None:
