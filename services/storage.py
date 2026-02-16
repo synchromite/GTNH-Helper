@@ -281,13 +281,10 @@ def list_storage_container_placements(conn: sqlite3.Connection, storage_id: int)
         SELECT
             p.storage_id,
             p.item_id,
-            p.placed_count,
-            COALESCE(i.display_name, i.key) AS item_name,
-            COALESCE(i.storage_slot_count, 0) AS storage_slot_count
+            p.placed_count
         FROM storage_container_placements p
-        LEFT JOIN items i ON i.id = p.item_id
         WHERE p.storage_id=?
-        ORDER BY LOWER(COALESCE(i.display_name, i.key)), p.item_id
+        ORDER BY p.item_id
         """,
         (storage_id,),
     ).fetchall()
@@ -319,21 +316,30 @@ def set_storage_container_placement(
     )
 
 
-def recompute_storage_slot_capacities(conn: sqlite3.Connection, player_slots: int = 36) -> None:
+def recompute_storage_slot_capacities(
+    conn: sqlite3.Connection,
+    player_slots: int = 36,
+    *,
+    content_conn: sqlite3.Connection | None = None,
+) -> None:
+    slot_rows = (content_conn or conn).execute(
+        "SELECT id, COALESCE(storage_slot_count, 0) AS storage_slot_count FROM items"
+    ).fetchall()
+    slot_map = {int(r["id"]): int(r["storage_slot_count"] or 0) for r in slot_rows}
+
     storages = list_storage_units(conn)
     for storage in storages:
         storage_id = int(storage["id"])
         placed_rows = conn.execute(
             """
-            SELECT p.item_id, p.placed_count, COALESCE(i.storage_slot_count, 0) AS storage_slot_count
+            SELECT p.item_id, p.placed_count
             FROM storage_container_placements p
-            LEFT JOIN items i ON i.id = p.item_id
             WHERE p.storage_id=?
             """,
             (storage_id,),
         ).fetchall()
         slots_from_containers = sum(
-            int(row["placed_count"] or 0) * int(row["storage_slot_count"] or 0)
+            int(row["placed_count"] or 0) * int(slot_map.get(int(row["item_id"]), 0))
             for row in placed_rows
         )
         base_slots = int(player_slots) if str(storage.get("name") or "") == MAIN_STORAGE_NAME else 0

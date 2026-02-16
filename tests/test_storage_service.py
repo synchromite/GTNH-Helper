@@ -201,7 +201,7 @@ def test_recompute_storage_slot_capacities_uses_player_slots_and_placements(tmp_
 
         set_storage_container_placement(conn, storage_id=main_storage, item_id=1, placed_count=1)
         set_storage_container_placement(conn, storage_id=ore_storage, item_id=2, placed_count=1)
-        recompute_storage_slot_capacities(conn, player_slots=36)
+        recompute_storage_slot_capacities(conn, player_slots=36, content_conn=conn)
         conn.commit()
 
         main_slots = conn.execute("SELECT slot_count FROM storage_units WHERE id=?", (main_storage,)).fetchone()["slot_count"]

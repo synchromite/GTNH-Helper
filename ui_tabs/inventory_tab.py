@@ -228,7 +228,7 @@ class InventoryTab(QtWidgets.QWidget):
         self.enable_inventory_management.setChecked(enabled)
         self.enable_inventory_management.blockSignals(False)
         if enabled:
-            recompute_storage_slot_capacities(self.app.profile_conn, player_slots=36)
+            recompute_storage_slot_capacities(self.app.profile_conn, player_slots=36, content_conn=self.app.conn)
             self.app.profile_conn.commit()
 
     def _on_inventory_management_toggled(self, checked: bool) -> None:
@@ -238,7 +238,7 @@ class InventoryTab(QtWidgets.QWidget):
             ("1" if checked else "0",),
         )
         if checked:
-            recompute_storage_slot_capacities(self.app.profile_conn, player_slots=36)
+            recompute_storage_slot_capacities(self.app.profile_conn, player_slots=36, content_conn=self.app.conn)
         self.app.profile_conn.commit()
         self._refresh_storage_selector()
         current = self._current_tree().currentItem()
@@ -569,7 +569,7 @@ class InventoryTab(QtWidgets.QWidget):
 
         # Main Storage owns container inventory; ensure baseline slots when capacity management is enabled.
         if self._inventory_management_enabled():
-            recompute_storage_slot_capacities(self.app.profile_conn, player_slots=36)
+            recompute_storage_slot_capacities(self.app.profile_conn, player_slots=36, content_conn=self.app.conn)
         self.app.profile_conn.commit()
         self.storage_units = list(self.app.list_storage_units()) if hasattr(self.app, "list_storage_units") else self.storage_units
         self._refresh_summary_panel()
@@ -616,7 +616,7 @@ class InventoryTab(QtWidgets.QWidget):
                 delete_assignment(self.app.profile_conn, storage_id=target_storage_id, item_id=int(item["id"]))
 
         if self._inventory_management_enabled():
-            recompute_storage_slot_capacities(self.app.profile_conn, player_slots=36)
+            recompute_storage_slot_capacities(self.app.profile_conn, player_slots=36, content_conn=self.app.conn)
 
         self.app.profile_conn.commit()
         if hasattr(self.app, "list_storage_units"):

@@ -386,7 +386,7 @@ class StorageContainerPlacementsDialog(QtWidgets.QDialog):
                     (storage_id, item_id),
                 )
 
-        recompute_storage_slot_capacities(self.app.profile_conn)
+        recompute_storage_slot_capacities(self.app.profile_conn, content_conn=self.app.conn)
         self.app.profile_conn.commit()
         self.accept()
 
