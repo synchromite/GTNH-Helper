@@ -25,6 +25,7 @@ from ui_tabs.planner_tab_qt import PlannerTab
 from ui_tabs.tiers_tab import TiersTab
 from ui_tabs.machines_tab import MachinesTab
 from ui_constants import DARK_STYLESHEET, LIGHT_STYLESHEET
+from ui_dialog_sizing import install_dialog_sizing_hooks
 
 
 class ReorderTabsDialog(QtWidgets.QDialog):
@@ -108,6 +109,7 @@ class DetachedTabWindow(QtWidgets.QMainWindow):
 class App(QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
+        install_dialog_sizing_hooks()
         self.resize(1100, 700)
 
         # Set the application icon (visible in the dock/task switcher)
