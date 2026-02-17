@@ -4,6 +4,7 @@ import sqlite3
 import pytest
 
 QtWidgets = pytest.importorskip("PySide6.QtWidgets", exc_type=ImportError)
+QtCore = pytest.importorskip("PySide6.QtCore", exc_type=ImportError)
 
 from services.db import connect_profile
 from ui_tabs.inventory_tab import InventoryTab
@@ -461,6 +462,67 @@ def test_inventory_container_item_can_be_assigned_to_custom_storage_from_main_ow
     ).fetchone()
     assert main_owned is not None
     assert main_owned["qty_count"] == 4
+
+    tab.deleteLater()
+    conn.close()
+
+
+def test_inventory_filter_by_selected_storage() -> None:
+    app = _get_app()
+
+    class DummyStatusBar:
+        def showMessage(self, _msg: str) -> None:
+            return None
+
+    class DummyApp:
+        def __init__(self) -> None:
+            self.profile_conn = connect_profile(":memory:")
+            self.status_bar = DummyStatusBar()
+
+        def notify_inventory_change(self) -> None:
+            return None
+
+    tab = InventoryTab(DummyApp())
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    row_a = conn.execute(
+        "SELECT 1 AS id, 'Refined Iron Plate' AS name, 'item' AS kind, 'plate' AS item_kind_name, 'iron' AS material_name, "
+        "NULL AS machine_type, NULL AS machine_tier, 0 AS is_machine, NULL AS crafting_grid_size, 64 AS max_stack_size, "
+        "0 AS is_storage_container, NULL AS storage_slot_count"
+    ).fetchone()
+    row_b = conn.execute(
+        "SELECT 2 AS id, 'Copper Wire' AS name, 'item' AS kind, 'wire' AS item_kind_name, 'copper' AS material_name, "
+        "NULL AS machine_type, NULL AS machine_tier, 0 AS is_machine, NULL AS crafting_grid_size, 64 AS max_stack_size, "
+        "0 AS is_storage_container, NULL AS storage_slot_count"
+    ).fetchone()
+
+    storage_id = tab.app.profile_conn.execute(
+        "SELECT id FROM storage_units WHERE name='Main Storage'"
+    ).fetchone()["id"]
+    tab.app.profile_conn.execute(
+        "INSERT INTO storage_assignments(storage_id, item_id, qty_count, qty_liters) VALUES(?, ?, ?, ?)",
+        (storage_id, 1, 5, None),
+    )
+    tab.app.profile_conn.commit()
+
+    tab.render_items([row_a, row_b])
+    tab.storage_selector.setCurrentIndex(1)
+    app.processEvents()
+
+    tab.filter_to_selected_storage.setChecked(True)
+    app.processEvents()
+
+    tree = tab.inventory_trees["All"]
+    kind_item = tree.topLevelItem(0)
+    assert kind_item is not None
+
+    def _count_leaf_nodes(node):
+        if node.childCount() == 0 and node.data(0, QtCore.Qt.UserRole) is not None:
+            return 1
+        return sum(_count_leaf_nodes(node.child(i)) for i in range(node.childCount()))
+
+    leaf_count = sum(_count_leaf_nodes(tree.topLevelItem(i)) for i in range(tree.topLevelItemCount()))
+    assert leaf_count == 1
 
     tab.deleteLater()
     conn.close()

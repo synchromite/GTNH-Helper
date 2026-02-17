@@ -91,6 +91,10 @@ class InventoryTab(QtWidgets.QWidget):
         self.enable_inventory_management.toggled.connect(self._on_inventory_management_toggled)
         right.addWidget(self.enable_inventory_management)
 
+        self.filter_to_selected_storage = QtWidgets.QCheckBox("Filter item list to selected storage")
+        self.filter_to_selected_storage.toggled.connect(self._on_filter_to_storage_toggled)
+        right.addWidget(self.filter_to_selected_storage)
+
         self.storage_mode_label = QtWidgets.QLabel("")
         self.storage_mode_label.setStyleSheet("color: #666;")
         right.addWidget(self.storage_mode_label)
@@ -244,6 +248,13 @@ class InventoryTab(QtWidgets.QWidget):
         current = self._current_tree().currentItem()
         self.on_inventory_select(current, None)
 
+    def _on_filter_to_storage_toggled(self, _checked: bool) -> None:
+        selected_id = self._selected_item_id()
+        for tree in self.inventory_trees.values():
+            self._render_tree(tree, selected_id)
+        current = self._current_tree().currentItem()
+        self.on_inventory_select(current, None)
+
     def _current_storage_id(self) -> int | None:
         value = self.storage_selector.currentData()
         if value is None:
@@ -271,6 +282,10 @@ class InventoryTab(QtWidgets.QWidget):
             self.app.set_active_storage_id(storage_id)
         self._set_inventory_edit_mode()
         self._refresh_summary_panel()
+        if self.filter_to_selected_storage.isChecked():
+            selected_id = self._selected_item_id()
+            for tree in self.inventory_trees.values():
+                self._render_tree(tree, selected_id)
         current = self._current_tree().currentItem()
         self.on_inventory_select(current, None)
 
@@ -741,6 +756,17 @@ class InventoryTab(QtWidgets.QWidget):
                 for it in items
                 if (self._item_value(it, "kind") or "").strip().lower() == kind_filter
             ]
+        if self.filter_to_selected_storage.isChecked() and not self._is_aggregate_mode():
+            storage_id = self._current_storage_id()
+            assigned_ids = {
+                int(row["item_id"])
+                for row in self.app.profile_conn.execute(
+                    "SELECT item_id FROM storage_assignments WHERE storage_id=?",
+                    (storage_id,),
+                ).fetchall()
+            }
+            items = [it for it in items if int(it["id"]) in assigned_ids]
+
         if not query:
             return items
         return [
