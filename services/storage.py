@@ -347,3 +347,26 @@ def recompute_storage_slot_capacities(
             "UPDATE storage_units SET slot_count=? WHERE id=?",
             (base_slots + slots_from_containers, storage_id),
         )
+
+
+def storage_slot_usage(
+    conn: sqlite3.Connection,
+    *,
+    storage_id: int,
+    known_item_stack_sizes: dict[int, int] | None = None,
+) -> dict[str, int | None]:
+    storage = conn.execute("SELECT slot_count FROM storage_units WHERE id=?", (storage_id,)).fetchone()
+    slot_count = int(storage["slot_count"]) if storage and storage["slot_count"] is not None else None
+
+    rows = conn.execute(
+        "SELECT item_id, qty_count FROM storage_assignments WHERE storage_id=?",
+        (storage_id,),
+    ).fetchall()
+    used = 0
+    for row in rows:
+        item_id = int(row["item_id"])
+        stack_size = (known_item_stack_sizes or {}).get(item_id, 64)
+        used += assignment_slot_usage(row["qty_count"], stack_size)
+
+    free = None if slot_count is None else max(0, int(slot_count - used))
+    return {"slot_count": slot_count, "slot_used": int(used), "slot_free": free}

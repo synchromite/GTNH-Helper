@@ -117,6 +117,19 @@ def connect_profile(db_path: Path | str) -> sqlite3.Connection:
         """
     )
 
+    # Backfill legacy single-container columns into placement rows.
+    conn.execute(
+        """
+        INSERT INTO storage_container_placements(storage_id, item_id, placed_count)
+        SELECT su.id, su.container_item_id, su.placed_count
+        FROM storage_units su
+        WHERE su.container_item_id IS NOT NULL
+          AND COALESCE(su.placed_count, 0) > 0
+        ON CONFLICT(storage_id, item_id)
+        DO UPDATE SET placed_count=excluded.placed_count
+        """
+    )
+
     assignment_cols = {
         row["name"]
         for row in conn.execute("PRAGMA table_info(storage_assignments)").fetchall()

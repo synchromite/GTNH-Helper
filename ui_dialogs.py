@@ -13,6 +13,7 @@ from services.storage import (
     list_storage_units,
     recompute_storage_slot_capacities,
     set_storage_container_placement,
+    storage_slot_usage,
     update_storage_unit,
 )
 
@@ -195,7 +196,7 @@ class StorageUnitsDialog(QtWidgets.QDialog):
 
         layout = QtWidgets.QVBoxLayout(self)
         self.table = QtWidgets.QTableWidget(0, 6)
-        self.table.setHorizontalHeaderLabels(["Name", "Kind", "Slots", "Owned", "Placed", "Liters"])
+        self.table.setHorizontalHeaderLabels(["Name", "Kind", "Total Slots", "Used", "Free", "Liters"])
         self.table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.SingleSelection)
         self.table.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -227,12 +228,17 @@ class StorageUnitsDialog(QtWidgets.QDialog):
     def reload(self) -> None:
         rows = list_storage_units(self.app.profile_conn)
         self.table.setRowCount(len(rows))
+        stack_map: dict[int, int] = {}
+        for item_row in self.app.conn.execute("SELECT id, COALESCE(max_stack_size, 64) AS max_stack_size FROM items").fetchall():
+            stack_map[int(item_row["id"])] = max(1, int(item_row["max_stack_size"] or 64))
+
         for idx, row in enumerate(rows):
+            usage = storage_slot_usage(self.app.profile_conn, storage_id=int(row["id"]), known_item_stack_sizes=stack_map)
             self.table.setItem(idx, 0, QtWidgets.QTableWidgetItem(str(row["name"])))
             self.table.setItem(idx, 1, QtWidgets.QTableWidgetItem(str(row.get("kind") or "generic")))
-            self.table.setItem(idx, 2, QtWidgets.QTableWidgetItem("" if row.get("slot_count") is None else str(int(row["slot_count"])) ))
-            self.table.setItem(idx, 3, QtWidgets.QTableWidgetItem("" if row.get("owned_count") is None else str(int(row["owned_count"]))))
-            self.table.setItem(idx, 4, QtWidgets.QTableWidgetItem("" if row.get("placed_count") is None else str(int(row["placed_count"]))))
+            self.table.setItem(idx, 2, QtWidgets.QTableWidgetItem("" if usage["slot_count"] is None else str(int(usage["slot_count"]))))
+            self.table.setItem(idx, 3, QtWidgets.QTableWidgetItem(str(int(usage["slot_used"]))))
+            self.table.setItem(idx, 4, QtWidgets.QTableWidgetItem("" if usage["slot_free"] is None else str(int(usage["slot_free"]))))
             self.table.setItem(idx, 5, QtWidgets.QTableWidgetItem("" if row.get("liter_capacity") is None else str(int(round(float(row["liter_capacity"])))) ))
             self.table.item(idx, 0).setData(QtCore.Qt.ItemDataRole.UserRole, int(row["id"]))
         if rows:
