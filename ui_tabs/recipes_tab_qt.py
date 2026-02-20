@@ -440,25 +440,19 @@ class RecipesTab(QtWidgets.QWidget):
             return
 
         duplicate_of = recipe["duplicate_of_recipe_id"]
-        self.app.conn.execute("DELETE FROM recipes WHERE id=?", (recipe_id,))
+        recipe_ids_to_delete = [recipe_id]
         if duplicate_of is None:
             dup_rows = self.app.conn.execute(
                 "SELECT id FROM recipes WHERE duplicate_of_recipe_id=? ORDER BY id",
                 (recipe_id,),
             ).fetchall()
-            if dup_rows:
-                new_canonical_id = dup_rows[0]["id"]
-                self.app.conn.execute(
-                    "UPDATE recipes SET duplicate_of_recipe_id=NULL WHERE id=?",
-                    (new_canonical_id,),
-                )
-                remaining_ids = [row["id"] for row in dup_rows[1:]]
-                if remaining_ids:
-                    placeholders = ",".join(["?"] * len(remaining_ids))
-                    self.app.conn.execute(
-                        f"UPDATE recipes SET duplicate_of_recipe_id=? WHERE id IN ({placeholders})",
-                        (new_canonical_id, *remaining_ids),
-                    )
+            recipe_ids_to_delete.extend(row["id"] for row in dup_rows)
+
+        placeholders = ",".join(["?"] * len(recipe_ids_to_delete))
+        self.app.conn.execute(
+            f"DELETE FROM recipes WHERE id IN ({placeholders})",
+            tuple(recipe_ids_to_delete),
+        )
         self.app.conn.commit()
         self.app.refresh_recipes()
         self._recipe_details_set("")

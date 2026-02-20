@@ -19,6 +19,7 @@ def _get_app() -> QtWidgets.QApplication:
 def _seed_conn() -> sqlite3.Connection:
     conn = sqlite3.connect(":memory:")
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys=ON")
     conn.executescript(
         """
         CREATE TABLE item_kinds (
@@ -37,11 +38,27 @@ def _seed_conn() -> sqlite3.Connection:
             item_kind_id INTEGER,
             material_id INTEGER
         );
+        CREATE TABLE recipes (
+            id INTEGER PRIMARY KEY,
+            name TEXT NOT NULL,
+            method TEXT,
+            machine TEXT,
+            machine_item_id INTEGER,
+            grid_size TEXT,
+            station_item_id INTEGER,
+            tier TEXT,
+            circuit INTEGER,
+            duration_ticks INTEGER,
+            eu_per_tick INTEGER,
+            notes TEXT,
+            duplicate_of_recipe_id INTEGER
+        );
         CREATE TABLE recipe_lines (
             id INTEGER PRIMARY KEY,
             recipe_id INTEGER NOT NULL,
             item_id INTEGER NOT NULL,
-            direction TEXT
+            direction TEXT,
+            FOREIGN KEY(recipe_id) REFERENCES recipes(id) ON DELETE CASCADE
         );
         """
     )
@@ -66,6 +83,14 @@ def _seed_conn() -> sqlite3.Connection:
             (2, "dustIron", "Iron Dust", "item", 2, 1),
             (3, "dustCopper", "Copper Dust", "item", 2, 2),
             (4, "chlorine", "Chlorine", "gas", None, None),
+        ],
+    )
+    conn.executemany(
+        "INSERT INTO recipes (id, name, duplicate_of_recipe_id) VALUES (?, ?, ?)",
+        [
+            (100, "Iron Ingot", None),
+            (200, "Copper Dust", None),
+            (300, "Chlorine", None),
         ],
     )
     conn.executemany(
@@ -201,4 +226,114 @@ def test_format_recipe_details_includes_notes(monkeypatch) -> None:
     )
 
     assert "Notes: Use rich oxygen mix" in text
+    tab.deleteLater()
+
+
+def test_delete_selected_recipe_deletes_canonical_and_variants(monkeypatch) -> None:
+    _get_app()
+
+    class DummyStatusBar:
+        def __init__(self) -> None:
+            self.message = ""
+
+        def showMessage(self, message: str) -> None:
+            self.message = message
+
+    class DummyApp:
+        editor_enabled = True
+        conn = _seed_conn()
+
+        def __init__(self) -> None:
+            self.status_bar = DummyStatusBar()
+            self.refreshed = False
+
+        def refresh_recipes(self) -> None:
+            self.refreshed = True
+
+    app = DummyApp()
+    app.conn.executemany(
+        "INSERT INTO recipes (id, name, duplicate_of_recipe_id) VALUES (?, ?, ?)",
+        [
+            (100, "Main Output", None),
+            (101, "Secondary Output", 100),
+        ],
+    )
+    app.conn.executemany(
+        "INSERT INTO recipe_lines (id, recipe_id, item_id, direction) VALUES (?, ?, ?, ?)",
+        [
+            (1, 100, 1, "out"),
+            (2, 101, 3, "out"),
+        ],
+    )
+
+    tab = RecipesTab(app)
+    monkeypatch.setattr(tab, "_select_recipe_for_current_item", lambda: 100)
+    monkeypatch.setattr(
+        QtWidgets.QMessageBox,
+        "question",
+        lambda *args, **kwargs: QtWidgets.QMessageBox.StandardButton.Yes,
+    )
+
+    tab.delete_selected_recipe()
+
+    assert app.conn.execute("SELECT COUNT(*) AS c FROM recipes").fetchone()["c"] == 0
+    assert app.conn.execute("SELECT COUNT(*) AS c FROM recipe_lines").fetchone()["c"] == 0
+    assert app.refreshed is True
+    tab.deleteLater()
+
+
+def test_delete_selected_recipe_deletes_only_selected_variant(monkeypatch) -> None:
+    _get_app()
+
+    class DummyStatusBar:
+        def __init__(self) -> None:
+            self.message = ""
+
+        def showMessage(self, message: str) -> None:
+            self.message = message
+
+    class DummyApp:
+        editor_enabled = True
+        conn = _seed_conn()
+
+        def __init__(self) -> None:
+            self.status_bar = DummyStatusBar()
+            self.refreshed = False
+
+        def refresh_recipes(self) -> None:
+            self.refreshed = True
+
+    app = DummyApp()
+    app.conn.executemany(
+        "INSERT INTO recipes (id, name, duplicate_of_recipe_id) VALUES (?, ?, ?)",
+        [
+            (100, "Main Output", None),
+            (101, "Secondary Output", 100),
+        ],
+    )
+    app.conn.executemany(
+        "INSERT INTO recipe_lines (id, recipe_id, item_id, direction) VALUES (?, ?, ?, ?)",
+        [
+            (1, 100, 1, "out"),
+            (2, 101, 3, "out"),
+        ],
+    )
+
+    tab = RecipesTab(app)
+    monkeypatch.setattr(tab, "_select_recipe_for_current_item", lambda: 101)
+    monkeypatch.setattr(
+        QtWidgets.QMessageBox,
+        "question",
+        lambda *args, **kwargs: QtWidgets.QMessageBox.StandardButton.Yes,
+    )
+
+    tab.delete_selected_recipe()
+
+    rows = app.conn.execute(
+        "SELECT id, duplicate_of_recipe_id FROM recipes ORDER BY id"
+    ).fetchall()
+    assert [(row["id"], row["duplicate_of_recipe_id"]) for row in rows] == [(100, None)]
+    assert app.conn.execute("SELECT COUNT(*) AS c FROM recipe_lines WHERE recipe_id=100").fetchone()["c"] == 1
+    assert app.conn.execute("SELECT COUNT(*) AS c FROM recipe_lines WHERE recipe_id=101").fetchone()["c"] == 0
+    assert app.refreshed is True
     tab.deleteLater()
