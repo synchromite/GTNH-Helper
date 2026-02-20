@@ -117,3 +117,44 @@ def test_edit_dialog_upgrades_legacy_machine_when_kind_is_missing() -> None:
 
     dialog.deleteLater()
     conn.close()
+
+
+def test_edit_dialog_keeps_valid_fluid_kind_even_with_machine_flag() -> None:
+    _get_app()
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    ensure_schema(conn)
+
+    conn.execute(
+        """
+        INSERT INTO items(
+            key, display_name, kind, is_base, is_machine,
+            machine_type, machine_tier
+        ) VALUES(?,?,?,?,?,?,?)
+        """,
+        ("buggy_fluid", "Buggy Fluid", "fluid", 0, 1, "Mixer", "HV"),
+    )
+    item_id = int(conn.execute("SELECT id FROM items WHERE key='buggy_fluid'").fetchone()["id"])
+    app = _DummyApp(conn)
+
+    dialog = EditItemDialog(app, item_id)
+
+    assert dialog._current_kind_value() == "fluid"
+
+    dialog.display_name_edit.setText("Buggy Fluid Updated")
+    dialog.save()
+
+    saved = conn.execute(
+        "SELECT kind, is_machine, machine_type, machine_tier, display_name FROM items WHERE id=?",
+        (item_id,),
+    ).fetchone()
+
+    assert saved is not None
+    assert saved["kind"] == "fluid"
+    assert saved["is_machine"] == 0
+    assert saved["machine_type"] is None
+    assert saved["machine_tier"] is None
+    assert saved["display_name"] == "Buggy Fluid Updated"
+
+    dialog.deleteLater()
+    conn.close()
