@@ -149,6 +149,46 @@ def connect_profile(db_path: Path | str) -> sqlite3.Connection:
         )
         """
     )
+    conn.execute(
+        """
+        INSERT INTO app_settings(key, value)
+        VALUES('machine_availability_version', '0')
+        ON CONFLICT(key) DO NOTHING
+        """
+    )
+    conn.execute(
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_machine_availability_version_insert
+        AFTER INSERT ON machine_availability
+        BEGIN
+            UPDATE app_settings
+            SET value = CAST(COALESCE(value, '0') AS INTEGER) + 1
+            WHERE key = 'machine_availability_version';
+        END
+        """
+    )
+    conn.execute(
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_machine_availability_version_update
+        AFTER UPDATE ON machine_availability
+        BEGIN
+            UPDATE app_settings
+            SET value = CAST(COALESCE(value, '0') AS INTEGER) + 1
+            WHERE key = 'machine_availability_version';
+        END
+        """
+    )
+    conn.execute(
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_machine_availability_version_delete
+        AFTER DELETE ON machine_availability
+        BEGIN
+            UPDATE app_settings
+            SET value = CAST(COALESCE(value, '0') AS INTEGER) + 1
+            WHERE key = 'machine_availability_version';
+        END
+        """
+    )
 
     default_storage = conn.execute(
         "SELECT id FROM storage_units WHERE name=?",

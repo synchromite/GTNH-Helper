@@ -148,7 +148,7 @@ class PlannerService:
         self.conn = conn
         self.profile_conn = profile_conn
         self._machine_availability_cache: dict[str, dict[str, dict[str, int]]] | None = None
-        self._machine_availability_cache_total_changes: int | None = None
+        self._machine_availability_cache_version: int | None = None
 
     # ---------- Public API ----------
     def plan(
@@ -466,7 +466,7 @@ class PlannerService:
 
     def clear_cache(self) -> None:
         self._machine_availability_cache = None
-        self._machine_availability_cache_total_changes = None
+        self._machine_availability_cache_version = None
 
     def _merge_plan_steps(self, steps: list[PlanStep]) -> list[PlanStep]:
         merged: list[PlanStep] = []
@@ -903,12 +903,15 @@ class PlannerService:
     def _load_machine_availability(self) -> dict[str, dict[str, dict[str, int]]]:
         if self.profile_conn is None:
             self._machine_availability_cache = {}
-            self._machine_availability_cache_total_changes = None
+            self._machine_availability_cache_version = None
             return self._machine_availability_cache
-        current_total_changes = int(self.profile_conn.total_changes)
+        version_row = self.profile_conn.execute(
+            "SELECT value FROM app_settings WHERE key='machine_availability_version'"
+        ).fetchone()
+        current_version = int(version_row["value"] or 0) if version_row else 0
         if (
             self._machine_availability_cache is not None
-            and self._machine_availability_cache_total_changes == current_total_changes
+            and self._machine_availability_cache_version == current_version
         ):
             return self._machine_availability_cache
         rows = self.profile_conn.execute(
@@ -926,7 +929,7 @@ class PlannerService:
             tier = (row["tier"] or "").strip()
             available.setdefault(machine_type, {})[tier] = {"owned": owned, "online": online}
         self._machine_availability_cache = available
-        self._machine_availability_cache_total_changes = current_total_changes
+        self._machine_availability_cache_version = current_version
         return available
 
     def _tier_available(self, required_tier: str, owned_tiers: dict[str, dict[str, int]]) -> bool:
