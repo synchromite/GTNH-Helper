@@ -651,3 +651,67 @@ def test_inventory_save_blocks_negative_quantity(monkeypatch) -> None:
 
     tab.deleteLater()
     conn.close()
+
+
+def test_machine_availability_uses_aggregate_owned_across_storages() -> None:
+    app = _get_app()
+
+    class DummyStatusBar:
+        def showMessage(self, _msg: str) -> None:
+            return None
+
+    class DummyApp:
+        def __init__(self) -> None:
+            self.profile_conn = connect_profile(":memory:")
+            self.status_bar = DummyStatusBar()
+            self.availability: dict[tuple[str, str], dict[str, int]] = {}
+            self.saved_rows: list[tuple[str, str, int, int]] = []
+
+        def notify_inventory_change(self) -> None:
+            return None
+
+        def get_machine_availability(self, machine_type: str, tier: str):
+            return self.availability.get((machine_type, tier), {"owned": 0, "online": 0})
+
+        def set_machine_availability(self, rows):
+            self.saved_rows = list(rows)
+            for machine_type, tier, owned, online in rows:
+                self.availability[(machine_type, tier)] = {"owned": int(owned), "online": int(online)}
+
+    tab = InventoryTab(DummyApp())
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    machine_row = conn.execute(
+        "SELECT 1 AS id, 'Assembler LV' AS name, 'machine' AS kind, 'machine' AS item_kind_name, "
+        "NULL AS material_name, 'assembler' AS machine_type, 'lv' AS machine_tier, 1 AS is_machine, "
+        "NULL AS crafting_grid_size, 64 AS max_stack_size, 0 AS is_storage_container, NULL AS storage_slot_count"
+    ).fetchone()
+
+    tab.app.profile_conn.execute("INSERT INTO storage_units(name, kind) VALUES('Backup Storage', 'misc')")
+    tab.app.profile_conn.commit()
+
+    tab.render_items([machine_row])
+    tree = tab.inventory_trees["All"]
+    leaf = tree.topLevelItem(0).child(0).child(0)
+    tree.setCurrentItem(leaf)
+
+    tab.storage_selector.setCurrentIndex(1)  # Main Storage
+    tab.inventory_qty_entry.setText("3")
+    tab.save_inventory_item()
+    app.processEvents()
+
+    tab.storage_selector.setCurrentIndex(2)  # Backup Storage
+    tab.inventory_qty_entry.setText("2")
+    tab.save_inventory_item()
+    app.processEvents()
+
+    assert tab.app.saved_rows[-1] == ("assembler", "lv", 5, 0)
+
+    tab.inventory_qty_entry.setText("")
+    tab.save_inventory_item()
+    app.processEvents()
+
+    assert tab.app.saved_rows[-1] == ("assembler", "lv", 3, 0)
+
+    tab.deleteLater()
+    conn.close()

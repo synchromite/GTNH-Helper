@@ -418,7 +418,18 @@ class InventoryTab(QtWidgets.QWidget):
             self.app.notify_inventory_change()
             self._refresh_summary_panel()
             if self._is_machine_item(item):
-                self._save_machine_availability(item, owned=0, online=0)
+                agg = aggregate_assignment_for_item(self.app.profile_conn, item["id"])
+                total_owned = int(agg["qty_count"]) if agg and agg["qty_count"] else 0
+                machine_type = (self._item_value(item, "machine_type") or "").strip()
+                machine_tier = (self._item_value(item, "machine_tier") or "").strip()
+                availability = (
+                    self.app.get_machine_availability(machine_type, machine_tier)
+                    if machine_type and machine_tier and hasattr(self.app, "get_machine_availability")
+                    else {"owned": 0, "online": 0}
+                )
+                online = min(int(availability.get("online", 0)), total_owned)
+                self._save_machine_availability(item, owned=total_owned, online=online)
+                self._render_machine_availability(item, total_owned, online)
             self._sync_container_storage_after_inventory_save(item, qty=0)
             self._refresh_container_placement_panel(item, 0)
             return
@@ -490,9 +501,11 @@ class InventoryTab(QtWidgets.QWidget):
         self.app.notify_inventory_change()
         self._refresh_summary_panel()
         if self._is_machine_item(item):
-            online = min(self._current_online_count(), qty)
-            self._save_machine_availability(item, owned=qty, online=online)
-            self._render_machine_availability(item, qty, online)
+            agg = aggregate_assignment_for_item(self.app.profile_conn, item["id"])
+            total_owned = int(agg["qty_count"]) if agg and agg["qty_count"] else 0
+            online = min(self._current_online_count(), total_owned)
+            self._save_machine_availability(item, owned=total_owned, online=online)
+            self._render_machine_availability(item, total_owned, online)
         self._sync_container_storage_after_inventory_save(item, qty=qty)
         self._refresh_container_placement_panel(item, qty)
 
@@ -702,15 +715,18 @@ class InventoryTab(QtWidgets.QWidget):
         if not machine_type or not machine_tier:
             self._set_machine_availability_target(None)
             return
-        owned = int(qty or 0)
+
+        agg = aggregate_assignment_for_item(self.app.profile_conn, item["id"])
+        total_owned = int(agg["qty_count"]) if agg and agg["qty_count"] else 0
+
         availability = (
             self.app.get_machine_availability(machine_type, machine_tier)
             if hasattr(self.app, "get_machine_availability")
             else {"owned": 0, "online": 0}
         )
-        online = min(int(availability.get("online", 0)), owned)
+        online = min(int(availability.get("online", 0)), total_owned)
         self._set_machine_availability_target({"machine_type": machine_type, "machine_tier": machine_tier})
-        self._render_machine_availability(item, owned, online)
+        self._render_machine_availability(item, total_owned, online)
 
     def _render_machine_availability(self, item: dict, owned: int, online: int) -> None:
         self._clear_machine_availability_checks()
