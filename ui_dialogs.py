@@ -2295,6 +2295,7 @@ class _RecipeDialogBase(QtWidgets.QDialog):
             QtWidgets.QDialogButtonBox.StandardButton.Save
             | QtWidgets.QDialogButtonBox.StandardButton.Cancel
         )
+        self.button_box = buttons
         buttons.accepted.connect(self.save)
         buttons.rejected.connect(self.reject)
         bottom.addWidget(buttons)
@@ -3171,6 +3172,17 @@ class EditRecipeDialog(_RecipeDialogBase):
         self.out_btns_layout.addWidget(self.btn_edit_output)
         self.out_btns_layout.addWidget(self.btn_remove_output)
 
+        self._update_variant_read_only_state()
+
+    def _update_variant_read_only_state(self) -> None:
+        is_variant = self.duplicate_of_recipe_id is not None
+        save_btn = self.button_box.button(QtWidgets.QDialogButtonBox.StandardButton.Save)
+        if save_btn is not None:
+            save_btn.setEnabled(not is_variant)
+            save_btn.setToolTip(
+                "" if not is_variant else "Select the canonical recipe variant to enable saving."
+            )
+
     def _load_recipe(self, recipe_id: int) -> None:
         r = self.app.conn.execute("SELECT * FROM recipes WHERE id=?", (recipe_id,)).fetchone()
         if not r:
@@ -3231,6 +3243,7 @@ class EditRecipeDialog(_RecipeDialogBase):
 
         self._toggle_method_fields()
         self._refresh_variant_choices(r)
+        self._update_variant_read_only_state()
 
     def _refresh_variant_choices(self, recipe_row) -> None:
         canonical_id = recipe_row["duplicate_of_recipe_id"] or recipe_row["id"]
@@ -3350,6 +3363,14 @@ class EditRecipeDialog(_RecipeDialogBase):
             self.out_list.addItem(self._fmt_line(line, is_output=True))
 
     def save(self) -> None:
+        if self.duplicate_of_recipe_id is not None:
+            QtWidgets.QMessageBox.warning(
+                self,
+                "Variant is read-only",
+                "Recipe variants are read-only in this dialog. Select the canonical recipe variant to make edits.",
+            )
+            return
+
         name = self.name_edit.text().strip()
         name_item_id = self._resolve_name_item_id()
         if name_item_id is None:
