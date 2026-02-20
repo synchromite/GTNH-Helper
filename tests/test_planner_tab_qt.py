@@ -1,7 +1,3 @@
-import pytest
-
-pytest.importorskip("PySide6.QtWidgets", exc_type=ImportError)
-
 from services.db import connect_profile
 from services.storage import create_storage_unit
 from ui_tabs.planner_tab_qt import PlannerTab
@@ -45,16 +41,16 @@ def test_adjust_inventory_qty_cascades_deductions_in_aggregate_view() -> None:
 
     tab._adjust_inventory_qty(1, -80)
 
-    alpha_qty = conn.execute(
+    alpha_row = conn.execute(
         "SELECT qty_count FROM storage_assignments WHERE storage_id=? AND item_id=1",
         (alpha_id,),
-    ).fetchone()["qty_count"]
+    ).fetchone()
     beta_qty = conn.execute(
         "SELECT qty_count FROM storage_assignments WHERE storage_id=? AND item_id=1",
         (beta_id,),
     ).fetchone()["qty_count"]
 
-    assert alpha_qty == 0
+    assert alpha_row is None
     assert beta_qty == 20
 
 
@@ -90,3 +86,30 @@ def test_adjust_inventory_qty_aggregate_deduction_keeps_active_mode_behavior() -
 
     assert main_row is None
     assert overflow_qty == 90
+
+
+def test_adjust_inventory_qty_aggregate_deduction_bottoms_out_at_zero() -> None:
+    conn = connect_profile(":memory:")
+    app = _DummyApp(conn)
+    tab = _DummyTab(app)
+
+    alpha_id = create_storage_unit(conn, name="Alpha", priority=5)
+    beta_id = create_storage_unit(conn, name="Beta", priority=1)
+
+    conn.execute(
+        "INSERT INTO storage_assignments(storage_id, item_id, qty_count, qty_liters) VALUES(?, 1, 10, NULL)",
+        (alpha_id,),
+    )
+    conn.execute(
+        "INSERT INTO storage_assignments(storage_id, item_id, qty_count, qty_liters) VALUES(?, 1, 90, NULL)",
+        (beta_id,),
+    )
+    conn.commit()
+
+    tab._adjust_inventory_qty(1, -150)
+
+    remaining_rows = conn.execute(
+        "SELECT storage_id, qty_count FROM storage_assignments WHERE item_id=1"
+    ).fetchall()
+
+    assert remaining_rows == []
