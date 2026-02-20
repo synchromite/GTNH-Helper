@@ -6,7 +6,7 @@ import sqlite3
 from typing import Iterable
 
 from services.db import ALL_TIERS
-from services.storage import aggregated_assignment_rows
+from services.storage import aggregated_assignment_rows_for_planner
 
 GT_VOLTAGES = [
     (8, "ULV"), (32, "LV"), (128, "MV"), (512, "HV"), (2048, "EV"),
@@ -606,7 +606,7 @@ class PlannerService:
         return {row["id"]: row for row in rows}
 
     def _load_inventory(self, items: dict[int, dict] | None = None) -> dict[int, int]:
-        rows = aggregated_assignment_rows(self.profile_conn)
+        rows = aggregated_assignment_rows_for_planner(self.profile_conn)
         item_kinds: dict[int, str] = {}
         if items is not None:
             item_kinds = {

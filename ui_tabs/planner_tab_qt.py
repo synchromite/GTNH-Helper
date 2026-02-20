@@ -873,7 +873,7 @@ class PlannerTab(QtWidgets.QWidget):
         if delta < 0 and active_storage_id is None:
             remaining = -delta
             storages = sorted(
-                list_storage_units(self.app.profile_conn),
+                [row for row in list_storage_units(self.app.profile_conn) if int(row.get("allow_planner_use") or 0) == 1],
                 key=lambda row: (-(int(row.get("priority") or 0)), (row.get("name") or "").lower(), int(row["id"])),
             )
             for storage in storages:
@@ -881,6 +881,8 @@ class PlannerTab(QtWidgets.QWidget):
                     break
                 storage_id = int(storage["id"])
                 row = get_assignment(self.app.profile_conn, storage_id=storage_id, item_id=item_id)
+                if row is not None and int(row["locked"] or 0) == 1:
+                    continue
                 current_value = row[column] if row is not None else None
                 current = 0
                 if current_value is not None:
@@ -903,6 +905,7 @@ class PlannerTab(QtWidgets.QWidget):
                         item_id=item_id,
                         qty_count=count_val,
                         qty_liters=liter_val,
+                        locked=False,
                     )
                 remaining -= consumed
         else:

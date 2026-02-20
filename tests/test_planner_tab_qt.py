@@ -113,3 +113,45 @@ def test_adjust_inventory_qty_aggregate_deduction_bottoms_out_at_zero() -> None:
     ).fetchall()
 
     assert remaining_rows == []
+
+def test_adjust_inventory_qty_aggregate_skips_disallowed_and_locked_rows() -> None:
+    conn = connect_profile(":memory:")
+    app = _DummyApp(conn)
+    tab = _DummyTab(app)
+
+    allowed_id = create_storage_unit(conn, name="Allowed", priority=10, allow_planner_use=True)
+    blocked_id = create_storage_unit(conn, name="Blocked", priority=20, allow_planner_use=False)
+    locked_id = create_storage_unit(conn, name="Locked", priority=30, allow_planner_use=True)
+
+    conn.execute(
+        "INSERT INTO storage_assignments(storage_id, item_id, qty_count, qty_liters, locked) VALUES(?, 1, 50, NULL, 0)",
+        (allowed_id,),
+    )
+    conn.execute(
+        "INSERT INTO storage_assignments(storage_id, item_id, qty_count, qty_liters, locked) VALUES(?, 1, 50, NULL, 0)",
+        (blocked_id,),
+    )
+    conn.execute(
+        "INSERT INTO storage_assignments(storage_id, item_id, qty_count, qty_liters, locked) VALUES(?, 1, 50, NULL, 1)",
+        (locked_id,),
+    )
+    conn.commit()
+
+    tab._adjust_inventory_qty(1, -40)
+
+    allowed_qty = conn.execute(
+        "SELECT qty_count FROM storage_assignments WHERE storage_id=? AND item_id=1",
+        (allowed_id,),
+    ).fetchone()["qty_count"]
+    blocked_qty = conn.execute(
+        "SELECT qty_count FROM storage_assignments WHERE storage_id=? AND item_id=1",
+        (blocked_id,),
+    ).fetchone()["qty_count"]
+    locked_qty = conn.execute(
+        "SELECT qty_count FROM storage_assignments WHERE storage_id=? AND item_id=1",
+        (locked_id,),
+    ).fetchone()["qty_count"]
+
+    assert allowed_qty == 10
+    assert blocked_qty == 50
+    assert locked_qty == 50

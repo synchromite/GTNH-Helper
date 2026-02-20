@@ -247,6 +247,22 @@ def aggregated_assignment_rows(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     ).fetchall()
 
 
+def aggregated_assignment_rows_for_planner(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    return conn.execute(
+        """
+        SELECT
+            a.item_id,
+            SUM(a.qty_count) AS qty_count,
+            SUM(a.qty_liters) AS qty_liters
+        FROM storage_assignments a
+        INNER JOIN storage_units s ON s.id = a.storage_id
+        WHERE s.allow_planner_use = 1
+          AND a.locked = 0
+        GROUP BY a.item_id
+        """
+    ).fetchall()
+
+
 def storage_inventory_totals(conn: sqlite3.Connection, storage_id: int | None = None) -> dict[str, float | int]:
     """Return assignment/totals summary for one storage or all storages."""
     if storage_id is None:

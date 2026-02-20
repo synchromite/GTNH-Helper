@@ -902,3 +902,34 @@ def test_load_inventory_preserves_unit_column_by_item_kind():
 
     assert inventory[item_solid] == 7
     assert inventory[item_fluid] == 800
+
+def test_load_inventory_excludes_locked_and_disallowed_storage_rows():
+    conn = _setup_conn()
+    profile_conn = connect_profile(":memory:")
+
+    item = _insert_item(conn, key="item_a", name="Item A", is_base=1)
+    main_storage = profile_conn.execute("SELECT id FROM storage_units WHERE name='Main Storage'").fetchone()["id"]
+    blocked_storage = profile_conn.execute(
+        "INSERT INTO storage_units(name, allow_planner_use) VALUES('Blocked', 0) RETURNING id"
+    ).fetchone()["id"]
+    locked_storage = profile_conn.execute(
+        "INSERT INTO storage_units(name, allow_planner_use) VALUES('Locked', 1) RETURNING id"
+    ).fetchone()["id"]
+    profile_conn.execute(
+        "INSERT INTO storage_assignments(storage_id, item_id, qty_count, qty_liters, locked) VALUES(?,?,?,?,?)",
+        (main_storage, item, 2, None, 0),
+    )
+    profile_conn.execute(
+        "INSERT INTO storage_assignments(storage_id, item_id, qty_count, qty_liters, locked) VALUES(?,?,?,?,?)",
+        (blocked_storage, item, 3, None, 0),
+    )
+    profile_conn.execute(
+        "INSERT INTO storage_assignments(storage_id, item_id, qty_count, qty_liters, locked) VALUES(?,?,?,?,?)",
+        (locked_storage, item, 4, None, 1),
+    )
+    profile_conn.commit()
+
+    planner = PlannerService(conn, profile_conn)
+    inventory = planner.load_inventory()
+
+    assert inventory[item] == 2
