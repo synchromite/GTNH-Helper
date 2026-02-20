@@ -987,9 +987,14 @@ class _ItemDialogBase(QtWidgets.QDialog):
                 self._on_owned_changed()
             return
 
-        self.display_name_edit.setText(self._row["display_name"] or self._row["key"])
-        self._set_kind_value(self._row["kind"])
         item_kind_name = (self._row["item_kind_name"] or "") or NONE_KIND_LABEL
+        row_kind = (self._row["kind"] or "").strip().lower()
+        is_legacy_machine = row_kind == "item" and (
+            item_kind_name.strip().lower() == "machine" or bool(self._row["is_machine"])
+        )
+
+        self.display_name_edit.setText(self._row["display_name"] or self._row["key"])
+        self._set_kind_value("machine" if is_legacy_machine else self._row["kind"])
         self.item_kind_combo.setCurrentText(item_kind_name)
         if _row_get(self._row, "crafting_grid_size"):
             self.crafting_grid_combo.setCurrentText(str(_row_get(self._row, "crafting_grid_size")))
