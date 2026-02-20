@@ -147,3 +147,21 @@ def test_enabled_tiers_default_to_first_configured_tier(tmp_path):
         assert lifecycle.get_enabled_tiers() == ["Primitive"]
     finally:
         lifecycle.close()
+
+
+def test_active_storage_setting_supports_aggregate_mode(tmp_path):
+    lifecycle = DbLifecycle(editor_enabled=False, db_path=tmp_path / "content.db")
+    try:
+        profile_conn = lifecycle.profile_conn
+        assert profile_conn is not None
+
+        lifecycle.set_active_storage_id(None)
+
+        row = profile_conn.execute(
+            "SELECT value FROM app_settings WHERE key=?",
+            (SETTINGS_ACTIVE_STORAGE_ID,),
+        ).fetchone()
+        assert row["value"] == "aggregate"
+        assert lifecycle.get_active_storage_id() is None
+    finally:
+        lifecycle.close()

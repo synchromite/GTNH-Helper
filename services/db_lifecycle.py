@@ -188,6 +188,8 @@ class DbLifecycle:
         if not storages:
             return None
         raw = (get_setting(self.profile_conn, SETTINGS_ACTIVE_STORAGE_ID, "") or "").strip()
+        if raw.lower() == "aggregate":
+            return None
         if raw:
             try:
                 selected = int(raw)
@@ -202,7 +204,11 @@ class DbLifecycle:
         set_setting(self.profile_conn, SETTINGS_ACTIVE_STORAGE_ID, str(default_id))
         return default_id
 
-    def set_active_storage_id(self, storage_id: int) -> None:
+    def set_active_storage_id(self, storage_id: int | None) -> None:
+        if storage_id is None:
+            set_setting(self.profile_conn, SETTINGS_ACTIVE_STORAGE_ID, "aggregate")
+            return
+
         storages = self.list_storage_units()
         if not any(storage["id"] == storage_id for storage in storages):
             return

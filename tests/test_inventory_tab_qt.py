@@ -186,6 +186,41 @@ def test_inventory_save_blocks_capacity_overflow(monkeypatch) -> None:
     tab.deleteLater()
     conn.close()
 
+
+def test_inventory_storage_selector_persists_aggregate_choice() -> None:
+    app = _get_app()
+
+    class DummyStatusBar:
+        def showMessage(self, _msg: str) -> None:
+            return None
+
+    class DummyApp:
+        def __init__(self) -> None:
+            self.profile_conn = connect_profile(":memory:")
+            self.status_bar = DummyStatusBar()
+            self.saved_storage_ids: list[int | None] = []
+
+        def notify_inventory_change(self) -> None:
+            return None
+
+        def set_active_storage_id(self, storage_id: int | None) -> None:
+            self.saved_storage_ids.append(storage_id)
+
+    tab = InventoryTab(DummyApp())
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    row = _item_row(conn, name="Refined Iron Plate")
+
+    tab.render_items([row])
+    tab.storage_selector.setCurrentIndex(1)
+    tab.storage_selector.setCurrentIndex(0)
+    app.processEvents()
+
+    assert tab.app.saved_storage_ids == [1, None]
+
+    tab.deleteLater()
+    conn.close()
+
 def test_inventory_aggregate_mode_is_read_only() -> None:
     app = _get_app()
 

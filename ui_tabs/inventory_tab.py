@@ -279,7 +279,7 @@ class InventoryTab(QtWidgets.QWidget):
 
     def _on_storage_changed(self, _index: int) -> None:
         storage_id = self._current_storage_id()
-        if storage_id is not None and hasattr(self.app, "set_active_storage_id"):
+        if hasattr(self.app, "set_active_storage_id"):
             self.app.set_active_storage_id(storage_id)
         self._set_inventory_edit_mode()
         self._refresh_summary_panel()

@@ -791,7 +791,7 @@ class App(QtWidgets.QMainWindow):
     def get_active_storage_id(self) -> int | None:
         return self.db.get_active_storage_id()
 
-    def set_active_storage_id(self, storage_id: int) -> None:
+    def set_active_storage_id(self, storage_id: int | None) -> None:
         self.db.set_active_storage_id(storage_id)
 
     def get_machine_availability(self, machine_type: str, tier: str) -> dict[str, int]:
