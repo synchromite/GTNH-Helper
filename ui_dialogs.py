@@ -989,7 +989,7 @@ class _ItemDialogBase(QtWidgets.QDialog):
 
         item_kind_name = (self._row["item_kind_name"] or "") or NONE_KIND_LABEL
         row_kind = (self._row["kind"] or "").strip().lower()
-        is_legacy_machine = row_kind == "item" and (
+        is_legacy_machine = row_kind != "machine" and (
             item_kind_name.strip().lower() == "machine" or bool(self._row["is_machine"])
         )
 

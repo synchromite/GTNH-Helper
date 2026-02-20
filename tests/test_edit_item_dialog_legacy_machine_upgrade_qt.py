@@ -76,3 +76,44 @@ def test_edit_dialog_upgrades_legacy_machine_kind_and_preserves_metadata() -> No
 
     dialog.deleteLater()
     conn.close()
+
+
+def test_edit_dialog_upgrades_legacy_machine_when_kind_is_missing() -> None:
+    _get_app()
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    ensure_schema(conn)
+
+    conn.execute(
+        """
+        INSERT INTO items(
+            key, display_name, kind, is_base, is_machine,
+            machine_type, machine_tier, is_multiblock
+        ) VALUES(?,?,?,?,?,?,?,?)
+        """,
+        ("legacy_cutter", "Legacy Cutter", None, 0, 1, "Cutter", "MV", 0),
+    )
+    item_id = int(conn.execute("SELECT id FROM items WHERE key='legacy_cutter'").fetchone()["id"])
+    app = _DummyApp(conn)
+
+    dialog = EditItemDialog(app, item_id)
+
+    assert dialog._current_kind_value() == "machine"
+    assert dialog.machine_type_combo.currentText() == "Cutter"
+    assert dialog.tier_combo.currentText() == "MV"
+
+    dialog.save()
+
+    saved = conn.execute(
+        "SELECT kind, is_machine, machine_type, machine_tier FROM items WHERE id=?",
+        (item_id,),
+    ).fetchone()
+
+    assert saved is not None
+    assert saved["kind"] == "machine"
+    assert saved["is_machine"] == 1
+    assert saved["machine_type"] == "Cutter"
+    assert saved["machine_tier"] == "MV"
+
+    dialog.deleteLater()
+    conn.close()
