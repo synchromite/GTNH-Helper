@@ -8,6 +8,7 @@ from services.machines import fetch_machine_metadata, replace_machine_metadata
 from services.materials import add_material, delete_material, fetch_materials, update_material
 from services.storage import (
     create_storage_unit,
+    delete_assignment,
     default_storage_id,
     delete_storage_unit,
     get_assignment,
@@ -425,21 +426,10 @@ class StorageContainerPlacementsDialog(QtWidgets.QDialog):
                 item_id=item_id,
                 placed_count=placed,
             )
-            if placed > 0:
-                self.app.profile_conn.execute(
-                    """
-                    INSERT INTO storage_assignments(storage_id, item_id, qty_count, qty_liters, locked)
-                    VALUES(?, ?, ?, NULL, 0)
-                    ON CONFLICT(storage_id, item_id)
-                    DO UPDATE SET qty_count=excluded.qty_count, qty_liters=NULL
-                    """,
-                    (storage_id, item_id, placed),
-                )
-            else:
-                self.app.profile_conn.execute(
-                    "DELETE FROM storage_assignments WHERE storage_id=? AND item_id=?",
-                    (storage_id, item_id),
-                )
+            # Placed containers provide storage capacity; they are not inventory entries
+            # in the target storage (except Main Storage, which tracks global ownership).
+            if main_storage_id is not None and storage_id != int(main_storage_id):
+                delete_assignment(self.app.profile_conn, storage_id=storage_id, item_id=item_id)
 
         recompute_storage_slot_capacities(self.app.profile_conn, content_conn=self.app.conn)
         self.app.profile_conn.commit()
