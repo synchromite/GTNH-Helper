@@ -97,3 +97,22 @@ def test_replace_machine_metadata_deletes_machine_items_not_in_metadata() -> Non
     assert rows[0]["machine_type"] == "Cutting Machine"
     assert rows[0]["machine_tier"] == "LV"
     assert rows[0]["display_name"] == "Basic Cutting Machine"
+
+
+def test_replace_machine_metadata_works_inside_existing_transaction() -> None:
+    conn = _setup_conn()
+
+    with conn:
+        replace_machine_metadata(
+            conn,
+            [
+                ("Cutting Machine", "LV", "Basic Cutting Machine", 1, 1, 0, 0, 0, 0, 0, 0, 0, 0),
+            ],
+        )
+
+    row = conn.execute(
+        "SELECT display_name FROM items WHERE kind='machine' AND machine_type='Cutting Machine' AND machine_tier='LV'"
+    ).fetchone()
+
+    assert row is not None
+    assert row["display_name"] == "Basic Cutting Machine"

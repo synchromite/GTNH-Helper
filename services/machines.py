@@ -122,8 +122,7 @@ def _sync_machine_items(conn: sqlite3.Connection) -> None:
 
 
 def replace_machine_metadata(conn: sqlite3.Connection, rows: list[tuple]) -> None:
-    try:
-        conn.execute("BEGIN")
+    with conn:
         conn.execute("DELETE FROM machine_metadata")
         conn.executemany(
             """
@@ -147,8 +146,3 @@ def replace_machine_metadata(conn: sqlite3.Connection, rows: list[tuple]) -> Non
             rows,
         )
         _sync_machine_items(conn)
-    except Exception:
-        conn.rollback()
-        raise
-    else:
-        conn.commit()

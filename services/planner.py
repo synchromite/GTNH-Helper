@@ -59,6 +59,12 @@ def apply_overclock(
         return duration_ticks, eu_per_tick
     diff = machine_rank - recipe_rank
 
+    # GTNH does not support "underclocking" into lower-tier machines.
+    # If the available machine tier is lower than the recipe requirement,
+    # treat it as impossible.
+    if diff < 0:
+        return None, None
+
     scaled_duration = duration_ticks
     if duration_ticks is not None:
         duration_value = float(duration_ticks)
@@ -141,7 +147,7 @@ class PlannerService:
     def __init__(self, conn: sqlite3.Connection, profile_conn: sqlite3.Connection):
         self.conn = conn
         self.profile_conn = profile_conn
-        self._machine_availability_cache: dict[str, set[str]] | None = None
+        self._machine_availability_cache: dict[str, dict[str, dict[str, int]]] | None = None
 
     # ---------- Public API ----------
     def plan(
@@ -154,6 +160,9 @@ class PlannerService:
         crafting_6x6_unlocked: bool,
         inventory_override: dict[int, int] | None = None,
     ) -> PlanResult:
+        # Machine availability can be edited in the UI between plan calls.
+        # Refresh at the start of each run to avoid stale selection decisions.
+        self.clear_cache()
         items = self._load_items()
         if inventory_override is not None:
             inventory = dict(inventory_override)
@@ -213,7 +222,7 @@ class PlannerService:
                     if chance < 100:
                         continue
                     inventory[byproduct_id] = inventory.get(byproduct_id, 0) + qty
-                visiting.remove(item_id)
+                visiting.discard(item_id)
                 continue
 
             item_id = frame["item_id"]
@@ -830,6 +839,16 @@ class PlannerService:
                         if self._tier_available(req_tier, owned_tiers):
                             avail_score = 0
 
+                if method == "machine" and machine_tier:
+                    required_rank = _tier_rank(req_tier)
+                    machine_rank = _tier_rank(machine_tier)
+                    if (
+                        required_rank is not None
+                        and machine_rank is not None
+                        and machine_rank < required_rank
+                    ):
+                        avail_score = 3
+
                 if avail_score > 0:
                     if req_tier in enabled_tiers_set:
                         avail_score = 1
@@ -1145,27 +1164,27 @@ class PlannerService:
 
         for key in candidate_keys:
             match = _match_item(
-                lambda item: (self._row_value(item, "key") or "").strip().lower() == key.lower()
+                lambda item, k=key: (self._row_value(item, "key") or "").strip().lower() == k.lower()
             )
             if match:
                 return match
             normalized_key = key.lower()
             match = _match_item(
-                lambda item: (self._row_value(item, "key") or "").strip().lower()
-                in (f"empty_{normalized_key}", f"{normalized_key}_empty")
+                lambda item, nk=normalized_key: (self._row_value(item, "key") or "").strip().lower()
+                in (f"empty_{nk}", f"{nk}_empty")
             )
             if match:
                 return match
         for name in candidate_names:
             match = _match_item(
-                lambda item: (self._row_value(item, "name") or "").strip().lower() == name.lower()
+                lambda item, n=name: (self._row_value(item, "name") or "").strip().lower() == n.lower()
             )
             if match:
                 return match
             normalized_name = name.lower()
             match = _match_item(
-                lambda item: (self._row_value(item, "name") or "").strip().lower()
-                in (f"empty {normalized_name}", f"{normalized_name} empty")
+                lambda item, nn=normalized_name: (self._row_value(item, "name") or "").strip().lower()
+                in (f"empty {nn}", f"{nn} empty")
             )
             if match:
                 return match

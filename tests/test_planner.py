@@ -639,16 +639,6 @@ def test_plan_refreshes_machine_availability_after_cache_clear():
     _set_machine_availability(profile_conn, machine_type="macerator", tier="MV", owned=1, online=1)
     profile_conn.commit()
 
-    stale_result = planner.plan(
-        item_output,
-        1,
-        use_inventory=False,
-        enabled_tiers=["LV", "MV"],
-        crafting_6x6_unlocked=True,
-    )
-    assert [step.recipe_name for step in stale_result.steps] == ["Make Output LV"]
-
-    planner.clear_cache()
     refreshed_result = planner.plan(
         item_output,
         1,
@@ -665,11 +655,11 @@ def test_apply_overclock_scales_duration_and_power():
     assert scaled_eu == 128
 
 
-def test_apply_overclock_applies_underclock_when_machine_tier_is_lower():
+def test_apply_overclock_rejects_lower_tier_machine():
     scaled_duration, scaled_eu = apply_overclock(200, 32, "MV", "LV")
 
-    assert scaled_duration == 400
-    assert scaled_eu == 8
+    assert scaled_duration is None
+    assert scaled_eu is None
 
 
 def test_get_calculated_tier_uses_first_configured_tier_for_non_eu_recipe(monkeypatch):
