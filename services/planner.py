@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import math
 import sqlite3
 from typing import Iterable
@@ -131,6 +131,7 @@ class PlanStep:
     multiplier: int
     inputs: list[tuple[int, str, int, str]]
     byproducts: list[tuple[int, str, int, str, float]]
+    reusable_inputs: list[tuple[int, str, int, str]] = field(default_factory=list)
 
 
 @dataclass
@@ -206,13 +207,14 @@ class PlannerService:
                         output_unit=plan_data["output_unit"],
                         multiplier=plan_data["multiplier"],
                         inputs=plan_data["inputs"],
+                        reusable_inputs=plan_data.get("reusable_inputs", []),
                         byproducts=plan_data["byproducts"],
                     )
                 )
                 produced_qty = plan_data["output_qty"] * plan_data["multiplier"]
                 if produced_qty > 0:
                     inventory[item_id] = inventory.get(item_id, 0) + produced_qty
-                for reusable_item_id, reusable_qty in plan_data.get("reusable_inputs", []):
+                for reusable_item_id, _name, reusable_qty, _unit in plan_data.get("reusable_inputs", []):
                     if reusable_qty <= 0:
                         continue
                     inventory[reusable_item_id] = inventory.get(reusable_item_id, 0) + reusable_qty
@@ -413,7 +415,16 @@ class PlannerService:
                         "output_unit": self._unit_for_kind(item["kind"]),
                         "multiplier": multiplier,
                         "inputs": inputs,
-                        "reusable_inputs": list(reusable_requirements.items()),
+                        "reusable_inputs": [
+                            (
+                                requirement["id"],
+                                requirement["name"],
+                                reusable_qty,
+                                requirement["unit"],
+                            )
+                            for reusable_item_id, reusable_qty in reusable_requirements.items()
+                            if (requirement := input_requirements.get(reusable_item_id))
+                        ],
                         "byproducts": byproducts,
                     },
                 }
@@ -505,6 +516,7 @@ class PlannerService:
                         output_unit=step.output_unit,
                         multiplier=step.multiplier,
                         inputs=list(step.inputs),
+                        reusable_inputs=list(step.reusable_inputs),
                         byproducts=list(step.byproducts),
                     )
                 )
@@ -514,15 +526,34 @@ class PlannerService:
             existing = merged[existing_index]
             existing.multiplier += step.multiplier
 
+            existing_reusable_map: dict[tuple[int, str, str], int] = {
+                (item_id, name, unit): qty for item_id, name, qty, unit in existing.reusable_inputs
+            }
+            step_reusable_map: dict[tuple[int, str, str], int] = {
+                (item_id, name, unit): qty for item_id, name, qty, unit in step.reusable_inputs
+            }
             input_map: dict[tuple[int, str, str], int] = {
                 (item_id, name, unit): qty for item_id, name, qty, unit in existing.inputs
             }
             for item_id, name, qty, unit in step.inputs:
                 input_key = (item_id, name, unit)
-                input_map[input_key] = input_map.get(input_key, 0) + qty
+                existing_qty = input_map.get(input_key, 0)
+                existing_reusable = existing_reusable_map.get(input_key, 0)
+                step_reusable = step_reusable_map.get(input_key, 0)
+                total_reusable = max(existing_reusable, step_reusable)
+                total_consumed = max(existing_qty - existing_reusable, 0) + max(qty - step_reusable, 0)
+                input_map[input_key] = total_consumed + total_reusable
+                if total_reusable > 0:
+                    existing_reusable_map[input_key] = total_reusable
+                elif input_key in existing_reusable_map:
+                    del existing_reusable_map[input_key]
             existing.inputs = [
                 (item_id, name, qty, unit)
                 for (item_id, name, unit), qty in sorted(input_map.items(), key=lambda row: (row[0][1] or "").lower())
+            ]
+            existing.reusable_inputs = [
+                (item_id, name, qty, unit)
+                for (item_id, name, unit), qty in sorted(existing_reusable_map.items(), key=lambda row: (row[0][1] or "").lower())
             ]
 
             byproduct_map: dict[tuple[int, str, str, float], int] = {

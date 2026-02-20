@@ -706,6 +706,15 @@ class PlannerTab(QtWidgets.QWidget):
             inputs,
         )
 
+    def _consumed_step_inputs(self, step) -> list[tuple[int, int]]:
+        reusable_map = {item_id: qty for item_id, _name, qty, _unit in getattr(step, "reusable_inputs", [])}
+        consumed: list[tuple[int, int]] = []
+        for item_id, _name, qty, _unit in step.inputs:
+            consumed_qty = max(qty - reusable_map.get(item_id, 0), 0)
+            if consumed_qty > 0:
+                consumed.append((item_id, consumed_qty))
+        return consumed
+
     def _apply_step_inventory(self, idx: int, *, reverse: bool = False) -> bool:
         step = self.build_steps[idx]
         if reverse:
@@ -800,7 +809,7 @@ class PlannerTab(QtWidgets.QWidget):
             return False
 
         adjustments = [
-            (item_id, -qty * direction) for item_id, _name, qty, _unit in step.inputs
+            (item_id, -qty * direction) for item_id, qty in self._consumed_step_inputs(step)
         ]
         output_qty = step.output_qty * step.multiplier
         adjustments.append((step.output_item_id, output_qty * direction))
