@@ -602,3 +602,52 @@ def test_inventory_container_placement_blocks_overallocating_owned_total(monkeyp
 
     tab.deleteLater()
     conn.close()
+
+def test_inventory_save_blocks_negative_quantity(monkeypatch) -> None:
+    app = _get_app()
+
+    class DummyStatusBar:
+        def showMessage(self, _msg: str) -> None:
+            return None
+
+    class DummyApp:
+        def __init__(self) -> None:
+            self.profile_conn = connect_profile(":memory:")
+            self.status_bar = DummyStatusBar()
+
+        def notify_inventory_change(self) -> None:
+            return None
+
+    tab = InventoryTab(DummyApp())
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    row = _item_row(conn, name="Refined Iron Plate")
+
+    errors: list[str] = []
+
+    def _critical(_parent, _title: str, message: str):
+        errors.append(message)
+        return QtWidgets.QMessageBox.StandardButton.Ok
+
+    monkeypatch.setattr(QtWidgets.QMessageBox, "critical", _critical)
+
+    tab.render_items([row])
+    tab.storage_selector.setCurrentIndex(1)
+    tree = tab.inventory_trees["All"]
+    leaf = tree.topLevelItem(0).child(0).child(0).child(0)
+    tree.setCurrentItem(leaf)
+
+    tab.inventory_qty_entry.setText("-5")
+    tab.save_inventory_item()
+    app.processEvents()
+
+    db_row = tab.app.profile_conn.execute(
+        "SELECT qty_count FROM storage_assignments WHERE item_id=?",
+        (1,),
+    ).fetchone()
+    assert db_row is None
+    assert errors
+    assert "cannot be negative" in errors[-1].lower()
+
+    tab.deleteLater()
+    conn.close()

@@ -434,6 +434,9 @@ class InventoryTab(QtWidgets.QWidget):
             return
 
         qty = int(qty_float)
+        if qty < 0:
+            QtWidgets.QMessageBox.critical(self, "Invalid quantity", "Quantity cannot be negative.")
+            return
 
         unit = self._inventory_unit_for_item(item)
         qty_count = qty if unit == "count" else None
