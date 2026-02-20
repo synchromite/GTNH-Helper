@@ -238,3 +238,25 @@ def test_storage_slot_usage_ignores_container_items(tmp_path) -> None:
         assert usage["slot_free"] == 9
     finally:
         conn.close()
+
+
+def test_placed_container_count_excludes_selected_storage(tmp_path) -> None:
+    from services.storage import placed_container_count, set_storage_container_placement
+
+    conn = connect_profile(tmp_path / "profile.db")
+    try:
+        conn.execute("INSERT INTO storage_units(name, kind) VALUES('Dust Storage', 'dust')")
+        conn.execute("INSERT INTO storage_units(name, kind) VALUES('Ore Storage', 'ore')")
+        conn.commit()
+
+        dust_id = conn.execute("SELECT id FROM storage_units WHERE name='Dust Storage'").fetchone()["id"]
+        ore_id = conn.execute("SELECT id FROM storage_units WHERE name='Ore Storage'").fetchone()["id"]
+
+        set_storage_container_placement(conn, storage_id=dust_id, item_id=11, placed_count=2)
+        set_storage_container_placement(conn, storage_id=ore_id, item_id=11, placed_count=1)
+        conn.commit()
+
+        assert placed_container_count(conn, item_id=11) == 3
+        assert placed_container_count(conn, item_id=11, exclude_storage_id=dust_id) == 1
+    finally:
+        conn.close()

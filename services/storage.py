@@ -319,6 +319,29 @@ def set_storage_container_placement(
     )
 
 
+def placed_container_count(
+    conn: sqlite3.Connection,
+    *,
+    item_id: int,
+    exclude_storage_id: int | None = None,
+) -> int:
+    if exclude_storage_id is None:
+        row = conn.execute(
+            "SELECT COALESCE(SUM(placed_count), 0) AS c FROM storage_container_placements WHERE item_id=?",
+            (item_id,),
+        ).fetchone()
+    else:
+        row = conn.execute(
+            """
+            SELECT COALESCE(SUM(placed_count), 0) AS c
+            FROM storage_container_placements
+            WHERE item_id=? AND storage_id<>?
+            """,
+            (item_id, exclude_storage_id),
+        ).fetchone()
+    return int(row["c"] or 0)
+
+
 def recompute_storage_slot_capacities(
     conn: sqlite3.Connection,
     player_slots: int = 36,

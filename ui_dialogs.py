@@ -8,9 +8,12 @@ from services.machines import fetch_machine_metadata, replace_machine_metadata
 from services.materials import add_material, delete_material, fetch_materials, update_material
 from services.storage import (
     create_storage_unit,
+    default_storage_id,
     delete_storage_unit,
+    get_assignment,
     list_storage_container_placements,
     list_storage_units,
+    placed_container_count,
     recompute_storage_slot_capacities,
     set_storage_container_placement,
     storage_slot_usage,
@@ -226,7 +229,8 @@ class StorageUnitsDialog(QtWidgets.QDialog):
         self.reload()
 
     def reload(self) -> None:
-        rows = list_storage_units(self.app.profile_conn)
+        raw_rows = list_storage_units(self.app.profile_conn)
+        rows = [dict(r) for r in raw_rows]
         self.table.setRowCount(len(rows))
         stack_map: dict[int, int] = {}
         container_ids: set[int] = set()
@@ -273,7 +277,7 @@ class StorageUnitsDialog(QtWidgets.QDialog):
             return None
         for row in list_storage_units(self.app.profile_conn):
             if int(row["id"]) == storage_id:
-                return row
+                return dict(row)
         return None
 
     def _on_new(self) -> None:
@@ -377,6 +381,40 @@ class StorageContainerPlacementsDialog(QtWidgets.QDialog):
 
     def _on_save(self) -> None:
         storage_id = int(self.storage["id"])
+
+        main_storage_id = default_storage_id(self.app.profile_conn)
+        ownership_map: dict[int, int] = {}
+        if main_storage_id is not None:
+            for row in self._rows:
+                item_id = int(row["id"])
+                owned_row = get_assignment(self.app.profile_conn, storage_id=int(main_storage_id), item_id=item_id)
+                ownership_map[item_id] = max(0, int(float((owned_row["qty_count"] if owned_row else 0) or 0)))
+
+        # Validate all requested placements before writing any rows.
+        for idx, row in enumerate(self._rows):
+            item_id = int(row["id"])
+            spin = self.table.cellWidget(idx, 2)
+            requested = int(spin.value()) if isinstance(spin, QtWidgets.QSpinBox) else 0
+            owned_total = ownership_map.get(item_id, 0)
+            already_elsewhere = placed_container_count(
+                self.app.profile_conn,
+                item_id=item_id,
+                exclude_storage_id=storage_id,
+            )
+            max_allowed_here = max(0, owned_total - already_elsewhere)
+            if requested > max_allowed_here:
+                QtWidgets.QMessageBox.warning(
+                    self,
+                    "Placement exceeds owned",
+                    (
+                        f"Cannot place {requested} of '{row.get('name')}'.\n\n"
+                        f"Owned in Main Storage: {owned_total}\n"
+                        f"Already placed elsewhere: {already_elsewhere}\n"
+                        f"Max placeable in this storage: {max_allowed_here}"
+                    ),
+                )
+                return
+
         for idx, row in enumerate(self._rows):
             item_id = int(row["id"])
             spin = self.table.cellWidget(idx, 2)

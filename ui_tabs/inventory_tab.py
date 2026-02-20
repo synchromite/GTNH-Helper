@@ -7,6 +7,7 @@ from services.storage import (
     default_storage_id,
     delete_assignment,
     get_assignment,
+    placed_container_count,
     storage_inventory_totals,
     upsert_assignment,
     validate_storage_fit_for_item,
@@ -614,7 +615,25 @@ class InventoryTab(QtWidgets.QWidget):
 
         main_row = get_assignment(self.app.profile_conn, storage_id=int(main_storage_id), item_id=int(item["id"]))
         owned_total = max(0, int(float((main_row["qty_count"] if main_row else 0) or 0)))
-        placed = min(self.container_placed_spin.value(), owned_total)
+        requested = self.container_placed_spin.value()
+        already_elsewhere = placed_container_count(
+            self.app.profile_conn,
+            item_id=int(item["id"]),
+            exclude_storage_id=target_storage_id,
+        )
+        max_allowed_here = max(0, owned_total - already_elsewhere)
+        if requested > max_allowed_here:
+            QtWidgets.QMessageBox.warning(
+                self,
+                "Placement exceeds owned",
+                (
+                    f"You own {owned_total} total '{item['name']}' in Main Storage, "
+                    f"with {already_elsewhere} already placed in other storages.\n\n"
+                    f"Max placeable in this storage: {max_allowed_here}."
+                ),
+            )
+            return
+        placed = requested
 
         set_storage_container_placement(
             self.app.profile_conn,

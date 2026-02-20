@@ -525,3 +525,80 @@ def test_inventory_filter_by_selected_storage() -> None:
 
     tab.deleteLater()
     conn.close()
+
+
+def test_inventory_container_placement_blocks_overallocating_owned_total(monkeypatch) -> None:
+    app = _get_app()
+
+    class DummyStatusBar:
+        def showMessage(self, _msg: str) -> None:
+            return None
+
+    class DummyApp:
+        def __init__(self) -> None:
+            self.profile_conn = connect_profile(":memory:")
+            self.status_bar = DummyStatusBar()
+
+        def notify_inventory_change(self) -> None:
+            return None
+
+        def list_storage_units(self):
+            rows = self.profile_conn.execute("SELECT * FROM storage_units ORDER BY id").fetchall()
+            return [dict(r) for r in rows]
+
+    tab = InventoryTab(DummyApp())
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    row = conn.execute(
+        "SELECT 1 AS id, 'Wood Chest' AS name, 'item' AS kind, 'storage' AS item_kind_name, "
+        "NULL AS material_name, NULL AS machine_type, NULL AS machine_tier, 0 AS is_machine, "
+        "NULL AS crafting_grid_size, 64 AS max_stack_size, 1 AS is_storage_container, 27 AS storage_slot_count"
+    ).fetchone()
+
+    tab.app.profile_conn.execute("INSERT INTO storage_units(name, kind) VALUES('Dust Storage', 'dust')")
+    tab.app.profile_conn.execute("INSERT INTO storage_units(name, kind) VALUES('Ore Storage', 'ore')")
+    tab.app.profile_conn.commit()
+
+    warnings: list[str] = []
+
+    def _warn(_parent, _title: str, message: str):
+        warnings.append(message)
+        return QtWidgets.QMessageBox.StandardButton.Ok
+
+    monkeypatch.setattr(QtWidgets.QMessageBox, "warning", _warn)
+
+    tab.render_items([row])
+    tab.storage_selector.setCurrentIndex(1)  # Main Storage
+    tree = tab.inventory_trees["All"]
+    leaf = tree.topLevelItem(0).child(0).child(0)
+    tree.setCurrentItem(leaf)
+
+    tab.inventory_qty_entry.setText("4")
+    tab.save_inventory_item()
+    app.processEvents()
+
+    # Place 3 in Dust Storage.
+    tab.container_target_storage.setCurrentText("Dust Storage")
+    tab.container_placed_spin.setValue(3)
+    tab._apply_container_placement()
+    app.processEvents()
+
+    # Attempt to place 2 in Ore Storage (would exceed total owned 4).
+    tab.container_target_storage.setCurrentText("Ore Storage")
+    tab.container_placed_spin.setValue(2)
+    tab._apply_container_placement()
+    app.processEvents()
+
+    ore_storage = tab.app.profile_conn.execute(
+        "SELECT id FROM storage_units WHERE name='Ore Storage'"
+    ).fetchone()["id"]
+    blocked = tab.app.profile_conn.execute(
+        "SELECT placed_count FROM storage_container_placements WHERE storage_id=? AND item_id=?",
+        (ore_storage, 1),
+    ).fetchone()
+    assert blocked is None
+    assert warnings
+    assert "max placeable" in warnings[-1].lower()
+
+    tab.deleteLater()
+    conn.close()
