@@ -115,3 +115,68 @@ def test_connect_profile_does_not_backfill_storage_assignments_from_inventory(tm
         assert main_storage is not None
     finally:
         profile_conn.close()
+
+
+def test_connect_profile_creates_machine_availability_version_triggers(tmp_path):
+    profile_path = tmp_path / "profile.db"
+    conn = db.connect_profile(profile_path)
+    try:
+        triggers = {
+            row["name"]: row["sql"]
+            for row in conn.execute("SELECT name, sql FROM sqlite_master WHERE type='trigger'")
+        }
+
+        expected = {
+            "trg_machine_availability_version_insert": "AFTER INSERT",
+            "trg_machine_availability_version_update": "AFTER UPDATE",
+            "trg_machine_availability_version_delete": "AFTER DELETE",
+        }
+        for trigger_name, clause in expected.items():
+            assert trigger_name in triggers
+            trigger_sql = (triggers[trigger_name] or "").upper()
+            assert clause in trigger_sql
+            assert "UPDATE APP_SETTINGS" in trigger_sql
+            assert "MACHINE_AVAILABILITY_VERSION" in trigger_sql
+            assert "CAST(COALESCE(VALUE, '0') AS INTEGER) + 1" in trigger_sql
+    finally:
+        conn.close()
+
+
+def test_machine_availability_version_increments_on_insert_update_delete(tmp_path):
+    profile_path = tmp_path / "profile.db"
+    conn = db.connect_profile(profile_path)
+    try:
+        def current_version() -> int:
+            row = conn.execute(
+                "SELECT value FROM app_settings WHERE key='machine_availability_version'"
+            ).fetchone()
+            assert row is not None
+            return int(row["value"] or 0)
+
+        v0 = current_version()
+
+        conn.execute(
+            "INSERT INTO machine_availability(machine_type, tier, owned, online) VALUES(?, ?, ?, ?)",
+            ("macerator", "LV", 1, 1),
+        )
+        conn.commit()
+        v1 = current_version()
+        assert v1 == v0 + 1
+
+        conn.execute(
+            "UPDATE machine_availability SET online=? WHERE machine_type=? AND tier=?",
+            (0, "macerator", "LV"),
+        )
+        conn.commit()
+        v2 = current_version()
+        assert v2 == v1 + 1
+
+        conn.execute(
+            "DELETE FROM machine_availability WHERE machine_type=? AND tier=?",
+            ("macerator", "LV"),
+        )
+        conn.commit()
+        v3 = current_version()
+        assert v3 == v2 + 1
+    finally:
+        conn.close()
