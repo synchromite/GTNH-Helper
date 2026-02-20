@@ -229,11 +229,22 @@ class StorageUnitsDialog(QtWidgets.QDialog):
         rows = list_storage_units(self.app.profile_conn)
         self.table.setRowCount(len(rows))
         stack_map: dict[int, int] = {}
-        for item_row in self.app.conn.execute("SELECT id, COALESCE(max_stack_size, 64) AS max_stack_size FROM items").fetchall():
-            stack_map[int(item_row["id"])] = max(1, int(item_row["max_stack_size"] or 64))
+        container_ids: set[int] = set()
+        for item_row in self.app.conn.execute(
+            "SELECT id, COALESCE(max_stack_size, 64) AS max_stack_size, COALESCE(is_storage_container, 0) AS is_storage_container FROM items"
+        ).fetchall():
+            item_id = int(item_row["id"])
+            stack_map[item_id] = max(1, int(item_row["max_stack_size"] or 64))
+            if int(item_row["is_storage_container"] or 0):
+                container_ids.add(item_id)
 
         for idx, row in enumerate(rows):
-            usage = storage_slot_usage(self.app.profile_conn, storage_id=int(row["id"]), known_item_stack_sizes=stack_map)
+            usage = storage_slot_usage(
+                self.app.profile_conn,
+                storage_id=int(row["id"]),
+                known_item_stack_sizes=stack_map,
+                known_container_item_ids=container_ids,
+            )
             self.table.setItem(idx, 0, QtWidgets.QTableWidgetItem(str(row["name"])))
             self.table.setItem(idx, 1, QtWidgets.QTableWidgetItem(str(row.get("kind") or "generic")))
             self.table.setItem(idx, 2, QtWidgets.QTableWidgetItem("" if usage["slot_count"] is None else str(int(usage["slot_count"]))))

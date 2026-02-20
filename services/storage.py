@@ -125,6 +125,7 @@ def validate_storage_fit_for_item(
     qty_liters: float | int | None,
     item_max_stack_size: int | None = 64,
     known_item_stack_sizes: dict[int, int] | None = None,
+    known_container_item_ids: set[int] | None = None,
 ) -> dict[str, int | float | bool | None]:
     storage = conn.execute(
         "SELECT slot_count, liter_capacity FROM storage_units WHERE id=?",
@@ -165,11 +166,13 @@ def validate_storage_fit_for_item(
             row_qty_count = row["qty_count"]
             row_qty_liters = row["qty_liters"]
             stack_size = (known_item_stack_sizes or {}).get(rid, 64)
-        slot_usage += assignment_slot_usage(row_qty_count, stack_size)
+        if rid not in (known_container_item_ids or set()):
+            slot_usage += assignment_slot_usage(row_qty_count, stack_size)
         liter_usage += float(row_qty_liters or 0)
 
     if not target_replaced:
-        slot_usage += assignment_slot_usage(qty_count, item_max_stack_size)
+        if item_id not in (known_container_item_ids or set()):
+            slot_usage += assignment_slot_usage(qty_count, item_max_stack_size)
         liter_usage += float(qty_liters or 0)
 
     if slot_count is None:
@@ -354,6 +357,7 @@ def storage_slot_usage(
     *,
     storage_id: int,
     known_item_stack_sizes: dict[int, int] | None = None,
+    known_container_item_ids: set[int] | None = None,
 ) -> dict[str, int | None]:
     storage = conn.execute("SELECT slot_count FROM storage_units WHERE id=?", (storage_id,)).fetchone()
     slot_count = int(storage["slot_count"]) if storage and storage["slot_count"] is not None else None
@@ -365,6 +369,8 @@ def storage_slot_usage(
     used = 0
     for row in rows:
         item_id = int(row["item_id"])
+        if item_id in (known_container_item_ids or set()):
+            continue
         stack_size = (known_item_stack_sizes or {}).get(item_id, 64)
         used += assignment_slot_usage(row["qty_count"], stack_size)
 

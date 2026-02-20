@@ -443,6 +443,11 @@ class InventoryTab(QtWidgets.QWidget):
                 int(candidate["id"]): max(1, int(self._item_value(candidate, "max_stack_size") or 64))
                 for candidate in self.items
             }
+            container_ids = {
+                int(candidate["id"])
+                for candidate in self.items
+                if int(self._item_value(candidate, "is_storage_container") or 0)
+            }
             fit = validate_storage_fit_for_item(
                 self.app.profile_conn,
                 storage_id=storage_id,
@@ -451,6 +456,7 @@ class InventoryTab(QtWidgets.QWidget):
                 qty_liters=qty_liters,
                 item_max_stack_size=max(1, int(self._item_value(item, "max_stack_size") or 64)),
                 known_item_stack_sizes=stack_sizes,
+                known_container_item_ids=container_ids,
             )
             if not fit["fits"]:
                 reasons: list[str] = []
@@ -617,18 +623,9 @@ class InventoryTab(QtWidgets.QWidget):
             placed_count=placed,
         )
 
-        # Make container placement visible in that storage inventory (except main where qty is owned total).
+        # Placed containers are storage space, not inventory entries in that storage.
         if target_storage_id != int(main_storage_id):
-            if placed > 0:
-                upsert_assignment(
-                    self.app.profile_conn,
-                    storage_id=target_storage_id,
-                    item_id=int(item["id"]),
-                    qty_count=placed,
-                    qty_liters=None,
-                )
-            else:
-                delete_assignment(self.app.profile_conn, storage_id=target_storage_id, item_id=int(item["id"]))
+            delete_assignment(self.app.profile_conn, storage_id=target_storage_id, item_id=int(item["id"]))
 
         if self._inventory_management_enabled():
             recompute_storage_slot_capacities(self.app.profile_conn, player_slots=36, content_conn=self.app.conn)

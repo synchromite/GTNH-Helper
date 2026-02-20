@@ -452,8 +452,7 @@ def test_inventory_container_item_can_be_assigned_to_custom_storage_from_main_ow
         "SELECT qty_count FROM storage_assignments WHERE storage_id=? AND item_id=?",
         (ore_storage["id"], 1),
     ).fetchone()
-    assert assigned is not None
-    assert assigned["qty_count"] == 2
+    assert assigned is None
 
     main_storage_id = tab.app.profile_conn.execute("SELECT id FROM storage_units WHERE name='Main Storage'").fetchone()["id"]
     main_owned = tab.app.profile_conn.execute(

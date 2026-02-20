@@ -210,3 +210,31 @@ def test_recompute_storage_slot_capacities_uses_player_slots_and_placements(tmp_
         assert ore_slots == 104
     finally:
         conn.close()
+
+def test_storage_slot_usage_ignores_container_items(tmp_path) -> None:
+    from services.storage import storage_slot_usage
+
+    conn = connect_profile(tmp_path / "profile.db")
+    try:
+        main_storage = conn.execute("SELECT id FROM storage_units WHERE name='Main Storage'").fetchone()["id"]
+        conn.execute(
+            "INSERT INTO storage_assignments(storage_id, item_id, qty_count, qty_liters) VALUES(?, ?, ?, ?)",
+            (main_storage, 1, 64, None),
+        )
+        conn.execute(
+            "INSERT INTO storage_assignments(storage_id, item_id, qty_count, qty_liters) VALUES(?, ?, ?, ?)",
+            (main_storage, 2, 64, None),
+        )
+        conn.execute("UPDATE storage_units SET slot_count=? WHERE id=?", (10, main_storage))
+        conn.commit()
+
+        usage = storage_slot_usage(
+            conn,
+            storage_id=main_storage,
+            known_item_stack_sizes={1: 64, 2: 64},
+            known_container_item_ids={2},
+        )
+        assert usage["slot_used"] == 1
+        assert usage["slot_free"] == 9
+    finally:
+        conn.close()
