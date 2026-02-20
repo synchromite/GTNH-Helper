@@ -148,6 +148,7 @@ class PlannerService:
         self.conn = conn
         self.profile_conn = profile_conn
         self._machine_availability_cache: dict[str, dict[str, dict[str, int]]] | None = None
+        self._machine_availability_cache_total_changes: int | None = None
 
     # ---------- Public API ----------
     def plan(
@@ -160,9 +161,6 @@ class PlannerService:
         crafting_6x6_unlocked: bool,
         inventory_override: dict[int, int] | None = None,
     ) -> PlanResult:
-        # Machine availability can be edited in the UI between plan calls.
-        # Refresh at the start of each run to avoid stale selection decisions.
-        self.clear_cache()
         items = self._load_items()
         if inventory_override is not None:
             inventory = dict(inventory_override)
@@ -468,6 +466,7 @@ class PlannerService:
 
     def clear_cache(self) -> None:
         self._machine_availability_cache = None
+        self._machine_availability_cache_total_changes = None
 
     def _merge_plan_steps(self, steps: list[PlanStep]) -> list[PlanStep]:
         merged: list[PlanStep] = []
@@ -873,9 +872,10 @@ class PlannerService:
                 machine_tier,
             )
             duration_value = scaled_duration
-            if method == "crafting" and (duration_value is None or float(duration_value) <= 0):
-                duration_value = 200
-            duration = float(duration_value or 0)
+            if method == "crafting":
+                if duration_value is None or float(duration_value) <= 0:
+                    duration_value = 200
+            duration = float(duration_value) if duration_value is not None else 0.0
             time_per_item = duration / output_qty if output_qty > 0 else duration
 
             # --- CRITERIA 5: ENERGY COST ---
@@ -901,10 +901,15 @@ class PlannerService:
         return min(rows, key=recipe_rank)
 
     def _load_machine_availability(self) -> dict[str, dict[str, dict[str, int]]]:
-        if self._machine_availability_cache is not None:
-            return self._machine_availability_cache
         if self.profile_conn is None:
             self._machine_availability_cache = {}
+            self._machine_availability_cache_total_changes = None
+            return self._machine_availability_cache
+        current_total_changes = int(self.profile_conn.total_changes)
+        if (
+            self._machine_availability_cache is not None
+            and self._machine_availability_cache_total_changes == current_total_changes
+        ):
             return self._machine_availability_cache
         rows = self.profile_conn.execute(
             "SELECT machine_type, tier, owned, online FROM machine_availability"
@@ -921,6 +926,7 @@ class PlannerService:
             tier = (row["tier"] or "").strip()
             available.setdefault(machine_type, {})[tier] = {"owned": owned, "online": online}
         self._machine_availability_cache = available
+        self._machine_availability_cache_total_changes = current_total_changes
         return available
 
     def _tier_available(self, required_tier: str, owned_tiers: dict[str, dict[str, int]]) -> bool:

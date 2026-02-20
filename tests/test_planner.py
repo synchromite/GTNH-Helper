@@ -648,6 +648,52 @@ def test_plan_refreshes_machine_availability_after_cache_clear():
     )
     assert [step.recipe_name for step in refreshed_result.steps] == ["Make Output MV"]
 
+
+
+def test_machine_availability_cache_reused_when_profile_unchanged():
+    conn = _setup_conn()
+    profile_conn = connect_profile(":memory:")
+
+    item_input = _insert_item(conn, key="input", name="Input", is_base=1)
+    item_output = _insert_item(conn, key="output", name="Output")
+
+    recipe = _insert_recipe(conn, name="Make Output", method="machine", duration_ticks=200)
+    _set_recipe_machine(conn, recipe_id=recipe, machine="macerator", tier="LV")
+    _insert_line(conn, recipe_id=recipe, direction="out", item_id=item_output, qty_count=1)
+    _insert_line(conn, recipe_id=recipe, direction="in", item_id=item_input, qty_count=1)
+
+    _set_machine_availability(profile_conn, machine_type="macerator", tier="LV", owned=1, online=1)
+    profile_conn.commit()
+
+    select_count = 0
+
+    def trace_callback(sql: str) -> None:
+        nonlocal select_count
+        if "FROM machine_availability" in sql:
+            select_count += 1
+
+    profile_conn.set_trace_callback(trace_callback)
+    planner = PlannerService(conn, profile_conn)
+
+    planner.plan(
+        item_output,
+        1,
+        use_inventory=False,
+        enabled_tiers=["LV"],
+        crafting_6x6_unlocked=True,
+    )
+    planner.plan(
+        item_output,
+        1,
+        use_inventory=False,
+        enabled_tiers=["LV"],
+        crafting_6x6_unlocked=True,
+    )
+
+    profile_conn.set_trace_callback(None)
+
+    assert select_count == 1
+
 def test_apply_overclock_scales_duration_and_power():
     scaled_duration, scaled_eu = apply_overclock(200, 32, "LV", "MV")
 
