@@ -865,7 +865,6 @@ class PlannerTab(QtWidgets.QWidget):
         if not item:
             return
 
-
         active_storage_id = self.app.get_active_storage_id() if hasattr(self.app, "get_active_storage_id") else None
         if delta < 0 and active_storage_id is None:
             consume_assignment_qty_for_planner(

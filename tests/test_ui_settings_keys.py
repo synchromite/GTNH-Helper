@@ -73,7 +73,6 @@ def test_qt_ui_uses_settings_keys(tmp_path):
         assert lifecycle.get_machine_sort_mode() == "Tier (progression)"
         assert lifecycle.get_machine_search() == "assembler"
         assert lifecycle.get_all_tiers() == ["Stone Age", "LV", "HV"]
-
         lifecycle.set_enabled_tiers(["MV"])
         lifecycle.set_crafting_6x6_unlocked(False)
         lifecycle.set_theme("dark")
@@ -130,6 +129,7 @@ def test_qt_ui_uses_settings_keys(tmp_path):
             (SETTINGS_TIER_LIST,),
         ).fetchone()
         assert row["value"] == "ULV,LV"
+
     finally:
         lifecycle.close()
 

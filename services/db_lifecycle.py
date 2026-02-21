@@ -176,7 +176,6 @@ class DbLifecycle:
     def set_machine_search(self, value: str) -> None:
         set_setting(self.profile_conn, SETTINGS_MACHINE_SEARCH, value)
 
-
     def list_storage_units(self) -> list[dict[str, int | str]]:
         if self.profile_conn is None:
             return []
