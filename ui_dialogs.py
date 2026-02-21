@@ -57,7 +57,7 @@ class StorageUnitDialog(QtWidgets.QDialog):
         self.storage = storage
         self.result_data: dict | None = None
         self.setWindowTitle("Edit Storage" if storage else "Create Storage")
-        self.resize(460, 360)
+        self.resize(460, 320)
 
         layout = QtWidgets.QVBoxLayout(self)
         form = QtWidgets.QFormLayout()
@@ -68,51 +68,6 @@ class StorageUnitDialog(QtWidgets.QDialog):
 
         self.kind_edit = QtWidgets.QLineEdit((storage or {}).get("kind", "generic"))
         form.addRow("Kind", self.kind_edit)
-
-        self.slot_spin = QtWidgets.QSpinBox()
-        self.slot_spin.setRange(0, 1_000_000)
-        self.slot_spin.setSpecialValueText("(unset)")
-        self.slot_spin.setValue(int((storage or {}).get("slot_count") or 0))
-        form.addRow("Slot Count", self.slot_spin)
-
-        self.container_item_combo = QtWidgets.QComboBox()
-        self.container_item_combo.addItem("(None)", None)
-        self._container_item_slots: dict[int, int] = {}
-        for row in self.app.conn.execute(
-            """
-            SELECT id, COALESCE(display_name, key) AS name, storage_slot_count
-            FROM items
-            WHERE COALESCE(is_storage_container, 0)=1
-               OR COALESCE(storage_slot_count, 0)>0
-               OR content_fluid_id IS NOT NULL
-               OR COALESCE(content_qty_liters, 0)>0
-            ORDER BY name
-            """
-        ).fetchall():
-            item_id = int(row["id"])
-            self.container_item_combo.addItem(str(row["name"]), item_id)
-            self._container_item_slots[item_id] = int(row["storage_slot_count"] or 0)
-        form.addRow("Container Item", self.container_item_combo)
-
-        self.owned_spin = QtWidgets.QSpinBox()
-        self.owned_spin.setRange(0, 1_000_000)
-        self.owned_spin.setSpecialValueText("(unset)")
-        self.owned_spin.setValue(int((storage or {}).get("owned_count") or 0))
-        form.addRow("Owned", self.owned_spin)
-
-        self.placed_spin = QtWidgets.QSpinBox()
-        self.placed_spin.setRange(0, 1_000_000)
-        self.placed_spin.setSpecialValueText("(unset)")
-        self.placed_spin.setValue(int((storage or {}).get("placed_count") or 0))
-        form.addRow("Placed", self.placed_spin)
-
-        self.liter_spin = QtWidgets.QDoubleSpinBox()
-        self.liter_spin.setRange(0, 1_000_000_000)
-        self.liter_spin.setDecimals(1)
-        self.liter_spin.setSingleStep(1000)
-        self.liter_spin.setSpecialValueText("(unset)")
-        self.liter_spin.setValue(float((storage or {}).get("liter_capacity") or 0))
-        form.addRow("Liter Capacity", self.liter_spin)
 
         self.priority_spin = QtWidgets.QSpinBox()
         self.priority_spin.setRange(-10_000, 10_000)
@@ -127,37 +82,16 @@ class StorageUnitDialog(QtWidgets.QDialog):
         self.notes_edit.setPlaceholderText("Optional notes")
         form.addRow("Notes", self.notes_edit)
 
-        if storage and storage.get("container_item_id"):
-            target = int(storage["container_item_id"])
-            for idx in range(self.container_item_combo.count()):
-                if self.container_item_combo.itemData(idx) == target:
-                    self.container_item_combo.setCurrentIndex(idx)
-                    break
-
-        self.container_item_combo.currentIndexChanged.connect(self._sync_slot_count_from_container)
-        self.placed_spin.valueChanged.connect(self._sync_slot_count_from_container)
-        self._sync_slot_count_from_container()
+        info_label = QtWidgets.QLabel(
+            "Container items and computed capacities are managed in the Containers… dialog."
+        )
+        info_label.setWordWrap(True)
+        layout.addWidget(info_label)
 
         btns = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.StandardButton.Cancel | QtWidgets.QDialogButtonBox.StandardButton.Save)
         btns.accepted.connect(self._on_save)
         btns.rejected.connect(self.reject)
         layout.addWidget(btns)
-
-    def _sync_slot_count_from_container(self) -> None:
-        item_id = self.container_item_combo.currentData()
-        if item_id is None:
-            self.slot_spin.setReadOnly(False)
-            self.slot_spin.setButtonSymbols(QtWidgets.QAbstractSpinBox.ButtonSymbols.UpDownArrows)
-            return
-        slots_per_unit = self._container_item_slots.get(int(item_id), 0)
-        if slots_per_unit <= 0:
-            self.slot_spin.setReadOnly(False)
-            self.slot_spin.setButtonSymbols(QtWidgets.QAbstractSpinBox.ButtonSymbols.UpDownArrows)
-            return
-        placed = self.placed_spin.value()
-        self.slot_spin.setReadOnly(True)
-        self.slot_spin.setButtonSymbols(QtWidgets.QAbstractSpinBox.ButtonSymbols.NoButtons)
-        self.slot_spin.setValue(max(0, slots_per_unit * max(0, placed)))
 
     def _on_save(self) -> None:
         name = self.name_edit.text().strip()
@@ -173,31 +107,11 @@ class StorageUnitDialog(QtWidgets.QDialog):
             QtWidgets.QMessageBox.critical(self, "Duplicate name", "Storage name must be unique.")
             return
 
-        slot_count = self.slot_spin.value() or None
-        liter_capacity = self.liter_spin.value() or None
-        container_item_id = self.container_item_combo.currentData()
-        owned_count = self.owned_spin.value() or None
-        placed_count = self.placed_spin.value() or None
-        if owned_count is not None and placed_count is not None and placed_count > owned_count:
-            QtWidgets.QMessageBox.critical(self, "Invalid counts", "Placed count cannot exceed owned count.")
-            return
-        if slot_count is not None and slot_count < 0:
-            QtWidgets.QMessageBox.critical(self, "Invalid slot count", "Slot count cannot be negative.")
-            return
-        if liter_capacity is not None and liter_capacity < 0:
-            QtWidgets.QMessageBox.critical(self, "Invalid liter capacity", "Liter capacity cannot be negative.")
-            return
-
         self.result_data = {
             "name": name,
             "kind": (self.kind_edit.text().strip() or "generic"),
-            "slot_count": slot_count,
-            "liter_capacity": liter_capacity,
             "priority": self.priority_spin.value(),
             "allow_planner_use": self.allow_planner_checkbox.isChecked(),
-            "container_item_id": container_item_id,
-            "owned_count": owned_count,
-            "placed_count": placed_count,
             "notes": (self.notes_edit.toPlainText().strip() or None),
         }
         self.accept()
