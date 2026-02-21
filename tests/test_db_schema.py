@@ -27,6 +27,7 @@ def test_ensure_schema_creates_tables_and_defaults():
     assert "app_settings" in tables
     assert "machine_metadata" in tables
     assert "materials" in tables
+    assert "item_container_transforms" in tables
 
     item_columns = _table_columns(conn, "items")
     for column in (

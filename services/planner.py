@@ -170,6 +170,7 @@ class PlannerService:
         errors: list[str] = []
         missing_recipes: list[tuple[int, str, int]] = []
         steps: list[PlanStep] = []
+        container_transforms = self._load_container_transforms(items)
         shopping_needed: dict[int, int] = {}
         required_base_needed: dict[int, int] = {}
         storage_used: dict[int, int] = {}
@@ -252,6 +253,7 @@ class PlannerService:
                     qty_needed=qty_needed,
                     inventory=inventory,
                     items=items,
+                    container_transforms=container_transforms,
                 )
                 if consumed_containers:
                     for consumed_item_id, consumed_qty in consumed_containers.items():
@@ -265,6 +267,7 @@ class PlannerService:
                 container_item=item,
                 qty_needed=qty_needed,
                 items=items,
+                container_transforms=container_transforms,
             )
             if container_fill_plan is not None:
                 if item_id in visiting:
@@ -651,29 +654,30 @@ class PlannerService:
         qty_needed: int,
         inventory: dict[int, int],
         items: dict[int, dict],
+        container_transforms: list[dict],
     ) -> tuple[int, list[PlanStep], dict[int, int]]:
         if qty_needed <= 0:
             return 0, [], {}
         fluid_id = fluid_item["id"]
-        containers = [
-            item
-            for item in items.values()
-            if item["content_fluid_id"] == fluid_id
+        transforms = [
+            transform
+            for transform in container_transforms
+            if transform["direction"] in ("empty", "both") and transform["content_item_id"] == fluid_id
         ]
-        if not containers:
+        if not transforms:
             return qty_needed, [], {}
-        containers.sort(key=lambda row: (row["name"] or "").lower())
+        transforms.sort(key=lambda row: ((row.get("container_name") or "").lower(), int(row.get("container_item_id") or 0)))
         steps: list[PlanStep] = []
         consumed: dict[int, int] = {}
         remaining = qty_needed
-        for container in containers:
+        for transform in transforms:
+            container = items.get(transform["container_item_id"])
+            if not container:
+                continue
             available = inventory.get(container["id"], 0)
             if available <= 0:
                 continue
-            try:
-                per_container = int(container["content_qty_liters"] or 0)
-            except (TypeError, ValueError):
-                per_container = 0
+            per_container = int(transform.get("content_qty") or 0)
             if per_container <= 0:
                 continue
             needed_containers = math.ceil(remaining / per_container)
@@ -710,8 +714,7 @@ class PlannerService:
                         )
                     ],
                     byproducts=self._container_byproducts(
-                        container=container,
-                        fluid_item=fluid_item,
+                        transform=transform,
                         use_containers=use_containers,
                         items=items,
                     ),
@@ -731,23 +734,28 @@ class PlannerService:
         container_item: dict,
         qty_needed: int,
         items: dict[int, dict],
+        container_transforms: list[dict],
     ) -> dict | None:
         if qty_needed <= 0:
             return None
-        fluid_id = container_item["content_fluid_id"]
-        if fluid_id is None:
+        transform = next(
+            (
+                row
+                for row in container_transforms
+                if row["direction"] in ("fill", "both") and row["container_item_id"] == container_item["id"]
+            ),
+            None,
+        )
+        if not transform:
             return None
+        fluid_id = transform["content_item_id"]
         fluid_item = items.get(fluid_id)
         if not fluid_item:
             return None
-        try:
-            per_container = int(container_item["content_qty_liters"] or 0)
-        except (TypeError, ValueError):
-            per_container = 0
+        per_container = int(transform.get("content_qty") or 0)
         if per_container <= 0:
             return None
-
-        empty_container = self._find_empty_container(container_item, fluid_item, items)
+        empty_container = items.get(transform["empty_item_id"])
         if not empty_container:
             return None
 
@@ -1140,12 +1148,11 @@ class PlannerService:
     def _container_byproducts(
         self,
         *,
-        container: dict,
-        fluid_item: dict,
+        transform: dict,
         use_containers: int,
         items: dict[int, dict],
     ) -> list[tuple[int, str, int, str, float]]:
-        empty_container = self._find_empty_container(container, fluid_item, items)
+        empty_container = items.get(transform["empty_item_id"])
         if not empty_container:
             return []
         return [
@@ -1157,6 +1164,78 @@ class PlannerService:
                 100.0,
             )
         ]
+
+    def _load_container_transforms(self, items: dict[int, dict]) -> list[dict]:
+        rows = self.conn.execute(
+            """
+            SELECT
+                container_item_id,
+                empty_item_id,
+                content_item_id,
+                content_qty,
+                transform_kind
+            FROM item_container_transforms
+            """
+        ).fetchall()
+
+        transforms: list[dict] = []
+        explicit_container_ids: set[int] = set()
+        for row in rows:
+            container_id = int(row["container_item_id"])
+            content_id = int(row["content_item_id"])
+            empty_id = int(row["empty_item_id"])
+            if container_id not in items or content_id not in items or empty_id not in items:
+                continue
+            explicit_container_ids.add(container_id)
+            transforms.append(
+                {
+                    "container_item_id": container_id,
+                    "container_name": items[container_id]["name"],
+                    "empty_item_id": empty_id,
+                    "content_item_id": content_id,
+                    "content_qty": int(row["content_qty"] or 0),
+                    "direction": self._transform_kind_direction(row["transform_kind"]),
+                }
+            )
+
+        for item in items.values():
+            container_id = int(item["id"])
+            if container_id in explicit_container_ids:
+                continue
+            content_item_id = self._row_value(item, "content_fluid_id")
+            if content_item_id is None:
+                continue
+            content_item = items.get(int(content_item_id))
+            if not content_item:
+                continue
+            empty_container = self._find_empty_container(item, content_item, items)
+            if not empty_container:
+                continue
+            try:
+                content_qty = int(item["content_qty_liters"] or 0)
+            except (TypeError, ValueError):
+                content_qty = 0
+            if content_qty <= 0:
+                continue
+            transforms.append(
+                {
+                    "container_item_id": container_id,
+                    "container_name": item["name"],
+                    "empty_item_id": int(empty_container["id"]),
+                    "content_item_id": int(content_item_id),
+                    "content_qty": content_qty,
+                    "direction": "both",
+                }
+            )
+        return transforms
+
+    def _transform_kind_direction(self, transform_kind: str | None) -> str:
+        normalized = (transform_kind or "bidirectional").strip().lower()
+        if normalized == "empty_only":
+            return "empty"
+        if normalized == "fill_only":
+            return "fill"
+        return "both"
 
     def _find_empty_container(
         self,

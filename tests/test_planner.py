@@ -933,3 +933,99 @@ def test_load_inventory_excludes_locked_and_disallowed_storage_rows():
     inventory = planner.load_inventory()
 
     assert inventory[item] == 2
+
+
+def test_plan_uses_explicit_container_transform_for_emptying_with_non_matching_names():
+    conn = _setup_conn()
+    profile_conn = connect_profile(":memory:")
+
+    oxygen = _insert_item(conn, key="oxygen", name="Oxygen", kind="gas")
+    canister_empty = _insert_item(conn, key="canister_empty", name="Steel Canister", kind="item")
+    canister_full = _insert_item(
+        conn,
+        key="oxygen_canister_pressurized",
+        name="Pressurized Oxygen Canister",
+        kind="item",
+        content_fluid_id=oxygen,
+        content_qty_liters=1000,
+    )
+    output = _insert_item(conn, key="oxygenated_mix", name="Oxygenated Mix")
+
+    conn.execute(
+        """
+        INSERT INTO item_container_transforms(
+            container_item_id,
+            empty_item_id,
+            content_item_id,
+            content_qty,
+            transform_kind
+        ) VALUES(?,?,?,?,?)
+        """,
+        (canister_full, canister_empty, oxygen, 1000, "bidirectional"),
+    )
+
+    recipe = _insert_recipe(conn, name="Make Oxygenated Mix")
+    _insert_line(conn, recipe_id=recipe, direction="out", item_id=output, qty_count=1)
+    _insert_line(conn, recipe_id=recipe, direction="in", item_id=oxygen, qty_liters=1000)
+
+    planner = PlannerService(conn, profile_conn)
+    result = planner.plan(
+        output,
+        1,
+        use_inventory=True,
+        enabled_tiers=[],
+        crafting_6x6_unlocked=True,
+        inventory_override={canister_full: 1},
+    )
+
+    assert result.errors == []
+    assert result.shopping_list == []
+    assert [step.recipe_name for step in result.steps] == ["Emptying", "Make Oxygenated Mix"]
+    assert result.steps[0].byproducts == [(canister_empty, "Steel Canister", 1, "count", 100.0)]
+
+
+def test_plan_uses_explicit_container_transform_for_filling_when_names_do_not_match():
+    conn = _setup_conn()
+    profile_conn = connect_profile(":memory:")
+
+    naphtha = _insert_item(conn, key="naphtha", name="Naphtha", kind="fluid")
+    steel_drum = _insert_item(conn, key="drum_empty", name="Steel Drum", kind="item")
+    filled_drum = _insert_item(
+        conn,
+        key="naphtha_drum_special",
+        name="Industrial Feed Drum",
+        kind="item",
+        content_fluid_id=naphtha,
+        content_qty_liters=2000,
+    )
+
+    conn.execute(
+        """
+        INSERT INTO item_container_transforms(
+            container_item_id,
+            empty_item_id,
+            content_item_id,
+            content_qty,
+            transform_kind
+        ) VALUES(?,?,?,?,?)
+        """,
+        (filled_drum, steel_drum, naphtha, 2000, "bidirectional"),
+    )
+
+    planner = PlannerService(conn, profile_conn)
+    result = planner.plan(
+        filled_drum,
+        1,
+        use_inventory=True,
+        enabled_tiers=[],
+        crafting_6x6_unlocked=True,
+        inventory_override={naphtha: 2000, steel_drum: 1},
+    )
+
+    assert result.errors == []
+    assert result.shopping_list == []
+    assert [step.recipe_name for step in result.steps] == ["Filling"]
+    assert result.steps[0].inputs == [
+        (naphtha, "Naphtha", 2000, "L"),
+        (steel_drum, "Steel Drum", 1, "count"),
+    ]

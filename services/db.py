@@ -545,6 +545,23 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
     """
     )
 
+    conn.execute(
+        """
+    CREATE TABLE IF NOT EXISTS item_container_transforms (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        container_item_id INTEGER NOT NULL,
+        empty_item_id INTEGER NOT NULL,
+        content_item_id INTEGER NOT NULL,
+        content_qty INTEGER NOT NULL CHECK(content_qty > 0),
+        transform_kind TEXT NOT NULL DEFAULT 'bidirectional' CHECK(transform_kind IN ('bidirectional', 'empty_only', 'fill_only')),
+        UNIQUE(container_item_id, empty_item_id, content_item_id),
+        FOREIGN KEY(container_item_id) REFERENCES items(id) ON DELETE CASCADE,
+        FOREIGN KEY(empty_item_id) REFERENCES items(id) ON DELETE RESTRICT,
+        FOREIGN KEY(content_item_id) REFERENCES items(id) ON DELETE CASCADE
+    )
+    """
+    )
+
     if not _has_col("recipe_lines", "chance_percent"):
         conn.execute("ALTER TABLE recipe_lines ADD COLUMN chance_percent REAL")
     if not _has_col("recipe_lines", "output_slot_index"):
