@@ -474,10 +474,35 @@ def recompute_storage_slot_capacities(
     *,
     content_conn: sqlite3.Connection | None = None,
 ) -> None:
-    slot_rows = (content_conn or conn).execute(
-        "SELECT id, COALESCE(storage_slot_count, 0) AS storage_slot_count FROM items"
+    source = content_conn or conn
+    item_cols = {row["name"] for row in source.execute("PRAGMA table_info(items)").fetchall()}
+    has_content_qty = "content_qty_liters" in item_cols
+    has_content_fluid = "content_fluid_id" in item_cols
+
+    qty_expr = "COALESCE(i.content_qty_liters, 0)" if has_content_qty else "0"
+    join_clause = "LEFT JOIN items content ON content.id = i.content_fluid_id" if has_content_fluid else ""
+    kind_expr = (
+        "CASE WHEN LOWER(COALESCE(content.kind, ''))='gas' THEN 'gas' WHEN LOWER(COALESCE(content.kind, ''))='fluid' THEN 'fluid' ELSE 'item' END"
+        if has_content_fluid
+        else "'item'"
+    )
+
+    container_rows = source.execute(
+        f"""
+        SELECT
+            i.id,
+            COALESCE(i.storage_slot_count, 0) AS storage_slot_count,
+            {qty_expr} AS content_qty_liters,
+            {kind_expr} AS container_storage_kind
+        FROM items i
+        {join_clause}
+        """
     ).fetchall()
-    slot_map = {int(r["id"]): int(r["storage_slot_count"] or 0) for r in slot_rows}
+    slot_map = {int(r["id"]): int(r["storage_slot_count"] or 0) for r in container_rows}
+    liter_map = {
+        int(r["id"]): (float(r["content_qty_liters"] or 0) if str(r["container_storage_kind"] or "").lower() in ("fluid", "gas") else 0.0)
+        for r in container_rows
+    }
 
     storages = list_storage_units(conn)
     for storage in storages:
@@ -494,10 +519,14 @@ def recompute_storage_slot_capacities(
             int(row["placed_count"] or 0) * int(slot_map.get(int(row["item_id"]), 0))
             for row in placed_rows
         )
+        liters_from_containers = sum(
+            int(row["placed_count"] or 0) * float(liter_map.get(int(row["item_id"]), 0.0))
+            for row in placed_rows
+        )
         base_slots = int(player_slots) if str(storage.get("name") or "") == MAIN_STORAGE_NAME else 0
         conn.execute(
-            "UPDATE storage_units SET slot_count=? WHERE id=?",
-            (base_slots + slots_from_containers, storage_id),
+            "UPDATE storage_units SET slot_count=?, liter_capacity=? WHERE id=?",
+            (base_slots + slots_from_containers, liters_from_containers, storage_id),
         )
 
 

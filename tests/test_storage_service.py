@@ -214,6 +214,45 @@ def test_recompute_storage_slot_capacities_uses_player_slots_and_placements(tmp_
     finally:
         conn.close()
 
+def test_recompute_storage_slot_capacities_sets_liter_capacity_from_fluid_containers(tmp_path) -> None:
+    from services.storage import recompute_storage_slot_capacities, set_storage_container_placement
+
+    conn = connect_profile(tmp_path / "profile.db")
+    try:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS items(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                key TEXT,
+                display_name TEXT,
+                kind TEXT,
+                storage_slot_count INTEGER,
+                content_fluid_id INTEGER,
+                content_qty_liters INTEGER
+            )
+            """
+        )
+        conn.execute("INSERT INTO items(key, display_name, kind) VALUES('water', 'Water', 'fluid')")
+        conn.execute(
+            """
+            INSERT INTO items(key, display_name, kind, content_fluid_id, content_qty_liters)
+            VALUES('water_tank', 'Water Tank', 'item', 1, 32000)
+            """
+        )
+        conn.execute("INSERT INTO storage_units(name, kind) VALUES('Tank Storage', 'fluid')")
+        conn.commit()
+
+        tank_storage = conn.execute("SELECT id FROM storage_units WHERE name='Tank Storage'").fetchone()["id"]
+        set_storage_container_placement(conn, storage_id=tank_storage, item_id=2, placed_count=3)
+        recompute_storage_slot_capacities(conn, content_conn=conn)
+        conn.commit()
+
+        liters = conn.execute("SELECT liter_capacity FROM storage_units WHERE id=?", (tank_storage,)).fetchone()["liter_capacity"]
+        assert liters == 96000
+    finally:
+        conn.close()
+
+
 def test_storage_slot_usage_ignores_container_items(tmp_path) -> None:
     from services.storage import storage_slot_usage
 

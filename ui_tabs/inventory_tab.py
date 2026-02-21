@@ -624,9 +624,9 @@ class InventoryTab(QtWidgets.QWidget):
         if storage_id is None:
             return
 
-        # Main Storage owns container inventory; ensure baseline slots when capacity management is enabled.
-        if self._inventory_management_enabled():
-            recompute_storage_slot_capacities(self.app.profile_conn, player_slots=36, content_conn=self.app.conn)
+        # Main Storage owns container inventory; keep slot capacities synced whenever
+        # container ownership changes so custom storage capacity updates immediately.
+        recompute_storage_slot_capacities(self.app.profile_conn, player_slots=36, content_conn=self.app.conn)
         self.app.profile_conn.commit()
         self.storage_units = list(self.app.list_storage_units()) if hasattr(self.app, "list_storage_units") else self.storage_units
         self._refresh_summary_panel()
@@ -681,8 +681,7 @@ class InventoryTab(QtWidgets.QWidget):
         if target_storage_id != int(main_storage_id):
             delete_assignment(self.app.profile_conn, storage_id=target_storage_id, item_id=int(item["id"]))
 
-        if self._inventory_management_enabled():
-            recompute_storage_slot_capacities(self.app.profile_conn, player_slots=36, content_conn=self.app.conn)
+        recompute_storage_slot_capacities(self.app.profile_conn, player_slots=36, content_conn=self.app.conn)
 
         self.app.profile_conn.commit()
         if hasattr(self.app, "list_storage_units"):

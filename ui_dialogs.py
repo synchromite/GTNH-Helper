@@ -356,6 +356,10 @@ class StorageContainerPlacementsDialog(QtWidgets.QDialog):
         self.table.verticalHeader().setVisible(False)
         layout.addWidget(self.table, stretch=1)
 
+        self.capacity_summary_label = QtWidgets.QLabel("")
+        self.capacity_summary_label.setWordWrap(True)
+        layout.addWidget(self.capacity_summary_label)
+
         self._rows: list[dict] = []
         self._load_rows()
 
@@ -377,6 +381,7 @@ class StorageContainerPlacementsDialog(QtWidgets.QDialog):
                 i.id,
                 COALESCE(i.display_name, i.key) AS name,
                 COALESCE(i.storage_slot_count, 0) AS storage_slot_count,
+                COALESCE(i.content_qty_liters, 0) AS content_qty_liters,
                 CASE
                     WHEN LOWER(COALESCE(content.kind, ''))='gas' THEN 'gas'
                     WHEN LOWER(COALESCE(content.kind, ''))='fluid' THEN 'fluid'
@@ -402,7 +407,25 @@ class StorageContainerPlacementsDialog(QtWidgets.QDialog):
             spin = QtWidgets.QSpinBox()
             spin.setRange(0, 1_000_000)
             spin.setValue(placement_rows.get(item_id, 0))
+            spin.valueChanged.connect(self._refresh_capacity_preview)
             self.table.setCellWidget(idx, 2, spin)
+
+        self._refresh_capacity_preview()
+
+    def _refresh_capacity_preview(self) -> None:
+        total_slots = 0
+        total_liters = 0
+        for idx, row in enumerate(self._rows):
+            spin = self.table.cellWidget(idx, 2)
+            placed = int(spin.value()) if isinstance(spin, QtWidgets.QSpinBox) else 0
+            per_slots = int(row.get("storage_slot_count") or 0)
+            per_liters = int(row.get("content_qty_liters") or 0)
+            total_slots += placed * per_slots
+            total_liters += placed * per_liters
+
+        self.capacity_summary_label.setText(
+            f"Calculated capacity from placements: {total_slots} slots, {total_liters:,} L"
+        )
 
     def _on_save(self) -> None:
         storage_id = int(self.storage["id"])

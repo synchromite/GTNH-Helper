@@ -425,6 +425,68 @@ def test_inventory_container_item_can_set_placed_count_for_storage() -> None:
     conn.close()
 
 
+
+
+def test_inventory_container_placement_recomputes_custom_storage_capacity_when_management_disabled() -> None:
+    app = _get_app()
+
+    class DummyStatusBar:
+        def showMessage(self, _msg: str) -> None:
+            return None
+
+    class DummyApp:
+        def __init__(self) -> None:
+            self.profile_conn = connect_profile(":memory:")
+            self.status_bar = DummyStatusBar()
+
+        def notify_inventory_change(self) -> None:
+            return None
+
+        def list_storage_units(self):
+            rows = self.profile_conn.execute("SELECT * FROM storage_units ORDER BY id").fetchall()
+            return [dict(r) for r in rows]
+
+    tab = InventoryTab(DummyApp())
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    row = conn.execute(
+        "SELECT 1 AS id, 'Wood Chest' AS name, 'item' AS kind, 'storage' AS item_kind_name, "
+        "NULL AS material_name, NULL AS machine_type, NULL AS machine_tier, 0 AS is_machine, "
+        "NULL AS crafting_grid_size, 64 AS max_stack_size, 1 AS is_storage_container, 27 AS storage_slot_count"
+    ).fetchone()
+
+    tab.app.profile_conn.execute("INSERT INTO storage_units(name, kind) VALUES('Ore Storage', 'ore')")
+    tab.app.profile_conn.execute(
+        "INSERT INTO app_settings(key, value) VALUES('inventory_management_enabled', '0') "
+        "ON CONFLICT(key) DO UPDATE SET value='0'"
+    )
+    tab.app.profile_conn.commit()
+
+    tab.render_items([row])
+    tree = tab.inventory_trees["All"]
+    leaf = tree.topLevelItem(0).child(0).child(0)
+    tree.setCurrentItem(leaf)
+
+    tab.storage_selector.setCurrentIndex(1)
+    tab.inventory_qty_entry.setText("3")
+    tab.save_inventory_item()
+    app.processEvents()
+
+    tab.storage_selector.setCurrentIndex(2)
+    app.processEvents()
+    tab.container_placed_spin.setValue(2)
+    tab._apply_container_placement()
+    app.processEvents()
+
+    ore_storage = tab.app.profile_conn.execute(
+        "SELECT slot_count FROM storage_units WHERE name='Ore Storage'"
+    ).fetchone()
+    assert ore_storage is not None
+    assert ore_storage["slot_count"] == 54
+
+    tab.deleteLater()
+    conn.close()
+
 def test_inventory_container_item_can_be_assigned_to_custom_storage_from_main_owned() -> None:
     app = _get_app()
 
