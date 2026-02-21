@@ -885,7 +885,6 @@ class PlannerTab(QtWidgets.QWidget):
                 item_id=item_id,
                 delta=delta,
                 item_kind=str(item.get("kind") or ""),
-                respect_locked=False,
             )
         if commit:
             self.app.profile_conn.commit()

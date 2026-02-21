@@ -302,17 +302,9 @@ def adjust_assignment_qty_for_storage(
     item_id: int,
     delta: int,
     item_kind: str,
-    respect_locked: bool = False,
 ) -> int:
     qty_column = "qty_liters" if (item_kind or "").strip().lower() in ("fluid", "gas") else "qty_count"
     row = get_assignment(conn, storage_id=storage_id, item_id=item_id)
-    if row is not None and respect_locked and int(row["locked"] or 0) == 1:
-        current_raw = row[qty_column]
-        try:
-            return max(int(float(current_raw or 0)), 0)
-        except (TypeError, ValueError):
-            return 0
-
     current_raw = row[qty_column] if row is not None else None
     try:
         current_qty = int(float(current_raw or 0))
