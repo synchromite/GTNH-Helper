@@ -263,6 +263,82 @@ def aggregated_assignment_rows_for_planner(conn: sqlite3.Connection) -> list[sql
     ).fetchall()
 
 
+def planner_consumption_candidates(
+    conn: sqlite3.Connection,
+    *,
+    item_id: int,
+    item_kind: str,
+) -> list[dict[str, Any]]:
+    qty_column = "qty_liters" if (item_kind or "").strip().lower() in ("fluid", "gas") else "qty_count"
+    rows = conn.execute(
+        f"""
+        SELECT
+            a.storage_id,
+            a.item_id,
+            a.qty_count,
+            a.qty_liters,
+            a.locked,
+            s.priority,
+            s.allow_planner_use
+        FROM storage_assignments a
+        INNER JOIN storage_units s ON s.id = a.storage_id
+        WHERE a.item_id=?
+          AND s.allow_planner_use = 1
+          AND a.locked = 0
+          AND COALESCE(a.{qty_column}, 0) > 0
+        ORDER BY s.priority DESC, a.storage_id ASC
+        """,
+        (item_id,),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def consume_assignment_qty_for_planner(
+    conn: sqlite3.Connection,
+    *,
+    item_id: int,
+    qty: int,
+    item_kind: str,
+) -> int:
+    remaining = max(0, int(qty or 0))
+    if remaining <= 0:
+        return 0
+
+    qty_column = "qty_liters" if (item_kind or "").strip().lower() in ("fluid", "gas") else "qty_count"
+    consumed_total = 0
+    for candidate in planner_consumption_candidates(conn, item_id=item_id, item_kind=item_kind):
+        if remaining <= 0:
+            break
+        storage_id = int(candidate["storage_id"])
+        row = get_assignment(conn, storage_id=storage_id, item_id=item_id)
+        if row is None:
+            continue
+        current_raw = row[qty_column]
+        try:
+            current_qty = int(float(current_raw or 0))
+        except (TypeError, ValueError):
+            current_qty = 0
+        if current_qty <= 0:
+            continue
+
+        used = min(current_qty, remaining)
+        new_qty = current_qty - used
+        if new_qty <= 0:
+            delete_assignment(conn, storage_id=storage_id, item_id=item_id)
+        else:
+            upsert_assignment(
+                conn,
+                storage_id=storage_id,
+                item_id=item_id,
+                qty_count=(new_qty if qty_column == "qty_count" else None),
+                qty_liters=(new_qty if qty_column == "qty_liters" else None),
+                locked=False,
+            )
+        consumed_total += used
+        remaining -= used
+    return consumed_total
+
+
 def storage_inventory_totals(conn: sqlite3.Connection, storage_id: int | None = None) -> dict[str, float | int]:
     """Return assignment/totals summary for one storage or all storages."""
     if storage_id is None:

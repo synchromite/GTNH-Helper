@@ -9,8 +9,8 @@ from services.db import connect, connect_profile
 from services.storage import (
     default_storage_id,
     delete_assignment,
+    consume_assignment_qty_for_planner,
     get_assignment,
-    list_storage_units,
     upsert_assignment,
 )
 from ui_dialogs import AddRecipeDialog, ItemPickerDialog
@@ -871,43 +871,12 @@ class PlannerTab(QtWidgets.QWidget):
 
         active_storage_id = self.app.get_active_storage_id() if hasattr(self.app, "get_active_storage_id") else None
         if delta < 0 and active_storage_id is None:
-            remaining = -delta
-            storages = sorted(
-                [row for row in list_storage_units(self.app.profile_conn) if int(row.get("allow_planner_use") or 0) == 1],
-                key=lambda row: (-(int(row.get("priority") or 0)), (row.get("name") or "").lower(), int(row["id"])),
+            consume_assignment_qty_for_planner(
+                self.app.profile_conn,
+                item_id=item_id,
+                qty=(-delta),
+                item_kind=str(item.get("kind") or ""),
             )
-            for storage in storages:
-                if remaining <= 0:
-                    break
-                storage_id = int(storage["id"])
-                row = get_assignment(self.app.profile_conn, storage_id=storage_id, item_id=item_id)
-                if row is not None and int(row["locked"] or 0) == 1:
-                    continue
-                current_value = row[column] if row is not None else None
-                current = 0
-                if current_value is not None:
-                    try:
-                        current = int(float(current_value))
-                    except (TypeError, ValueError):
-                        current = 0
-                if current <= 0:
-                    continue
-                consumed = min(current, remaining)
-                new_qty = current - consumed
-                if new_qty <= 0:
-                    delete_assignment(self.app.profile_conn, storage_id=storage_id, item_id=item_id)
-                else:
-                    count_val = new_qty if column == "qty_count" else None
-                    liter_val = new_qty if column == "qty_liters" else None
-                    upsert_assignment(
-                        self.app.profile_conn,
-                        storage_id=storage_id,
-                        item_id=item_id,
-                        qty_count=count_val,
-                        qty_liters=liter_val,
-                        locked=False,
-                    )
-                remaining -= consumed
         else:
             storage_id = self._planner_storage_id()
             if storage_id is None:

@@ -6,6 +6,7 @@ from services.storage import (
     aggregate_assignment_for_item,
     assignment_slot_usage,
     aggregated_assignment_rows,
+    consume_assignment_qty_for_planner,
     create_storage_unit,
     default_storage_id,
     delete_assignment,
@@ -13,6 +14,7 @@ from services.storage import (
     get_assignment,
     has_storage_tables,
     list_storage_units,
+    planner_consumption_candidates,
     storage_inventory_totals,
     validate_storage_fit_for_item,
     update_storage_unit,
@@ -258,5 +260,50 @@ def test_placed_container_count_excludes_selected_storage(tmp_path) -> None:
 
         assert placed_container_count(conn, item_id=11) == 3
         assert placed_container_count(conn, item_id=11, exclude_storage_id=dust_id) == 1
+    finally:
+        conn.close()
+
+
+def test_planner_consumption_candidates_respect_policy_and_priority(tmp_path) -> None:
+    conn = connect_profile(tmp_path / "profile.db")
+    try:
+        item_id = 99
+        high = create_storage_unit(conn, name="High", priority=10, allow_planner_use=True)
+        low = create_storage_unit(conn, name="Low", priority=1, allow_planner_use=True)
+        blocked = create_storage_unit(conn, name="Blocked", priority=100, allow_planner_use=False)
+        locked = create_storage_unit(conn, name="Locked", priority=50, allow_planner_use=True)
+
+        upsert_assignment(conn, storage_id=high, item_id=item_id, qty_count=5, qty_liters=None, locked=False)
+        upsert_assignment(conn, storage_id=low, item_id=item_id, qty_count=5, qty_liters=None, locked=False)
+        upsert_assignment(conn, storage_id=blocked, item_id=item_id, qty_count=5, qty_liters=None, locked=False)
+        upsert_assignment(conn, storage_id=locked, item_id=item_id, qty_count=5, qty_liters=None, locked=True)
+        conn.commit()
+
+        rows = planner_consumption_candidates(conn, item_id=item_id, item_kind="item")
+        assert [int(r["storage_id"]) for r in rows] == [high, low]
+    finally:
+        conn.close()
+
+
+def test_consume_assignment_qty_for_planner_uses_deterministic_tiebreaker(tmp_path) -> None:
+    conn = connect_profile(tmp_path / "profile.db")
+    try:
+        item_id = 101
+        first = create_storage_unit(conn, name="A", priority=7, allow_planner_use=True)
+        second = create_storage_unit(conn, name="B", priority=7, allow_planner_use=True)
+
+        upsert_assignment(conn, storage_id=first, item_id=item_id, qty_count=4, qty_liters=None, locked=False)
+        upsert_assignment(conn, storage_id=second, item_id=item_id, qty_count=4, qty_liters=None, locked=False)
+        conn.commit()
+
+        consumed = consume_assignment_qty_for_planner(conn, item_id=item_id, qty=6, item_kind="item")
+        conn.commit()
+
+        assert consumed == 6
+        first_row = get_assignment(conn, storage_id=first, item_id=item_id)
+        second_row = get_assignment(conn, storage_id=second, item_id=item_id)
+        assert first_row is None
+        assert second_row is not None
+        assert int(second_row["qty_count"]) == 2
     finally:
         conn.close()
