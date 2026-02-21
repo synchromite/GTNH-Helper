@@ -176,7 +176,7 @@ Add first-class inventory container management (chests/drawers/barrels/tanks) wh
 
 ---
 
-## Milestone 5: Planner Consumption Policies (Optional)
+## Milestone 5: Planner Consumption Policies (Optional) - COMPLETE
 **Outcome:** Planner can consume inventory by configurable storage policy.
 
 ### Issues
@@ -184,6 +184,12 @@ Add first-class inventory container management (chests/drawers/barrels/tanks) wh
 2. Priority-based deterministic consumption.
 3. Basic policy control in settings/UI.
 4. Policy test matrix across mixed storages.
+
+### Milestone 5 Scope Decision (Implemented)
+- The existing Planner checkbox `Use Inventory Data` is the milestone's baseline policy control in UI.
+- When enabled, planner consumption uses storage-policy filters (`allow_planner_use`, `locked`) and deterministic priority ordering.
+- When disabled, planner ignores inventory entirely (equivalent to policy bypass for inventory consumption).
+- No additional dedicated planner-policy setting key is required for this milestone.
 
 ### Implementation Notes for M5
 - Treat policy evaluation order as a stable contract: filter by `allow_planner_use`, then `locked`, then consume by explicit priority and deterministic tie-breakers (for example, storage `id`).
