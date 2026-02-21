@@ -30,3 +30,20 @@ def test_storage_unit_dialog_hides_container_managed_fields() -> None:
     assert any("managed in the Containers" in text for text in labels)
 
     dialog.deleteLater()
+
+
+def test_storage_unit_dialog_uses_default_storage_kind_options() -> None:
+    _get_app()
+
+    class DummyApp:
+        def __init__(self) -> None:
+            self.profile_conn = connect_profile(":memory:")
+
+    dialog = StorageUnitDialog(DummyApp())
+
+    labels = [dialog.kind_combo.itemText(i) for i in range(dialog.kind_combo.count())]
+    values = [dialog.kind_combo.itemData(i) for i in range(dialog.kind_combo.count())]
+    assert labels == ["Item Storage", "Gas Storage", "Liquid Storage"]
+    assert values == ["item", "gas", "fluid"]
+
+    dialog.deleteLater()

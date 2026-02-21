@@ -265,6 +265,20 @@ class InventoryTab(QtWidgets.QWidget):
     def _is_aggregate_mode(self) -> bool:
         return self._current_storage_id() is None
 
+    def _item_storage_kind(self, item: dict) -> str:
+        kind_val = (self._item_value(item, "kind") or "").strip().lower()
+        return kind_val if kind_val in ("fluid", "gas") else "item"
+
+    def _storage_accepts_item(self, storage: dict | None, item: dict) -> bool:
+        if not storage:
+            return True
+        storage_kind = str(storage.get("kind") or "").strip().lower()
+        if storage_kind in ("", "generic"):
+            return True
+        if storage_kind == "liquid":
+            storage_kind = "fluid"
+        return storage_kind == self._item_storage_kind(item)
+
     def _set_inventory_edit_mode(self) -> None:
         aggregate = self._is_aggregate_mode()
         self.inventory_qty_entry.setReadOnly(aggregate)
@@ -410,6 +424,24 @@ class InventoryTab(QtWidgets.QWidget):
             return
 
         storage_id = self._current_storage_id()
+        storage_row = self._storage_row_by_id(storage_id)
+        if not self._storage_accepts_item(storage_row, item):
+            storage_name = str((storage_row or {}).get("name") or "Selected Storage")
+            storage_kind = str((storage_row or {}).get("kind") or "item").strip().lower()
+            if storage_kind == "fluid":
+                storage_kind_label = "Liquid Storage"
+            elif storage_kind == "gas":
+                storage_kind_label = "Gas Storage"
+            else:
+                storage_kind_label = "Item Storage"
+            item_kind_label = self._item_storage_kind(item)
+            item_kind_label = "Liquid" if item_kind_label == "fluid" else item_kind_label.capitalize()
+            QtWidgets.QMessageBox.warning(
+                self,
+                "Storage kind mismatch",
+                f"{storage_name} is {storage_kind_label} and only accepts matching items. Selected item kind: {item_kind_label}.",
+            )
+            return
         raw = self.inventory_qty_entry.text().strip()
         if raw == "":
             delete_assignment(self.app.profile_conn, storage_id=storage_id, item_id=item["id"])

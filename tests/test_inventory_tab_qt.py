@@ -116,6 +116,60 @@ def test_inventory_save_writes_storage_assignment_only() -> None:
 
 
 
+def test_inventory_save_blocks_storage_kind_mismatch(monkeypatch) -> None:
+    app = _get_app()
+
+    class DummyStatusBar:
+        def showMessage(self, _msg: str) -> None:
+            return None
+
+    class DummyApp:
+        def __init__(self) -> None:
+            self.profile_conn = connect_profile(":memory:")
+            self.status_bar = DummyStatusBar()
+
+        def notify_inventory_change(self) -> None:
+            return None
+
+    tab = InventoryTab(DummyApp())
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    gas_row = conn.execute(
+        "SELECT 1 AS id, 'Hydrogen' AS name, 'gas' AS kind, 'gas' AS item_kind_name, "
+        "NULL AS material_name, NULL AS machine_type, NULL AS machine_tier, 0 AS is_machine, "
+        "NULL AS crafting_grid_size, 64 AS max_stack_size, 0 AS is_storage_container, NULL AS storage_slot_count"
+    ).fetchone()
+
+    tab.app.profile_conn.execute("UPDATE storage_units SET kind='item' WHERE name='Main Storage'")
+    tab.app.profile_conn.commit()
+
+    warnings: list[str] = []
+    monkeypatch.setattr(
+        QtWidgets.QMessageBox,
+        "warning",
+        lambda *_args: warnings.append(str(_args[2])) or QtWidgets.QMessageBox.StandardButton.Ok,
+    )
+
+    tab.render_items([gas_row])
+    tab.storage_selector.setCurrentIndex(1)
+    tree = tab.inventory_trees["All"]
+    leaf = tree.topLevelItem(0).child(0).child(0)
+    tree.setCurrentItem(leaf)
+    tab.inventory_qty_entry.setText("10")
+    tab.save_inventory_item()
+    app.processEvents()
+
+    assignment = tab.app.profile_conn.execute(
+        "SELECT qty_liters FROM storage_assignments WHERE storage_id=1 AND item_id=1"
+    ).fetchone()
+    assert assignment is None
+    assert warnings
+    assert "only accepts matching items" in warnings[-1]
+
+    tab.deleteLater()
+    conn.close()
+
+
 def test_inventory_save_blocks_capacity_overflow(monkeypatch) -> None:
     app = _get_app()
 

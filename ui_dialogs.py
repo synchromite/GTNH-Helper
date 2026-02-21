@@ -66,8 +66,16 @@ class StorageUnitDialog(QtWidgets.QDialog):
         self.name_edit = QtWidgets.QLineEdit((storage or {}).get("name", ""))
         form.addRow("Name", self.name_edit)
 
-        self.kind_edit = QtWidgets.QLineEdit((storage or {}).get("kind", "generic"))
-        form.addRow("Kind", self.kind_edit)
+        self.kind_combo = QtWidgets.QComboBox()
+        self.kind_combo.addItem("Item Storage", "item")
+        self.kind_combo.addItem("Gas Storage", "gas")
+        self.kind_combo.addItem("Liquid Storage", "fluid")
+        selected_kind = str((storage or {}).get("kind") or "item").strip().lower()
+        if selected_kind in ("generic", "liquid", ""):
+            selected_kind = "item" if selected_kind != "liquid" else "fluid"
+        selected_idx = max(0, self.kind_combo.findData(selected_kind))
+        self.kind_combo.setCurrentIndex(selected_idx)
+        form.addRow("Kind", self.kind_combo)
 
         self.priority_spin = QtWidgets.QSpinBox()
         self.priority_spin.setRange(-10_000, 10_000)
@@ -109,7 +117,7 @@ class StorageUnitDialog(QtWidgets.QDialog):
 
         self.result_data = {
             "name": name,
-            "kind": (self.kind_edit.text().strip() or "generic"),
+            "kind": str(self.kind_combo.currentData() or "item"),
             "priority": self.priority_spin.value(),
             "allow_planner_use": self.allow_planner_checkbox.isChecked(),
             "notes": (self.notes_edit.toPlainText().strip() or None),
