@@ -373,10 +373,22 @@ class StorageContainerPlacementsDialog(QtWidgets.QDialog):
         }
         container_rows = self.app.conn.execute(
             """
-            SELECT id, COALESCE(display_name, key) AS name, COALESCE(storage_slot_count, 0) AS storage_slot_count
-            FROM items
-            WHERE COALESCE(is_storage_container, 0)=1
-            ORDER BY LOWER(COALESCE(display_name, key)), id
+            SELECT
+                i.id,
+                COALESCE(i.display_name, i.key) AS name,
+                COALESCE(i.storage_slot_count, 0) AS storage_slot_count,
+                CASE
+                    WHEN LOWER(COALESCE(content.kind, ''))='gas' THEN 'gas'
+                    WHEN LOWER(COALESCE(content.kind, ''))='fluid' THEN 'fluid'
+                    ELSE 'item'
+                END AS container_storage_kind
+            FROM items i
+            LEFT JOIN items content ON content.id = i.content_fluid_id
+            WHERE COALESCE(i.is_storage_container, 0)=1
+               OR COALESCE(i.storage_slot_count, 0)>0
+               OR i.content_fluid_id IS NOT NULL
+               OR COALESCE(i.content_qty_liters, 0)>0
+            ORDER BY LOWER(COALESCE(i.display_name, i.key)), i.id
             """
         ).fetchall()
         self._rows = [dict(r) for r in container_rows]
@@ -403,11 +415,18 @@ class StorageContainerPlacementsDialog(QtWidgets.QDialog):
                 owned_row = get_assignment(self.app.profile_conn, storage_id=int(main_storage_id), item_id=item_id)
                 ownership_map[item_id] = max(0, int(float((owned_row["qty_count"] if owned_row else 0) or 0)))
 
+        requested_by_item_id: dict[int, int] = {}
+        requested_types: set[str] = set()
+
         # Validate all requested placements before writing any rows.
         for idx, row in enumerate(self._rows):
             item_id = int(row["id"])
             spin = self.table.cellWidget(idx, 2)
             requested = int(spin.value()) if isinstance(spin, QtWidgets.QSpinBox) else 0
+            requested_by_item_id[item_id] = requested
+            if requested > 0:
+                requested_types.add(str(row.get("container_storage_kind") or "item").strip().lower())
+
             owned_total = ownership_map.get(item_id, 0)
             already_elsewhere = placed_container_count(
                 self.app.profile_conn,
@@ -428,10 +447,28 @@ class StorageContainerPlacementsDialog(QtWidgets.QDialog):
                 )
                 return
 
+        if len(requested_types) > 1:
+            QtWidgets.QMessageBox.warning(
+                self,
+                "Mixed container types",
+                "A storage can only contain one container storage type at a time (item, fluid, or gas).",
+            )
+            return
+
+        requested_type = next(iter(requested_types), None)
+        current_kind = str(self.storage.get("kind") or "").strip().lower()
+        normalized_kind = "fluid" if current_kind == "liquid" else current_kind
+        if requested_type and normalized_kind and normalized_kind != "generic" and requested_type != normalized_kind:
+            QtWidgets.QMessageBox.warning(
+                self,
+                "Storage kind mismatch",
+                f"This storage is '{current_kind}' but selected containers are '{requested_type}'.",
+            )
+            return
+
         for idx, row in enumerate(self._rows):
             item_id = int(row["id"])
-            spin = self.table.cellWidget(idx, 2)
-            placed = int(spin.value()) if isinstance(spin, QtWidgets.QSpinBox) else 0
+            placed = requested_by_item_id.get(item_id, 0)
             set_storage_container_placement(
                 self.app.profile_conn,
                 storage_id=storage_id,
@@ -442,6 +479,9 @@ class StorageContainerPlacementsDialog(QtWidgets.QDialog):
             # in the target storage (except Main Storage, which tracks global ownership).
             if main_storage_id is not None and storage_id != int(main_storage_id):
                 delete_assignment(self.app.profile_conn, storage_id=storage_id, item_id=item_id)
+
+        if requested_type and normalized_kind in ("", "generic"):
+            update_storage_unit(self.app.profile_conn, storage_id, kind=requested_type)
 
         recompute_storage_slot_capacities(self.app.profile_conn, content_conn=self.app.conn)
         self.app.profile_conn.commit()
