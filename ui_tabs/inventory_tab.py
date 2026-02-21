@@ -461,7 +461,7 @@ class InventoryTab(QtWidgets.QWidget):
             container_ids = {
                 int(candidate["id"])
                 for candidate in self.items
-                if int(self._item_value(candidate, "is_storage_container") or 0)
+                if self._is_storage_container_item(candidate)
             }
             fit = validate_storage_fit_for_item(
                 self.app.profile_conn,
@@ -474,19 +474,35 @@ class InventoryTab(QtWidgets.QWidget):
                 known_container_item_ids=container_ids,
             )
             if not fit["fits"]:
-                reasons: list[str] = []
-                if not fit["fits_slots"]:
-                    reasons.append(
-                        f"slots {fit['slot_usage']}/{fit['slot_count']} (overflow +{fit['slot_overflow']})"
-                    )
-                if not fit["fits_liters"]:
-                    reasons.append(
-                        f"liters {int(round(float(fit['liter_usage'])))}"
-                        f"/{int(round(float(fit['liter_capacity'])))}"
-                        f" (overflow +{int(round(float(fit['liter_overflow'])))} L)"
-                    )
-                self._show_storage_capacity_warning(reasons)
-                return
+                current_row = get_assignment(self.app.profile_conn, storage_id=storage_id, item_id=item["id"])
+                current_fit = validate_storage_fit_for_item(
+                    self.app.profile_conn,
+                    storage_id=storage_id,
+                    item_id=item["id"],
+                    qty_count=(current_row["qty_count"] if current_row else None),
+                    qty_liters=(current_row["qty_liters"] if current_row else None),
+                    item_max_stack_size=max(1, int(self._item_value(item, "max_stack_size") or 64)),
+                    known_item_stack_sizes=stack_sizes,
+                    known_container_item_ids=container_ids,
+                )
+                improving_or_equal = (
+                    int(fit["slot_overflow"] or 0) <= int(current_fit["slot_overflow"] or 0)
+                    and float(fit["liter_overflow"] or 0.0) <= float(current_fit["liter_overflow"] or 0.0)
+                )
+                if not improving_or_equal:
+                    reasons: list[str] = []
+                    if not fit["fits_slots"]:
+                        reasons.append(
+                            f"slots {fit['slot_usage']}/{fit['slot_count']} (overflow +{fit['slot_overflow']})"
+                        )
+                    if not fit["fits_liters"]:
+                        reasons.append(
+                            f"liters {int(round(float(fit['liter_usage'])))}"
+                            f"/{int(round(float(fit['liter_capacity'])))}"
+                            f" (overflow +{int(round(float(fit['liter_overflow'])))} L)"
+                        )
+                    self._show_storage_capacity_warning(reasons)
+                    return
 
         upsert_assignment(
             self.app.profile_conn,
@@ -552,7 +568,10 @@ class InventoryTab(QtWidgets.QWidget):
     def _is_storage_container_item(self, item: dict | None) -> bool:
         if not item:
             return False
-        return bool(int(self._item_value(item, "is_storage_container") or 0))
+        return bool(
+            int(self._item_value(item, "is_storage_container") or 0)
+            or int(self._item_value(item, "storage_slot_count") or 0) > 0
+        )
 
     def _container_slot_count_for_item(self, item: dict) -> int:
         return max(0, int(self._item_value(item, "storage_slot_count") or 0))

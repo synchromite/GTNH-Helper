@@ -79,7 +79,7 @@ class StorageUnitDialog(QtWidgets.QDialog):
         self.container_item_combo.addItem("(None)", None)
         self._container_item_slots: dict[int, int] = {}
         for row in self.app.conn.execute(
-            "SELECT id, COALESCE(display_name, key) AS name, storage_slot_count FROM items WHERE COALESCE(is_storage_container, 0)=1 ORDER BY name"
+            "SELECT id, COALESCE(display_name, key) AS name, storage_slot_count FROM items WHERE COALESCE(is_storage_container, 0)=1 OR COALESCE(storage_slot_count, 0)>0 ORDER BY name"
         ).fetchall():
             item_id = int(row["id"])
             self.container_item_combo.addItem(str(row["name"]), item_id)

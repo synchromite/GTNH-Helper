@@ -750,3 +750,114 @@ def test_machine_availability_uses_aggregate_owned_across_storages() -> None:
 
     tab.deleteLater()
     conn.close()
+
+
+def test_inventory_save_allows_reducing_quantity_when_storage_is_already_over_capacity(monkeypatch) -> None:
+    app = _get_app()
+
+    class DummyStatusBar:
+        def showMessage(self, _msg: str) -> None:
+            return None
+
+    class DummyApp:
+        def __init__(self) -> None:
+            self.profile_conn = connect_profile(":memory:")
+            self.status_bar = DummyStatusBar()
+
+        def notify_inventory_change(self) -> None:
+            return None
+
+    tab = InventoryTab(DummyApp())
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    row = _item_row(conn, name="Refined Iron Plate")
+
+    # Enable inventory management and force an over-capacity state.
+    tab.enable_inventory_management.setChecked(True)
+    tab.app.profile_conn.execute("UPDATE storage_units SET slot_count=2 WHERE name='Main Storage'")
+    tab.app.profile_conn.execute(
+        "INSERT INTO storage_assignments(storage_id, item_id, qty_count, qty_liters) VALUES(1, 2, 64, NULL)"
+    )
+    tab.app.profile_conn.execute(
+        "INSERT INTO storage_assignments(storage_id, item_id, qty_count, qty_liters) VALUES(1, 1, 192, NULL)"
+    )
+    tab.app.profile_conn.commit()
+
+    warnings: list[str] = []
+
+    def _warning(_parent, _title: str, message: str):
+        warnings.append(message)
+        return QtWidgets.QMessageBox.StandardButton.Ok
+
+    monkeypatch.setattr(tab, "_show_storage_capacity_warning", lambda reasons: warnings.append("\n".join(reasons)))
+    monkeypatch.setattr(QtWidgets.QMessageBox, "warning", _warning)
+
+    tab.render_items([row])
+    tab.storage_selector.setCurrentIndex(1)
+    tree = tab.inventory_trees["All"]
+    leaf = tree.topLevelItem(0).child(0).child(0).child(0)
+    tree.setCurrentItem(leaf)
+
+    tab.inventory_qty_entry.setText("128")
+    tab.save_inventory_item()
+    app.processEvents()
+
+    updated = tab.app.profile_conn.execute(
+        "SELECT qty_count FROM storage_assignments WHERE storage_id=1 AND item_id=1"
+    ).fetchone()
+    assert updated is not None
+    assert updated["qty_count"] == 128
+    assert warnings == []
+
+    tab.deleteLater()
+    conn.close()
+
+
+def test_inventory_container_placement_accepts_slot_based_container_without_flag() -> None:
+    app = _get_app()
+
+    class DummyStatusBar:
+        def showMessage(self, _msg: str) -> None:
+            return None
+
+    class DummyApp:
+        def __init__(self) -> None:
+            self.profile_conn = connect_profile(":memory:")
+            self.status_bar = DummyStatusBar()
+
+        def notify_inventory_change(self) -> None:
+            return None
+
+        def list_storage_units(self):
+            rows = self.profile_conn.execute("SELECT * FROM storage_units ORDER BY id").fetchall()
+            return [{"id": int(r["id"]), "name": str(r["name"])} for r in rows]
+
+        def get_active_storage_id(self):
+            return 1
+
+        def set_active_storage_id(self, _storage_id: int | None) -> None:
+            return None
+
+    tab = InventoryTab(DummyApp())
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    row = conn.execute(
+        "SELECT 1 AS id, 'Portable Drum' AS name, 'item' AS kind, 'container' AS item_kind_name, "
+        "NULL AS material_name, NULL AS machine_type, NULL AS machine_tier, 0 AS is_machine, "
+        "NULL AS crafting_grid_size, 64 AS max_stack_size, 0 AS is_storage_container, 54 AS storage_slot_count"
+    ).fetchone()
+
+    tab.render_items([row])
+    tab.storage_selector.setCurrentIndex(1)
+    tree = tab.inventory_trees["All"]
+    leaf = tree.topLevelItem(0).child(0).child(0)
+    tree.setCurrentItem(leaf)
+
+    tab.inventory_qty_entry.setText("3")
+    tab.save_inventory_item()
+    app.processEvents()
+
+    assert tab.container_placement_group.isVisible()
+
+    tab.deleteLater()
+    conn.close()
