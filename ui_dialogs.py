@@ -79,7 +79,15 @@ class StorageUnitDialog(QtWidgets.QDialog):
         self.container_item_combo.addItem("(None)", None)
         self._container_item_slots: dict[int, int] = {}
         for row in self.app.conn.execute(
-            "SELECT id, COALESCE(display_name, key) AS name, storage_slot_count FROM items WHERE COALESCE(is_storage_container, 0)=1 OR COALESCE(storage_slot_count, 0)>0 ORDER BY name"
+            """
+            SELECT id, COALESCE(display_name, key) AS name, storage_slot_count
+            FROM items
+            WHERE COALESCE(is_storage_container, 0)=1
+               OR COALESCE(storage_slot_count, 0)>0
+               OR content_fluid_id IS NOT NULL
+               OR COALESCE(content_qty_liters, 0)>0
+            ORDER BY name
+            """
         ).fetchall():
             item_id = int(row["id"])
             self.container_item_combo.addItem(str(row["name"]), item_id)
@@ -142,6 +150,10 @@ class StorageUnitDialog(QtWidgets.QDialog):
             self.slot_spin.setButtonSymbols(QtWidgets.QAbstractSpinBox.ButtonSymbols.UpDownArrows)
             return
         slots_per_unit = self._container_item_slots.get(int(item_id), 0)
+        if slots_per_unit <= 0:
+            self.slot_spin.setReadOnly(False)
+            self.slot_spin.setButtonSymbols(QtWidgets.QAbstractSpinBox.ButtonSymbols.UpDownArrows)
+            return
         placed = self.placed_spin.value()
         self.slot_spin.setReadOnly(True)
         self.slot_spin.setButtonSymbols(QtWidgets.QAbstractSpinBox.ButtonSymbols.NoButtons)
