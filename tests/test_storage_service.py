@@ -3,6 +3,7 @@ import sqlite3
 from services.db import connect_profile
 from services.storage import (
     MAIN_STORAGE_NAME,
+    adjust_assignment_qty_for_storage,
     aggregate_assignment_for_item,
     assignment_slot_usage,
     aggregated_assignment_rows,
@@ -305,5 +306,57 @@ def test_consume_assignment_qty_for_planner_uses_deterministic_tiebreaker(tmp_pa
         assert first_row is None
         assert second_row is not None
         assert int(second_row["qty_count"]) == 2
+    finally:
+        conn.close()
+
+
+def test_adjust_assignment_qty_for_storage_active_mode_preserves_locked_flag(tmp_path) -> None:
+    conn = connect_profile(tmp_path / "profile.db")
+    try:
+        storage_id = create_storage_unit(conn, name="Manual", allow_planner_use=False)
+        upsert_assignment(conn, storage_id=storage_id, item_id=77, qty_count=10, qty_liters=None, locked=True)
+        conn.commit()
+
+        remaining = adjust_assignment_qty_for_storage(
+            conn,
+            storage_id=storage_id,
+            item_id=77,
+            delta=-3,
+            item_kind="item",
+            respect_locked=False,
+        )
+        conn.commit()
+
+        assert remaining == 7
+        row = get_assignment(conn, storage_id=storage_id, item_id=77)
+        assert row is not None
+        assert int(row["qty_count"]) == 7
+        assert int(row["locked"]) == 1
+    finally:
+        conn.close()
+
+
+def test_adjust_assignment_qty_for_storage_can_enforce_locked_guard(tmp_path) -> None:
+    conn = connect_profile(tmp_path / "profile.db")
+    try:
+        storage_id = create_storage_unit(conn, name="Guarded")
+        upsert_assignment(conn, storage_id=storage_id, item_id=88, qty_count=9, qty_liters=None, locked=True)
+        conn.commit()
+
+        remaining = adjust_assignment_qty_for_storage(
+            conn,
+            storage_id=storage_id,
+            item_id=88,
+            delta=-4,
+            item_kind="item",
+            respect_locked=True,
+        )
+        conn.commit()
+
+        assert remaining == 9
+        row = get_assignment(conn, storage_id=storage_id, item_id=88)
+        assert row is not None
+        assert int(row["qty_count"]) == 9
+        assert int(row["locked"]) == 1
     finally:
         conn.close()

@@ -8,10 +8,8 @@ from services.planner import PlannerService
 from services.db import connect, connect_profile
 from services.storage import (
     default_storage_id,
-    delete_assignment,
+    adjust_assignment_qty_for_storage,
     consume_assignment_qty_for_planner,
-    get_assignment,
-    upsert_assignment,
 )
 from ui_dialogs import AddRecipeDialog, ItemPickerDialog
 
@@ -867,7 +865,6 @@ class PlannerTab(QtWidgets.QWidget):
         if not item:
             return
 
-        column = "qty_liters" if (item["kind"] or "").strip().lower() in ("fluid", "gas") else "qty_count"
 
         active_storage_id = self.app.get_active_storage_id() if hasattr(self.app, "get_active_storage_id") else None
         if delta < 0 and active_storage_id is None:
@@ -882,28 +879,14 @@ class PlannerTab(QtWidgets.QWidget):
             if storage_id is None:
                 return
 
-            row = get_assignment(self.app.profile_conn, storage_id=storage_id, item_id=item_id)
-            current_value = row[column] if row is not None else None
-            current = 0
-            if current_value is not None:
-                try:
-                    current = int(float(current_value))
-                except (TypeError, ValueError):
-                    current = 0
-
-            new_qty = max(current + delta, 0)
-            if new_qty <= 0:
-                delete_assignment(self.app.profile_conn, storage_id=storage_id, item_id=item_id)
-            else:
-                count_val = new_qty if column == "qty_count" else None
-                liter_val = new_qty if column == "qty_liters" else None
-                upsert_assignment(
-                    self.app.profile_conn,
-                    storage_id=storage_id,
-                    item_id=item_id,
-                    qty_count=count_val,
-                    qty_liters=liter_val,
-                )
+            adjust_assignment_qty_for_storage(
+                self.app.profile_conn,
+                storage_id=storage_id,
+                item_id=item_id,
+                delta=delta,
+                item_kind=str(item.get("kind") or ""),
+                respect_locked=False,
+            )
         if commit:
             self.app.profile_conn.commit()
 

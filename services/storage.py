@@ -293,6 +293,48 @@ def planner_consumption_candidates(
     return [dict(row) for row in rows]
 
 
+
+
+def adjust_assignment_qty_for_storage(
+    conn: sqlite3.Connection,
+    *,
+    storage_id: int,
+    item_id: int,
+    delta: int,
+    item_kind: str,
+    respect_locked: bool = False,
+) -> int:
+    qty_column = "qty_liters" if (item_kind or "").strip().lower() in ("fluid", "gas") else "qty_count"
+    row = get_assignment(conn, storage_id=storage_id, item_id=item_id)
+    if row is not None and respect_locked and int(row["locked"] or 0) == 1:
+        current_raw = row[qty_column]
+        try:
+            return max(int(float(current_raw or 0)), 0)
+        except (TypeError, ValueError):
+            return 0
+
+    current_raw = row[qty_column] if row is not None else None
+    try:
+        current_qty = int(float(current_raw or 0))
+    except (TypeError, ValueError):
+        current_qty = 0
+
+    new_qty = max(current_qty + int(delta or 0), 0)
+    if new_qty <= 0:
+        delete_assignment(conn, storage_id=storage_id, item_id=item_id)
+        return 0
+
+    row_locked = bool(int(row["locked"] or 0)) if row is not None else False
+    upsert_assignment(
+        conn,
+        storage_id=storage_id,
+        item_id=item_id,
+        qty_count=(new_qty if qty_column == "qty_count" else None),
+        qty_liters=(new_qty if qty_column == "qty_liters" else None),
+        locked=row_locked,
+    )
+    return new_qty
+
 def consume_assignment_qty_for_planner(
     conn: sqlite3.Connection,
     *,
