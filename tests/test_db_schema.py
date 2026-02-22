@@ -32,6 +32,7 @@ def test_ensure_schema_creates_tables_and_defaults():
 
     transform_columns = _table_columns(conn, "item_container_transforms")
     assert "priority" in transform_columns
+    assert "empty_item_is_consumed" in transform_columns
 
     item_columns = _table_columns(conn, "items")
     for column in (
@@ -50,7 +51,7 @@ def test_ensure_schema_creates_tables_and_defaults():
         assert column in item_columns
 
     recipe_columns = _table_columns(conn, "recipes")
-    for column in ("method", "grid_size", "station_item_id", "machine_item_id"):
+    for column in ("method", "grid_size", "station_item_id", "machine_item_id", "max_tier", "is_perfect_overclock"):
         assert column in recipe_columns
 
     metadata_columns = _table_columns(conn, "machine_metadata")

@@ -31,10 +31,20 @@ def _insert_item(
     return conn.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
 
 
-def _insert_recipe(conn, *, name, method="crafting", duration_ticks=None, eu_per_tick=None):
+def _insert_recipe(
+    conn,
+    *,
+    name,
+    method="crafting",
+    duration_ticks=None,
+    eu_per_tick=None,
+    tier=None,
+    max_tier=None,
+    is_perfect_overclock=0,
+):
     conn.execute(
-        "INSERT INTO recipes(name, method, duration_ticks, eu_per_tick) VALUES(?, ?, ?, ?)",
-        (name, method, duration_ticks, eu_per_tick),
+        "INSERT INTO recipes(name, method, duration_ticks, eu_per_tick, tier, max_tier, is_perfect_overclock) VALUES(?, ?, ?, ?, ?, ?, ?)",
+        (name, method, duration_ticks, eu_per_tick, tier, max_tier, is_perfect_overclock),
     )
     return conn.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
 
@@ -824,6 +834,20 @@ def test_apply_overclock_scales_duration_and_power():
     assert scaled_eu == 128
 
 
+
+
+def test_apply_overclock_supports_perfect_overclock_speed_scaling():
+    scaled_duration, scaled_eu = apply_overclock(256, 32, "LV", "HV", is_perfect_overclock=True)
+
+    assert scaled_duration == 16
+    assert scaled_eu == 512
+
+
+def test_apply_overclock_rejects_machine_above_recipe_max_tier():
+    scaled_duration, scaled_eu = apply_overclock(200, 32, "LV", "EV", max_tier="HV")
+
+    assert scaled_duration is None
+    assert scaled_eu is None
 def test_apply_overclock_rejects_lower_tier_machine():
     scaled_duration, scaled_eu = apply_overclock(200, 32, "MV", "LV")
 
@@ -1163,6 +1187,56 @@ def test_plan_applies_empty_only_transform_for_non_fluid_container_emptying():
     assert [step.recipe_name for step in result.steps] == ["Emptying", "Make Hydrogen Mix"]
     assert result.steps[0].byproducts == [(canister_empty, "Titanium Canister", 1, "count", 100.0)]
 
+
+
+
+def test_plan_does_not_return_consumed_empty_container_byproduct():
+    conn = _setup_conn()
+    profile_conn = connect_profile(":memory:")
+
+    water = _insert_item(conn, key="water", name="Water", kind="fluid")
+    vial_empty = _insert_item(conn, key="vial_empty", name="Fragile Vial", kind="item")
+    vial_full = _insert_item(
+        conn,
+        key="vial_water",
+        name="Water Vial",
+        kind="item",
+        content_fluid_id=water,
+        content_qty_liters=250,
+    )
+    output = _insert_item(conn, key="hydrated_dust", name="Hydrated Dust")
+
+    conn.execute(
+        """
+        INSERT INTO item_container_transforms(
+            container_item_id,
+            empty_item_id,
+            empty_item_is_consumed,
+            content_item_id,
+            content_qty,
+            transform_kind
+        ) VALUES(?,?,?,?,?,?)
+        """,
+        (vial_full, vial_empty, 1, water, 250, "empty_only"),
+    )
+
+    recipe = _insert_recipe(conn, name="Wet Blend")
+    _insert_line(conn, recipe_id=recipe, direction="out", item_id=output, qty_count=1)
+    _insert_line(conn, recipe_id=recipe, direction="in", item_id=water, qty_liters=250)
+
+    planner = PlannerService(conn, profile_conn)
+    result = planner.plan(
+        output,
+        1,
+        use_inventory=True,
+        enabled_tiers=[],
+        crafting_6x6_unlocked=True,
+        inventory_override={vial_full: 1},
+    )
+
+    assert result.errors == []
+    assert result.steps[0].recipe_name == "Emptying"
+    assert result.steps[0].byproducts == []
 
 def test_plan_does_not_apply_empty_only_transform_for_filling_request():
     conn = _setup_conn()

@@ -515,6 +515,8 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
 
         circuit INTEGER,
         tier TEXT,
+        max_tier TEXT,
+        is_perfect_overclock INTEGER NOT NULL DEFAULT 0,
         duration_ticks INTEGER,
         eu_per_tick INTEGER,
         notes TEXT,
@@ -534,6 +536,10 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE recipes ADD COLUMN machine_item_id INTEGER")
     if not _has_col("recipes", "duplicate_of_recipe_id"):
         conn.execute("ALTER TABLE recipes ADD COLUMN duplicate_of_recipe_id INTEGER")
+    if not _has_col("recipes", "max_tier"):
+        conn.execute("ALTER TABLE recipes ADD COLUMN max_tier TEXT")
+    if not _has_col("recipes", "is_perfect_overclock"):
+        conn.execute("ALTER TABLE recipes ADD COLUMN is_perfect_overclock INTEGER NOT NULL DEFAULT 0")
 
     conn.execute(
         """
@@ -561,6 +567,7 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
         priority INTEGER NOT NULL DEFAULT 0,
         container_item_id INTEGER NOT NULL,
         empty_item_id INTEGER NOT NULL,
+        empty_item_is_consumed INTEGER NOT NULL DEFAULT 0,
         content_item_id INTEGER NOT NULL,
         content_qty INTEGER NOT NULL CHECK(content_qty > 0),
         transform_kind TEXT NOT NULL DEFAULT 'bidirectional' CHECK(transform_kind IN ('bidirectional', 'empty_only', 'fill_only')),
@@ -582,6 +589,10 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE recipe_lines ADD COLUMN consumption_chance REAL DEFAULT 1.0")
     if not _has_col("item_container_transforms", "priority"):
         conn.execute("ALTER TABLE item_container_transforms ADD COLUMN priority INTEGER NOT NULL DEFAULT 0")
+    if not _has_col("item_container_transforms", "empty_item_is_consumed"):
+        conn.execute(
+            "ALTER TABLE item_container_transforms ADD COLUMN empty_item_is_consumed INTEGER NOT NULL DEFAULT 0"
+        )
     def _get_user_version() -> int:
         row = conn.execute("PRAGMA user_version").fetchone()
         return int(row[0]) if row else 0

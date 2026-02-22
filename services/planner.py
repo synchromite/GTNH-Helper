@@ -50,6 +50,9 @@ def apply_overclock(
     eu_per_tick: float | int | None,
     recipe_tier: str | None,
     machine_tier: str | None,
+    *,
+    is_perfect_overclock: bool = False,
+    max_tier: str | None = None,
 ) -> tuple[int | None, int | None]:
     if not machine_tier:
         return duration_ticks, eu_per_tick
@@ -58,6 +61,11 @@ def apply_overclock(
     if recipe_rank is None or machine_rank is None or machine_rank == recipe_rank:
         return duration_ticks, eu_per_tick
     diff = machine_rank - recipe_rank
+
+    if max_tier:
+        max_rank = _tier_rank(max_tier)
+        if max_rank is not None and machine_rank > max_rank:
+            return None, None
 
     # GTNH does not support "underclocking" into lower-tier machines.
     # If the available machine tier is lower than the recipe requirement,
@@ -70,7 +78,8 @@ def apply_overclock(
         duration_value = float(duration_ticks)
         if duration_value > 0:
             if diff > 0:
-                scaled_duration = max(1, int(math.ceil(duration_value / (2**diff))))
+                speed_multiplier = 4 if is_perfect_overclock else 2
+                scaled_duration = max(1, int(math.ceil(duration_value / (speed_multiplier**diff))))
             else:
                 scaled_duration = max(1, int(math.ceil(duration_value * (2 ** abs(diff)))))
 
@@ -810,7 +819,7 @@ class PlannerService:
         # 1. Fetch ALL recipes, calculating separate input counts for items vs fluids
         sql = (
             "SELECT r.id, r.name, r.method, r.machine, r.machine_item_id, r.grid_size, "
-            "r.station_item_id, r.circuit, r.tier, r.duration_ticks, r.eu_per_tick, "
+            "r.station_item_id, r.circuit, r.tier, r.max_tier, r.is_perfect_overclock, r.duration_ticks, r.eu_per_tick, "
             "mi.machine_tier AS machine_item_tier, "
             "COALESCE(mi.display_name, mi.key) AS machine_item_name, "
             # Calculate item input count vs fluid input count
@@ -887,11 +896,14 @@ class PlannerService:
                 if method == "machine" and machine_tier:
                     required_rank = _tier_rank(req_tier)
                     machine_rank = _tier_rank(machine_tier)
+                    max_rank = _tier_rank((row["max_tier"] or "").strip())
                     if (
                         required_rank is not None
                         and machine_rank is not None
                         and machine_rank < required_rank
                     ):
+                        avail_score = 3
+                    if max_rank is not None and machine_rank is not None and machine_rank > max_rank:
                         avail_score = 3
 
                 if avail_score > 0:
@@ -918,6 +930,8 @@ class PlannerService:
                 row["eu_per_tick"],
                 req_tier,
                 machine_tier,
+                is_perfect_overclock=bool(row["is_perfect_overclock"]),
+                max_tier=row["max_tier"],
             )
             duration_value = scaled_duration
             if method == "crafting":
@@ -1176,7 +1190,7 @@ class PlannerService:
                 self._unit_for_kind(empty_container["kind"]),
                 100.0,
             )
-        ]
+        ] if not bool(transform.get("empty_item_is_consumed")) else []
 
     def _load_container_transforms(self, items: dict[int, dict]) -> list[dict]:
         rows = self.conn.execute(
@@ -1186,6 +1200,7 @@ class PlannerService:
                 priority,
                 container_item_id,
                 empty_item_id,
+                empty_item_is_consumed,
                 content_item_id,
                 content_qty,
                 transform_kind
@@ -1210,6 +1225,7 @@ class PlannerService:
                     "container_item_id": container_id,
                     "container_name": items[container_id]["name"],
                     "empty_item_id": empty_id,
+                    "empty_item_is_consumed": bool(row["empty_item_is_consumed"]),
                     "content_item_id": content_id,
                     "content_qty": int(row["content_qty"] or 0),
                     "direction": self._transform_kind_direction(row["transform_kind"]),

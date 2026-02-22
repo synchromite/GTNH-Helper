@@ -165,7 +165,7 @@ class InventoryTab(QtWidgets.QWidget):
         self.container_placement_group.setVisible(False)
         right.addWidget(self.container_placement_group)
 
-        tip = QtWidgets.QLabel("Tip: items use counts; fluids and gases use liters (L).")
+        tip = QtWidgets.QLabel("Tip: items use counts; fluids and gases use liters (L), where 1 L = 1 mB.")
         tip.setStyleSheet("color: #666;")
         right.addWidget(tip)
         right.addStretch(1)

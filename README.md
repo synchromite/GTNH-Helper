@@ -15,6 +15,7 @@ A recipe database browser and inventory helper for GregTech New Horizons.
 - **Capacity-aware validation**: slot/liter fit checks with stack-size-aware slot math and container placement tracking.
 - **Editor mode** (optional) for adding/editing items, recipes, materials, item kinds, and machine metadata.
 - **Container transform manager** (editor mode) for explicit fill/empty mapping rows used by planner transform handling.
+- **Fluid unit convention:** all fluid/gas quantities are stored and displayed as liters (`L`) where **1 L = 1 mB**.
 - **Tab customization**: enable/disable, reorder, and detach tabs.
 - **Theme toggle**: light/dark theme switching.
 - **DB utilities**: open, export content/profile DBs, and merge content DBs (editor mode only).

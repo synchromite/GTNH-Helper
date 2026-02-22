@@ -16,6 +16,7 @@ def fetch_container_transforms(conn: sqlite3.Connection) -> list[sqlite3.Row]:
             c.display_name AS container_name,
             t.empty_item_id,
             e.display_name AS empty_name,
+            t.empty_item_is_consumed,
             t.content_item_id,
             i.display_name AS content_name,
             i.kind AS content_kind,
@@ -41,8 +42,9 @@ def replace_container_transforms(conn: sqlite3.Connection, rows: list[dict]) -> 
                 empty_item_id,
                 content_item_id,
                 content_qty,
-                transform_kind
-            ) VALUES(?,?,?,?,?,?)
+                transform_kind,
+                empty_item_is_consumed
+            ) VALUES(?,?,?,?,?,?,?)
             """,
             [
                 (
@@ -52,6 +54,7 @@ def replace_container_transforms(conn: sqlite3.Connection, rows: list[dict]) -> 
                     int(row["content_item_id"]),
                     int(row["content_qty"]),
                     str(row["transform_kind"]),
+                    1 if bool(row.get("empty_item_is_consumed")) else 0,
                 )
                 for row in rows
             ],

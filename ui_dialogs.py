@@ -2217,11 +2217,21 @@ class _RecipeDialogBase(QtWidgets.QDialog):
         self.tier_combo.addItems([NONE_TIER_LABEL] + list(enabled_tiers))
         form.addWidget(self.tier_combo, 2, 3)
 
+        self.max_tier_label = QtWidgets.QLabel("Max Tier")
+        form.addWidget(self.max_tier_label, 3, 2)
+        self.max_tier_combo = QtWidgets.QComboBox()
+        self.max_tier_combo.addItems([NONE_TIER_LABEL] + list(enabled_tiers))
+        form.addWidget(self.max_tier_combo, 3, 3)
+
         self.circuit_label = QtWidgets.QLabel("Circuit")
         form.addWidget(self.circuit_label, 3, 0)
         self.circuit_edit = QtWidgets.QLineEdit()
         self.circuit_edit.setValidator(QtGui.QIntValidator(0, 10**9))
         form.addWidget(self.circuit_edit, 3, 1)
+
+        self.perfect_overclock_check = QtWidgets.QCheckBox("Perfect overclock (4x speed / 4x EU)")
+        self.perfect_overclock_check.setChecked(False)
+        form.addWidget(self.perfect_overclock_check, 5, 2, 1, 2)
 
         self.station_label = QtWidgets.QLabel("Station")
         self.station_edit = QtWidgets.QLineEdit()
@@ -2338,6 +2348,9 @@ class _RecipeDialogBase(QtWidgets.QDialog):
 
         self.station_label.setVisible(is_crafting)
         self.station_frame.setVisible(is_crafting)
+        self.max_tier_label.setVisible(not is_crafting)
+        self.max_tier_combo.setVisible(not is_crafting)
+        self.perfect_overclock_check.setVisible(not is_crafting)
         if is_crafting:
             self._apply_station_grid_size()
             self._refresh_crafting_grid()
@@ -2630,6 +2643,12 @@ class _RecipeDialogBase(QtWidgets.QDialog):
             raise ValueError("Must be zero or greater.")
         return v
 
+    def _get_overclock_values(self) -> tuple[str | None, int]:
+        max_tier_raw = (self.max_tier_combo.currentText() or "").strip()
+        max_tier = None if (max_tier_raw == "" or max_tier_raw == NONE_TIER_LABEL) else max_tier_raw
+        is_perfect_overclock = 1 if self.perfect_overclock_check.isChecked() else 0
+        return max_tier, is_perfect_overclock
+
     @staticmethod
     def _canonical_name(name: str) -> str:
         return " ".join((name or "").split()).strip().casefold()
@@ -2654,14 +2673,16 @@ class _RecipeDialogBase(QtWidgets.QDialog):
         duration_ticks: int | None,
         eut: int | None,
         notes: str | None,
+        max_tier: str | None,
+        is_perfect_overclock: int,
         duplicate_of_recipe_id: int | None = None,
     ) -> int:
         cur = self.app.conn.execute(
             """INSERT INTO recipes(
                    name, method, machine, machine_item_id, grid_size, station_item_id,
-                   circuit, tier, duration_ticks, eu_per_tick, notes, duplicate_of_recipe_id
+                   circuit, tier, duration_ticks, eu_per_tick, notes, max_tier, is_perfect_overclock, duplicate_of_recipe_id
                )
-               VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+               VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 name,
                 method_db,
@@ -2674,6 +2695,8 @@ class _RecipeDialogBase(QtWidgets.QDialog):
                 duration_ticks,
                 eut,
                 notes,
+                max_tier,
+                is_perfect_overclock,
                 duplicate_of_recipe_id,
             ),
         )
@@ -2756,6 +2779,8 @@ class _RecipeDialogBase(QtWidgets.QDialog):
         duration_ticks: int | None,
         eut: int | None,
         notes: str | None,
+        max_tier: str | None,
+        is_perfect_overclock: int,
     ) -> None:
         desired: dict[str, dict[str, str | int]] = {}
         for line in self.outputs:
@@ -2796,7 +2821,7 @@ class _RecipeDialogBase(QtWidgets.QDialog):
                 self.app.conn.execute(
                     """UPDATE recipes SET
                        name=?, method=?, machine=?, machine_item_id=?, grid_size=?, station_item_id=?,
-                       circuit=?, tier=?, duration_ticks=?, eu_per_tick=?, notes=?, duplicate_of_recipe_id=?
+                       circuit=?, tier=?, duration_ticks=?, eu_per_tick=?, notes=?, max_tier=?, is_perfect_overclock=?, duplicate_of_recipe_id=?
                        WHERE id=?""",
                     (
                         name,
@@ -2810,6 +2835,8 @@ class _RecipeDialogBase(QtWidgets.QDialog):
                         duration_ticks,
                         eut,
                         notes,
+                        max_tier,
+                        is_perfect_overclock,
                         base_recipe_id,
                         row["id"],
                     ),
@@ -2830,6 +2857,8 @@ class _RecipeDialogBase(QtWidgets.QDialog):
                 duration_ticks,
                 eut,
                 notes,
+                max_tier,
+                is_perfect_overclock,
                 duplicate_of_recipe_id=base_recipe_id,
             )
             self._insert_recipe_lines(new_id)
@@ -3090,6 +3119,10 @@ class AddRecipeDialog(_RecipeDialogBase):
                 line["input_slot_index"] = None
         tier_raw = (self.tier_combo.currentText() or "").strip()
         tier = None if (tier_raw == "" or tier_raw == NONE_TIER_LABEL) else tier_raw
+        max_tier, is_perfect_overclock = self._get_overclock_values()
+        if method_db == "crafting":
+            max_tier = None
+            is_perfect_overclock = 0
         notes = self.notes_edit.toPlainText().strip() or None
         if not self.additional_notes_check.isChecked():
             notes = None
@@ -3123,6 +3156,8 @@ class AddRecipeDialog(_RecipeDialogBase):
                 duration_ticks,
                 eut,
                 notes,
+                max_tier,
+                is_perfect_overclock,
             )
             self.app.recipe_focus_id = int(recipe_id)
 
@@ -3140,6 +3175,8 @@ class AddRecipeDialog(_RecipeDialogBase):
                 duration_ticks,
                 eut,
                 notes,
+                max_tier,
+                is_perfect_overclock,
             )
 
             self.app.conn.commit()
@@ -3162,14 +3199,6 @@ class EditRecipeDialog(_RecipeDialogBase):
         super().__init__(app, "Edit Recipe", parent=parent)
         self._set_variant_visible(False)
         self.variant_combo.currentIndexChanged.connect(self._on_variant_change)
-        self.tier_label.setVisible(False)
-        self.tier_combo.setVisible(False)
-        self.circuit_label.setVisible(False)
-        self.circuit_edit.setVisible(False)
-        self.duration_label.setVisible(False)
-        self.duration_edit.setVisible(False)
-        self.eut_label.setVisible(False)
-        self.eut_edit.setVisible(False)
         self._load_recipe(recipe_id)
 
         self.btn_edit_input = QtWidgets.QPushButton("Edit")
@@ -3229,6 +3258,15 @@ class EditRecipeDialog(_RecipeDialogBase):
         self.tier_combo.clear()
         self.tier_combo.addItems(values)
         self.tier_combo.setCurrentText(current_tier or NONE_TIER_LABEL)
+
+        current_max_tier = (r["max_tier"] or "").strip()
+        max_tier_values = list(values)
+        if current_max_tier and current_max_tier not in max_tier_values:
+            max_tier_values.append(current_max_tier)
+        self.max_tier_combo.clear()
+        self.max_tier_combo.addItems(max_tier_values)
+        self.max_tier_combo.setCurrentText(current_max_tier or NONE_TIER_LABEL)
+        self.perfect_overclock_check.setChecked(bool(r["is_perfect_overclock"]))
 
         self.circuit_edit.setText("" if r["circuit"] is None else str(r["circuit"]))
         seconds = "" if r["duration_ticks"] is None else f"{(r['duration_ticks'] / TPS):g}"
@@ -3432,6 +3470,10 @@ class EditRecipeDialog(_RecipeDialogBase):
                 line["input_slot_index"] = None
         tier_raw = (self.tier_combo.currentText() or "").strip()
         tier = None if (tier_raw == "" or tier_raw == NONE_TIER_LABEL) else tier_raw
+        max_tier, is_perfect_overclock = self._get_overclock_values()
+        if method_db == "crafting":
+            max_tier = None
+            is_perfect_overclock = 0
         notes = self.notes_edit.toPlainText().strip() or None
         if not self.additional_notes_check.isChecked():
             notes = None
@@ -3458,10 +3500,10 @@ class EditRecipeDialog(_RecipeDialogBase):
             self.app.conn.execute(
                 """UPDATE recipes SET 
                    name=?, method=?, machine=?, machine_item_id=?, grid_size=?, station_item_id=?, 
-                   circuit=?, tier=?, duration_ticks=?, eu_per_tick=?, notes=?
+                   circuit=?, tier=?, duration_ticks=?, eu_per_tick=?, notes=?, max_tier=?, is_perfect_overclock=?
                    WHERE id=?""",
                 (name, method_db, machine, machine_item_id, grid_size, station_item_id, 
-                 circuit, tier, duration_ticks, eut, notes, self.recipe_id),
+                 circuit, tier, duration_ticks, eut, notes, max_tier, is_perfect_overclock, self.recipe_id),
             )
             
             # Delete old lines
@@ -3483,6 +3525,8 @@ class EditRecipeDialog(_RecipeDialogBase):
                     duration_ticks,
                     eut,
                     notes,
+                    max_tier,
+                    is_perfect_overclock,
                 )
 
             self.app.conn.commit()
