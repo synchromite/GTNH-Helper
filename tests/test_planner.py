@@ -1450,6 +1450,31 @@ def test_pick_recipe_returns_none_when_all_machine_variants_exceed_capacity():
     assert picked is None
 
 
+
+def test_pick_recipe_does_not_filter_machine_when_metadata_missing():
+    conn = _setup_conn()
+    profile_conn = connect_profile(":memory:")
+
+    fluid = _insert_item(conn, key="meta_missing_fluid", name="Fluid", kind="fluid", is_base=1)
+    output_item = _insert_item(conn, key="meta_missing_output", name="Output")
+    machine = _insert_item(conn, key="meta_missing_machine", name="Unknown Machine")
+
+    recipe_id = _insert_recipe(conn, name="Unknown Machine Recipe", method="machine")
+    _insert_line(conn, recipe_id=recipe_id, direction="out", item_id=output_item, qty_count=1)
+    _insert_line(conn, recipe_id=recipe_id, direction="in", item_id=fluid, qty_liters=1000)
+    conn.execute("UPDATE recipes SET machine_item_id=? WHERE id=?", (machine, recipe_id))
+
+    planner = PlannerService(conn, profile_conn)
+    picked = planner._pick_recipe_for_item(
+        output_item,
+        enabled_tiers=[],
+        crafting_6x6_unlocked=True,
+        items=planner._load_items(),
+    )
+
+    assert picked is not None
+    assert picked["id"] == recipe_id
+
 def test_pick_recipe_handles_zero_output_qty_without_division_errors():
     conn = _setup_conn()
     profile_conn = connect_profile(":memory:")

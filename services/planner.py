@@ -605,6 +605,7 @@ class PlannerService:
                 COALESCE(mm.input_tanks, 0) AS machine_input_tanks,
                 COALESCE(mm.input_tank_capacity_l, 0) AS machine_input_tank_capacity_l,
                 COALESCE(mm.output_tanks, 0) AS machine_output_tanks,
+                CASE WHEN mm.machine_type IS NULL THEN 0 ELSE 1 END AS machine_metadata_known,
                 COALESCE(mm.output_tank_capacity_l, 0) AS machine_output_tank_capacity_l,
                 i.material_id
             FROM items i 
@@ -860,6 +861,8 @@ class PlannerService:
                 return True
             m_item = items.get(machine_item_id)
             if not m_item:
+                return True
+            if int(m_item["machine_metadata_known"] or 0) == 0:
                 return True
             req_items = int(row["item_req_count"] or 0)
             req_fluids = int(row["fluid_req_count"] or 0)
