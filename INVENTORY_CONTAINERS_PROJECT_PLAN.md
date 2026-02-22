@@ -14,6 +14,7 @@ Add first-class inventory container management (chests/drawers/barrels/tanks) wh
 - Keep planner compatibility by aggregating per-storage inventory into a global view.
 - Add storage-aware UX in inventory management with an explicit active storage selector.
 - Defer advanced policies/capacity constraints until baseline architecture is proven useful.
+- Current implementation remains within near-term scope; migration hardening and broad UX polish are still intentionally deferred.
 
 ## Non-Goals (Near Term)
 - Legacy profile migration and upgrade-path hardening.
@@ -220,7 +221,7 @@ Add first-class inventory container management (chests/drawers/barrels/tanks) wh
 
 ---
 
-## Milestone 6: Generic Container Transform System (Optional)
+## Milestone 6: Generic Container Transform System (Optional, Partially Implemented)
 **Outcome:** Extend fluid emptying into a general transform framework.
 
 ### Issues
@@ -252,6 +253,10 @@ Add first-class inventory container management (chests/drawers/barrels/tanks) wh
 - **PR 1 (schema/services):** transform schema + CRUD service + unit tests.
 - **PR 2 (planner):** generic transform pass + fluid compatibility regression.
 - **PR 3 (ui):** transform editor + non-fluid transform integration test.
+
+### Current Status
+- Core transform schema and planner loading support are implemented.
+- Remaining scope is primarily editor UX/workflow hardening and broader non-fluid transform coverage.
 
 ### Exit Criteria
 - Fluid behavior is unchanged and at least one non-fluid transform works end-to-end.
