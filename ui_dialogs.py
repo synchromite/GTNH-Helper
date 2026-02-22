@@ -4222,15 +4222,14 @@ class MaterialManagerDialog(QtWidgets.QDialog):
     def _duplicate_selected_rows(self) -> None:
         rows = sorted({idx.row() for idx in self.table.selectionModel().selectedRows()})
         for row_idx in rows:
-            row = {
-                "priority": int((self.table.item(row_idx, 0).text() if self.table.item(row_idx, 0) else "0").strip() or "0"),
-                "container_item_id": int(self.table.cellWidget(row_idx, 1).currentData() or 0),
-                "empty_item_id": int(self.table.cellWidget(row_idx, 2).currentData() or 0),
-                "content_item_id": int(self.table.cellWidget(row_idx, 3).currentData() or 0),
-                "content_qty": int((self.table.item(row_idx, 4).text() if self.table.item(row_idx, 4) else "1000").strip() or "1000"),
-                "transform_kind": str(self.table.cellWidget(row_idx, 5).currentData() or "bidirectional"),
-            }
-            self._add_row(row)
+            name_item = self.table.item(row_idx, 0)
+            attrs_item = self.table.item(row_idx, 1)
+            self._add_row(
+                {
+                    "name": (name_item.text() if name_item else "").strip(),
+                    "attributes": (attrs_item.text() if attrs_item else "").strip(),
+                }
+            )
 
     def _validate_rows(self) -> list[dict] | None:
         rows: list[dict] = []
@@ -4345,6 +4344,18 @@ class TierManagerDialog(QtWidgets.QDialog):
         for row_idx in rows:
             self.table.removeRow(row_idx)
 
+    def _duplicate_selected_rows(self) -> None:
+        rows = sorted({idx.row() for idx in self.table.selectionModel().selectedRows()})
+        for row_idx in rows:
+            name_item = self.table.item(row_idx, 0)
+            order_item = self.table.item(row_idx, 1)
+            self._add_row(
+                {
+                    "name": (name_item.text() if name_item else "").strip(),
+                    "order": (order_item.text() if order_item else "").strip() or str(row_idx + 1),
+                }
+            )
+
     def _validate_rows(self) -> list[str] | None:
         rows: list[tuple[int, str]] = []
         seen: set[str] = set()
@@ -4458,6 +4469,12 @@ class CraftingGridManagerDialog(QtWidgets.QDialog):
         rows = sorted({idx.row() for idx in self.table.selectionModel().selectedRows()}, reverse=True)
         for row_idx in rows:
             self.table.removeRow(row_idx)
+
+    def _duplicate_selected_rows(self) -> None:
+        rows = sorted({idx.row() for idx in self.table.selectionModel().selectedRows()})
+        for row_idx in rows:
+            size_item = self.table.item(row_idx, 0)
+            self._add_row({"size": (size_item.text() if size_item else "").strip()})
 
     @staticmethod
     def _parse_grid_size(value: str) -> tuple[int, int] | None:
@@ -4611,6 +4628,24 @@ class ItemKindManagerDialog(QtWidgets.QDialog):
                 )
                 continue
             self.table.removeRow(row_idx)
+
+    def _duplicate_selected_rows(self) -> None:
+        rows = sorted({idx.row() for idx in self.table.selectionModel().selectedRows()})
+        for row_idx in rows:
+            name_item = self.table.item(row_idx, 0)
+            sort_item = self.table.item(row_idx, 1)
+            applies_combo = self.table.cellWidget(row_idx, 2)
+            applies_to = "item"
+            if isinstance(applies_combo, QtWidgets.QComboBox):
+                applies_to = "fluid" if (applies_combo.currentText() or "").strip().lower() == "fluid" else "item"
+            self._add_row(
+                {
+                    "name": (name_item.text() if name_item else "").strip(),
+                    "sort_order": int((sort_item.text() if sort_item else "0").strip() or "0"),
+                    "applies_to": applies_to,
+                    "is_builtin": 0,
+                }
+            )
 
     def _validate_rows(self) -> list[dict] | None:
         rows: list[dict] = []
