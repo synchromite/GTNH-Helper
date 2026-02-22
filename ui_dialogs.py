@@ -306,7 +306,10 @@ class StorageContainerPlacementsDialog(QtWidgets.QDialog):
                 COALESCE(i.content_qty_liters, 0) AS content_qty_liters,
                 CASE
                     WHEN LOWER(COALESCE(content.kind, ''))='gas' THEN 'gas'
-                    WHEN LOWER(COALESCE(content.kind, ''))='fluid' THEN 'fluid'
+                    WHEN LOWER(COALESCE(content.kind, '')) IN ('fluid', 'liquid') THEN 'fluid'
+                    WHEN LOWER(COALESCE(i.kind, ''))='gas' THEN 'gas'
+                    WHEN LOWER(COALESCE(i.kind, '')) IN ('fluid', 'liquid') THEN 'fluid'
+                    WHEN COALESCE(i.content_qty_liters, 0) > 0 THEN 'fluid'
                     ELSE 'item'
                 END AS container_storage_kind
             FROM items i

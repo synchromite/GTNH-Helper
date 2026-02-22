@@ -478,14 +478,25 @@ def recompute_storage_slot_capacities(
     item_cols = {row["name"] for row in source.execute("PRAGMA table_info(items)").fetchall()}
     has_content_qty = "content_qty_liters" in item_cols
     has_content_fluid = "content_fluid_id" in item_cols
+    has_kind = "kind" in item_cols
 
     qty_expr = "COALESCE(i.content_qty_liters, 0)" if has_content_qty else "0"
     join_clause = "LEFT JOIN items content ON content.id = i.content_fluid_id" if has_content_fluid else ""
-    kind_expr = (
-        "CASE WHEN LOWER(COALESCE(content.kind, ''))='gas' THEN 'gas' WHEN LOWER(COALESCE(content.kind, ''))='fluid' THEN 'fluid' ELSE 'item' END"
-        if has_content_fluid
-        else "'item'"
-    )
+
+    kind_checks: list[str] = []
+    if has_content_fluid:
+        kind_checks.extend([
+            "WHEN LOWER(COALESCE(content.kind, ''))='gas' THEN 'gas'",
+            "WHEN LOWER(COALESCE(content.kind, '')) IN ('fluid', 'liquid') THEN 'fluid'",
+        ])
+    if has_kind:
+        kind_checks.extend([
+            "WHEN LOWER(COALESCE(i.kind, ''))='gas' THEN 'gas'",
+            "WHEN LOWER(COALESCE(i.kind, '')) IN ('fluid', 'liquid') THEN 'fluid'",
+        ])
+    if has_content_qty:
+        kind_checks.append("WHEN COALESCE(i.content_qty_liters, 0) > 0 THEN 'fluid'")
+    kind_expr = ("CASE " + " ".join(kind_checks) + " ELSE 'item' END") if kind_checks else "'item'"
 
     container_rows = source.execute(
         f"""

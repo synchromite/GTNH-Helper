@@ -253,6 +253,48 @@ def test_recompute_storage_slot_capacities_sets_liter_capacity_from_fluid_contai
         conn.close()
 
 
+def test_recompute_storage_slot_capacities_treats_liter_containers_without_content_link_as_liquid(tmp_path) -> None:
+    from services.storage import recompute_storage_slot_capacities, set_storage_container_placement
+
+    conn = connect_profile(tmp_path / "profile.db")
+    try:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS items(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                key TEXT,
+                display_name TEXT,
+                kind TEXT,
+                storage_slot_count INTEGER,
+                content_qty_liters INTEGER
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO items(key, display_name, kind, content_qty_liters)
+            VALUES('steam_tank', 'Steam Tank', 'item', 16000)
+            """
+        )
+        conn.execute("INSERT INTO storage_units(name, kind) VALUES('Liquid Storage', 'fluid')")
+        conn.commit()
+
+        liquid_storage = conn.execute("SELECT id FROM storage_units WHERE name='Liquid Storage'").fetchone()["id"]
+        set_storage_container_placement(conn, storage_id=liquid_storage, item_id=1, placed_count=2)
+        recompute_storage_slot_capacities(conn, content_conn=conn)
+        conn.commit()
+
+        row = conn.execute(
+            "SELECT slot_count, liter_capacity FROM storage_units WHERE id=?",
+            (liquid_storage,),
+        ).fetchone()
+        assert row is not None
+        assert row["slot_count"] == 0
+        assert row["liter_capacity"] == 32000
+    finally:
+        conn.close()
+
+
 def test_storage_slot_usage_ignores_container_items(tmp_path) -> None:
     from services.storage import storage_slot_usage
 
