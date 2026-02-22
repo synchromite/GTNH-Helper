@@ -62,5 +62,22 @@ Profile data is kept separate so your progress survives content DB updates.
 - Python 3.10+
 - PySide6 (Qt UI toolkit)
 
-## Install
+## Releases
+- Windows Installer - Coming Soon
+- Mac Installer - Coming Soon
+- Linux Installer (.deb) - Coming Soon
+
+## Build it yourself (right now)
+```bash
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt pyinstaller
+pyinstaller --clean --noconfirm gtnh_helper.spec
+```
+
+Packaged outputs are written to `dist/`.
+
+## Run from Python
+```bash
 python -m pip install -r requirements.txt
+python app.py
+```
