@@ -1295,3 +1295,31 @@ def test_plan_does_not_apply_fill_only_transform_for_emptying_request():
     assert result.errors == ["No recipe found for Hydrogen."]
     assert [step.recipe_name for step in result.steps] == ["Make Hydrogen Mix"]
     assert result.shopping_list == []
+
+
+def test_pick_recipe_handles_zero_output_qty_without_division_errors():
+    conn = _setup_conn()
+    profile_conn = connect_profile(":memory:")
+
+    input_item = _insert_item(conn, key="input_item", name="Input", is_base=1)
+    output_item = _insert_item(conn, key="output_item", name="Output")
+
+    bad_recipe = _insert_recipe(conn, name="Bad Recipe", method="machine", duration_ticks=200, eu_per_tick=30)
+    _insert_line(conn, recipe_id=bad_recipe, direction="out", item_id=output_item, qty_count=0)
+    _insert_line(conn, recipe_id=bad_recipe, direction="in", item_id=input_item, qty_count=1)
+
+    good_recipe = _insert_recipe(conn, name="Good Recipe", method="machine", duration_ticks=200, eu_per_tick=30)
+    _insert_line(conn, recipe_id=good_recipe, direction="out", item_id=output_item, qty_count=1)
+    _insert_line(conn, recipe_id=good_recipe, direction="in", item_id=input_item, qty_count=1)
+
+    planner = PlannerService(conn, profile_conn)
+
+    picked = planner._pick_recipe_for_item(
+        output_item,
+        enabled_tiers=[],
+        crafting_6x6_unlocked=True,
+        items=planner._load_items(),
+    )
+
+    assert picked is not None
+    assert picked["id"] == good_recipe

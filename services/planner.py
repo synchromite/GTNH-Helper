@@ -906,9 +906,11 @@ class PlannerService:
                 machine_count = self._machine_count_for_tier(machine_type, machine_tier, available_machines)
 
             # --- CRITERIA 3: EFFICIENCY (Input per Output) ---
-            output_qty = float(row["output_qty"] or 1)
+            raw_output_qty = row["output_qty"]
+            output_qty = float(raw_output_qty) if raw_output_qty is not None else 0.0
             input_unit_count = float(row["item_req_count"] or 0) + float(row["fluid_req_count"] or 0)
-            ratio = input_unit_count / output_qty if output_qty > 0 else 999.0
+            output_qty_safe = output_qty if output_qty > 0 else 0.0
+            ratio = input_unit_count / output_qty_safe if output_qty_safe > 0 else 999.0
 
             # --- CRITERIA 4: SPEED + POWER ---
             scaled_duration, scaled_eu = apply_overclock(
@@ -922,7 +924,7 @@ class PlannerService:
                 if duration_value is None or float(duration_value) <= 0:
                     duration_value = 200
             duration = float(duration_value) if duration_value is not None else 0.0
-            time_per_item = duration / output_qty if output_qty > 0 else duration
+            time_per_item = duration / output_qty_safe if output_qty_safe > 0 else duration
 
             # --- CRITERIA 5: ENERGY COST ---
             if method == "crafting" and scaled_eu is None:
@@ -930,7 +932,11 @@ class PlannerService:
             if scaled_eu is None or duration_value is None:
                 energy_per_item = float("inf")
             else:
-                energy_per_item = (float(scaled_eu) * float(duration_value)) / output_qty if output_qty > 0 else 0.0
+                energy_per_item = (
+                    (float(scaled_eu) * float(duration_value)) / output_qty_safe
+                    if output_qty_safe > 0
+                    else float("inf")
+                )
 
             # --- CRITERIA 6: TIER RANK ---
             t_rank = tier_sort_map.get(req_tier, 999)

@@ -155,3 +155,59 @@ def test_adjust_inventory_qty_aggregate_skips_disallowed_and_locked_rows() -> No
     assert allowed_qty == 10
     assert blocked_qty == 50
     assert locked_qty == 50
+
+
+class _StatusBar:
+    def __init__(self):
+        self.messages = []
+
+    def showMessage(self, message):
+        self.messages.append(message)
+
+
+class _InventoryChangeTab:
+    on_inventory_changed = PlannerTab.on_inventory_changed
+
+    def __init__(self):
+        self.last_plan_run = True
+        self.last_plan_used_inventory = True
+        self.target_item_id = 1
+        self.build_steps = [object()]
+        self.build_completed_steps = {0}
+        self.app = type("_App", (), {"status_bar": _StatusBar()})()
+        self._plan_run_called = False
+        self._refresh_inventory_called = False
+        self._refresh_steps_called = False
+
+    class _UseInventory:
+        @staticmethod
+        def isChecked():
+            return True
+
+    use_inventory_checkbox = _UseInventory()
+
+    @staticmethod
+    def _parse_target_qty(*, show_errors):
+        assert show_errors is False
+        return 1
+
+    def _run_plan_with_qty(self, qty, *, set_status):
+        self._plan_run_called = True
+
+    def _refresh_build_inventory(self):
+        self._refresh_inventory_called = True
+
+    def _refresh_build_steps_on_inventory_change(self, qty):
+        self._refresh_steps_called = True
+
+
+def test_on_inventory_changed_skips_replan_during_active_build_progress() -> None:
+    tab = _InventoryChangeTab()
+
+    tab.on_inventory_changed()
+
+    assert tab._plan_run_called is False
+    assert tab._refresh_inventory_called is False
+    assert tab._refresh_steps_called is False
+    assert tab.app.status_bar.messages
+    assert "skipped auto re-plan" in tab.app.status_bar.messages[-1]

@@ -291,6 +291,9 @@ class PlannerTab(QtWidgets.QWidget):
     def on_inventory_changed(self) -> None:
         if not self.last_plan_run or not self.last_plan_used_inventory or not self.use_inventory_checkbox.isChecked():
             return
+        if self.build_steps and self.build_completed_steps:
+            self.app.status_bar.showMessage("Inventory changed: skipped auto re-plan while build progress is active.")
+            return
         if self.target_item_id is None:
             return
         qty = self._parse_target_qty(show_errors=False)
@@ -423,7 +426,6 @@ class PlannerTab(QtWidgets.QWidget):
         if self.target_item_id is None:
             return
 
-        self.planner = PlannerService(self.app.conn, self.app.profile_conn)
         self._set_planning_state(True, mode=mode)
         self._planner_mode = mode
 
@@ -814,12 +816,10 @@ class PlannerTab(QtWidgets.QWidget):
         adjustments.extend(byproducts)
 
         try:
-            self.app.profile_conn.execute("BEGIN")
-            for item_id, delta in adjustments:
-                self._adjust_inventory_qty(item_id, delta, commit=False)
-            self.app.profile_conn.commit()
+            with self.app.profile_conn:
+                for item_id, delta in adjustments:
+                    self._adjust_inventory_qty(item_id, delta, commit=False)
         except Exception as exc:
-            self.app.profile_conn.rollback()
             QtWidgets.QMessageBox.critical(
                 self,
                 "Inventory update failed",
