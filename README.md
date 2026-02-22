@@ -8,13 +8,21 @@ A recipe database browser and inventory helper for GregTech New Horizons.
 - **Browse items, fluids, gases, and recipes** with full input/output details.
 - **Inventory tracking** stored per profile database, with optional per-storage container management.
 - **Tier filtering** (plus 6x6 crafting unlock toggle) to narrow recipe lists.
-- **Recipe Planner** that builds a dependency tree from your inventory and generates a shopping list, including storage policy filtering (`allow_planner_use`, `locked`) and deterministic priority-based consumption.
+- **Recipe Planner** that builds a dependency tree from your inventory and generates a shopping list.
+  - Uses storage policy filters (`allow_planner_use`, `locked`) and deterministic priority-based consumption.
+  - Applies machine-capacity hard filtering (item slots + fluid tanks) so impossible machine variants are excluded before ranking.
 - **Interactive Build Mode** with step-by-step instructions tied to inventory updates.
 - **Machine tracking** for owned/online availability used by planning and machine selection.
 - **Storage-aware inventory workflows**: active storage selection, aggregate read-only mode, per-storage totals, and storage CRUD management.
+  - Storage list ordering is now aligned with planner consumption ordering (`priority DESC`, then name/id tie-breakers).
+  - `Main Storage` uses its configured priority like any other storage unit.
 - **Capacity-aware validation**: slot/liter fit checks with stack-size-aware slot math and container placement tracking.
 - **Editor mode** (optional) for adding/editing items, recipes, materials, item kinds, and machine metadata.
 - **Container transform manager** (editor mode) for explicit fill/empty mapping rows used by planner transform handling.
+- **Smarter metadata review flags during DB merge**:
+  - Material is required only for material-dependent item kinds (e.g., dust/ingot/plate families).
+  - Machine items still require machine type + tier.
+  - Standard items still require an item kind.
 - **Fluid unit convention:** all fluid/gas quantities are stored and displayed as liters (`L`) where **1 L = 1 mB**.
 - **Tab customization**: enable/disable, reorder, and detach tabs.
 - **Theme toggle**: light/dark theme switching.
@@ -39,8 +47,10 @@ If you open a non-default content DB, the profile DB is created alongside it as
 Profile data is kept separate so your progress survives content DB updates.
 
 ## Inventory Containers status
-- Inventory/container architecture and workflows from the project plan are implemented through Milestone 5 (Data Model, Planner Compatibility, Inventory UI, Capacity Validation, Planner Consumption Policies).
-- Milestone 6 (Generic Container Transform System) is implemented: schema support, generic planner transform handling (fill/empty + direction), editor CRUD, and transform-priority coverage are in place.
+- The Inventory & Containers project is complete in the current codebase.
+- Planner consumption policy behavior is implemented and covered by tests (`allow_planner_use`, `locked`, deterministic priority ordering).
+- Generic container transform behavior is implemented for fill/empty flows with deterministic priority ordering, plus editor-mode CRUD support.
+- The former tracking document `INVENTORY_CONTAINERS_PROJECT_PLAN.md` has been retired.
 
 ## In progress
 - Qt UI polish - Ongoing
