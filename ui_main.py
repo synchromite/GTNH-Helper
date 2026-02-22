@@ -190,7 +190,11 @@ class App(QtWidgets.QMainWindow):
         self.conn = self.db.conn
         self.profile_conn = self.db.profile_conn
 
-        planner_widget = self.tab_widgets.get("planner")
+        tab_widgets = getattr(self, "tab_widgets", None)
+        if not isinstance(tab_widgets, dict):
+            return
+
+        planner_widget = tab_widgets.get("planner")
         if planner_widget and hasattr(planner_widget, "reset_planner_service"):
             planner_widget.reset_planner_service()
 
