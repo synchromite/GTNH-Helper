@@ -288,6 +288,9 @@ class PlannerTab(QtWidgets.QWidget):
     def clear_planner_cache(self) -> None:
         self.planner.clear_cache()
 
+    def reset_planner_service(self) -> None:
+        self.planner = PlannerService(self.app.conn, self.app.profile_conn)
+
     def on_inventory_changed(self) -> None:
         if not self.last_plan_run or not self.last_plan_used_inventory or not self.use_inventory_checkbox.isChecked():
             return

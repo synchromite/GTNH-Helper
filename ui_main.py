@@ -190,6 +190,10 @@ class App(QtWidgets.QMainWindow):
         self.conn = self.db.conn
         self.profile_conn = self.db.profile_conn
 
+        planner_widget = self.tab_widgets.get("planner")
+        if planner_widget and hasattr(planner_widget, "reset_planner_service"):
+            planner_widget.reset_planner_service()
+
     # ---------- Tab configuration ----------
     def _config_path(self) -> Path:
         try:
