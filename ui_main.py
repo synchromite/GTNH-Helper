@@ -12,6 +12,7 @@ from services.items import fetch_items
 from services.recipes import fetch_recipes
 from services.tab_config import apply_tab_reorder, config_path, load_tab_config, save_tab_config
 from ui_dialogs import (
+    ContainerTransformManagerDialog,
     CraftingGridManagerDialog,
     ItemKindManagerDialog,
     ItemMergeConflictDialog,
@@ -429,6 +430,10 @@ class App(QtWidgets.QMainWindow):
         grids_action = QtGui.QAction("Manage Crafting Grids…", self)
         grids_action.triggered.connect(self.menu_manage_crafting_grids)
         tools_menu.addAction(grids_action)
+        transforms_action = QtGui.QAction("Manage Container Transforms…", self)
+        transforms_action.setEnabled(self.editor_enabled)
+        transforms_action.triggered.connect(self.menu_manage_container_transforms)
+        tools_menu.addAction(transforms_action)
 
     def _apply_theme(self, theme: str) -> None:
         app = QtWidgets.QApplication.instance()
@@ -594,6 +599,18 @@ class App(QtWidgets.QMainWindow):
 
     def menu_manage_crafting_grids(self) -> None:
         dlg = CraftingGridManagerDialog(self, parent=self)
+        dlg.exec()
+
+    def menu_manage_container_transforms(self) -> None:
+        if not self.editor_enabled:
+            QtWidgets.QMessageBox.information(
+                self,
+                "Editor locked",
+                "This copy is running in client mode.\n\n"
+                "To enable editing, create a file named '.enable_editor' next to the app.",
+            )
+            return
+        dlg = ContainerTransformManagerDialog(self, parent=self)
         dlg.exec()
 
     def menu_export_content_db(self) -> None:

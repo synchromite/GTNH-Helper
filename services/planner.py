@@ -666,7 +666,14 @@ class PlannerService:
         ]
         if not transforms:
             return qty_needed, [], {}
-        transforms.sort(key=lambda row: ((row.get("container_name") or "").lower(), int(row.get("container_item_id") or 0)))
+        transforms.sort(
+            key=lambda row: (
+                int(row.get("priority") or 0),
+                int(row.get("id") or 0),
+                (row.get("container_name") or "").lower(),
+                int(row.get("container_item_id") or 0),
+            )
+        )
         steps: list[PlanStep] = []
         consumed: dict[int, int] = {}
         remaining = qty_needed
@@ -1169,12 +1176,15 @@ class PlannerService:
         rows = self.conn.execute(
             """
             SELECT
+                id,
+                priority,
                 container_item_id,
                 empty_item_id,
                 content_item_id,
                 content_qty,
                 transform_kind
             FROM item_container_transforms
+            ORDER BY priority ASC, id ASC
             """
         ).fetchall()
 
@@ -1189,6 +1199,8 @@ class PlannerService:
             explicit_container_ids.add(container_id)
             transforms.append(
                 {
+                    "id": int(row["id"]),
+                    "priority": int(row["priority"] or 0),
                     "container_item_id": container_id,
                     "container_name": items[container_id]["name"],
                     "empty_item_id": empty_id,
@@ -1219,6 +1231,8 @@ class PlannerService:
                 continue
             transforms.append(
                 {
+                    "id": -container_id,
+                    "priority": 0,
                     "container_item_id": container_id,
                     "container_name": item["name"],
                     "empty_item_id": int(empty_container["id"]),

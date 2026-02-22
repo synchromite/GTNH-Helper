@@ -29,6 +29,9 @@ def test_ensure_schema_creates_tables_and_defaults():
     assert "materials" in tables
     assert "item_container_transforms" in tables
 
+    transform_columns = _table_columns(conn, "item_container_transforms")
+    assert "priority" in transform_columns
+
     item_columns = _table_columns(conn, "items")
     for column in (
         "item_kind_id",

@@ -6,6 +6,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 from services.db import ALL_TIERS
 from services.machines import fetch_machine_metadata, replace_machine_metadata
 from services.materials import add_material, delete_material, fetch_materials, update_material
+from services.container_transforms import fetch_container_transforms, replace_container_transforms
 from services.storage import (
     create_storage_unit,
     delete_assignment,
@@ -3939,6 +3940,188 @@ class MachineMetadataEditorDialog(QtWidgets.QDialog):
             self.app.refresh_recipes()
         if hasattr(self.app, "_machines_load_from_db"):
             self.app._machines_load_from_db()
+        self.accept()
+
+
+class ContainerTransformManagerDialog(QtWidgets.QDialog):
+    def __init__(self, app, parent=None):
+        super().__init__(parent)
+        self.app = app
+        self.setWindowTitle("Manage Container Transforms")
+        self.setModal(True)
+        self.resize(980, 440)
+
+        self._items = self.app.conn.execute(
+            "SELECT id, display_name AS name, kind FROM items ORDER BY display_name COLLATE NOCASE ASC"
+        ).fetchall()
+        self._item_by_id = {int(r["id"]): r for r in self._items}
+
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.addWidget(QtWidgets.QLabel("Define explicit container transform mappings used by planner fill/empty steps."))
+
+        self.table = QtWidgets.QTableWidget(0, 7)
+        self.table.setHorizontalHeaderLabels([
+            "Priority",
+            "Container Item",
+            "Empty Item",
+            "Content Item",
+            "Content Qty",
+            "Direction",
+            "Id",
+        ])
+        self.table.verticalHeader().setVisible(False)
+        self.table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.horizontalHeader().setSectionResizeMode(1, QtWidgets.QHeaderView.ResizeMode.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(2, QtWidgets.QHeaderView.ResizeMode.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(3, QtWidgets.QHeaderView.ResizeMode.Stretch)
+        self.table.setColumnHidden(6, True)
+        layout.addWidget(self.table, stretch=1)
+
+        controls = QtWidgets.QHBoxLayout()
+        self.add_row_btn = QtWidgets.QPushButton("Add Row")
+        self.add_row_btn.clicked.connect(self._add_row)
+        self.remove_row_btn = QtWidgets.QPushButton("Remove Selected")
+        self.remove_row_btn.clicked.connect(self._remove_selected_rows)
+        controls.addWidget(self.add_row_btn)
+        controls.addWidget(self.remove_row_btn)
+        controls.addStretch(1)
+        layout.addLayout(controls)
+
+        buttons = QtWidgets.QDialogButtonBox(
+            QtWidgets.QDialogButtonBox.StandardButton.Save
+            | QtWidgets.QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self._save)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+        self._load_rows()
+
+    def _build_item_combo(self, *, kinds: tuple[str, ...], selected_id: int | None = None) -> QtWidgets.QComboBox:
+        combo = QtWidgets.QComboBox()
+        for row in self._items:
+            if (row["kind"] or "").strip().lower() not in kinds:
+                continue
+            combo.addItem(row["name"], int(row["id"]))
+        if combo.count() == 0:
+            combo.addItem("(No matching items)", -1)
+        if selected_id is not None:
+            idx = combo.findData(int(selected_id))
+            if idx >= 0:
+                combo.setCurrentIndex(idx)
+        return combo
+
+    def _add_row(self, row=None) -> None:
+        if isinstance(row, bool):
+            row = None
+        row_idx = self.table.rowCount()
+        self.table.insertRow(row_idx)
+
+        priority_item = QtWidgets.QTableWidgetItem(str(int(row["priority"]) if row else 0))
+        self.table.setItem(row_idx, 0, priority_item)
+
+        container_combo = self._build_item_combo(kinds=("item", "machine"), selected_id=int(row["container_item_id"]) if row else None)
+        empty_combo = self._build_item_combo(kinds=("item", "machine"), selected_id=int(row["empty_item_id"]) if row else None)
+        content_combo = self._build_item_combo(kinds=("fluid", "gas"), selected_id=int(row["content_item_id"]) if row else None)
+        self.table.setCellWidget(row_idx, 1, container_combo)
+        self.table.setCellWidget(row_idx, 2, empty_combo)
+        self.table.setCellWidget(row_idx, 3, content_combo)
+
+        qty_item = QtWidgets.QTableWidgetItem(str(int(row["content_qty"]) if row else 1000))
+        self.table.setItem(row_idx, 4, qty_item)
+
+        direction_combo = QtWidgets.QComboBox()
+        direction_combo.addItem("Bidirectional", "bidirectional")
+        direction_combo.addItem("Empty Only", "empty_only")
+        direction_combo.addItem("Fill Only", "fill_only")
+        if row:
+            idx = direction_combo.findData((row["transform_kind"] or "bidirectional"))
+            if idx >= 0:
+                direction_combo.setCurrentIndex(idx)
+        self.table.setCellWidget(row_idx, 5, direction_combo)
+
+        id_item = QtWidgets.QTableWidgetItem(str(int(row["id"]) if row else 0))
+        self.table.setItem(row_idx, 6, id_item)
+
+    def _load_rows(self) -> None:
+        self.table.setRowCount(0)
+        for row in fetch_container_transforms(self.app.conn):
+            self._add_row(row)
+        if self.table.rowCount() == 0:
+            self._add_row()
+
+    def _remove_selected_rows(self) -> None:
+        rows = sorted({idx.row() for idx in self.table.selectionModel().selectedRows()}, reverse=True)
+        for row_idx in rows:
+            self.table.removeRow(row_idx)
+
+    def _validate_rows(self) -> list[dict] | None:
+        rows: list[dict] = []
+        seen: set[tuple[int, int, int]] = set()
+        for row_idx in range(self.table.rowCount()):
+            priority_item = self.table.item(row_idx, 0)
+            qty_item = self.table.item(row_idx, 4)
+            try:
+                priority = int((priority_item.text() if priority_item else "0").strip() or "0")
+            except ValueError:
+                QtWidgets.QMessageBox.warning(self, "Invalid priority", f"Row {row_idx + 1} needs an integer priority.")
+                return None
+            try:
+                content_qty = int((qty_item.text() if qty_item else "").strip() or "0")
+            except ValueError:
+                QtWidgets.QMessageBox.warning(self, "Invalid quantity", f"Row {row_idx + 1} needs a whole-number content qty.")
+                return None
+            if content_qty <= 0:
+                QtWidgets.QMessageBox.warning(self, "Invalid quantity", f"Row {row_idx + 1} content qty must be > 0.")
+                return None
+
+            container_combo = self.table.cellWidget(row_idx, 1)
+            empty_combo = self.table.cellWidget(row_idx, 2)
+            content_combo = self.table.cellWidget(row_idx, 3)
+            direction_combo = self.table.cellWidget(row_idx, 5)
+
+            container_item_id = int(container_combo.currentData() or -1)
+            empty_item_id = int(empty_combo.currentData() or -1)
+            content_item_id = int(content_combo.currentData() or -1)
+            transform_kind = str(direction_combo.currentData() or "bidirectional")
+
+            if min(container_item_id, empty_item_id, content_item_id) <= 0:
+                QtWidgets.QMessageBox.warning(self, "Missing mapping", f"Row {row_idx + 1} requires valid item selections.")
+                return None
+
+            key = (container_item_id, empty_item_id, content_item_id)
+            if key in seen:
+                QtWidgets.QMessageBox.warning(self, "Duplicate mapping", f"Row {row_idx + 1} duplicates an existing mapping.")
+                return None
+            seen.add(key)
+
+            rows.append(
+                {
+                    "priority": priority,
+                    "container_item_id": container_item_id,
+                    "empty_item_id": empty_item_id,
+                    "content_item_id": content_item_id,
+                    "content_qty": content_qty,
+                    "transform_kind": transform_kind,
+                }
+            )
+        return rows
+
+    def _save(self) -> None:
+        rows = self._validate_rows()
+        if rows is None:
+            return
+        try:
+            replace_container_transforms(self.app.conn, rows)
+        except Exception as exc:
+            QtWidgets.QMessageBox.critical(self, "Save failed", str(exc))
+            return
+        if hasattr(self.app, "refresh_items"):
+            self.app.refresh_items()
+        if hasattr(self.app, "refresh_recipes"):
+            self.app.refresh_recipes()
+        if hasattr(self.app, "status_bar"):
+            self.app.status_bar.showMessage("Updated container transforms.")
         self.accept()
 
 

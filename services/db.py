@@ -549,6 +549,7 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
         """
     CREATE TABLE IF NOT EXISTS item_container_transforms (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+        priority INTEGER NOT NULL DEFAULT 0,
         container_item_id INTEGER NOT NULL,
         empty_item_id INTEGER NOT NULL,
         content_item_id INTEGER NOT NULL,
@@ -570,6 +571,8 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE recipe_lines ADD COLUMN input_slot_index INTEGER")
     if not _has_col("recipe_lines", "consumption_chance"):
         conn.execute("ALTER TABLE recipe_lines ADD COLUMN consumption_chance REAL DEFAULT 1.0")
+    if not _has_col("item_container_transforms", "priority"):
+        conn.execute("ALTER TABLE item_container_transforms ADD COLUMN priority INTEGER NOT NULL DEFAULT 0")
     def _get_user_version() -> int:
         row = conn.execute("PRAGMA user_version").fetchone()
         return int(row[0]) if row else 0
