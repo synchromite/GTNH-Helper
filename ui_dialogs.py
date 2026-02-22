@@ -130,11 +130,13 @@ class StorageUnitsDialog(QtWidgets.QDialog):
         super().__init__(parent)
         self.app = app
         self.setWindowTitle("Manage Storages")
-        self.resize(560, 360)
+        self.resize(760, 380)
 
         layout = QtWidgets.QVBoxLayout(self)
-        self.table = QtWidgets.QTableWidget(0, 6)
-        self.table.setHorizontalHeaderLabels(["Name", "Kind", "Total Slots", "Used", "Free", "Liters"])
+        self.table = QtWidgets.QTableWidget(0, 8)
+        self.table.setHorizontalHeaderLabels([
+            "Name", "Kind", "Total Slots", "Used", "Free", "Total L", "Used L", "Free L"
+        ])
         self.table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.SingleSelection)
         self.table.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -178,19 +180,30 @@ class StorageUnitsDialog(QtWidgets.QDialog):
                 container_ids.add(item_id)
 
         for idx, row in enumerate(rows):
+            storage_id = int(row["id"])
             usage = storage_slot_usage(
                 self.app.profile_conn,
-                storage_id=int(row["id"]),
+                storage_id=storage_id,
                 known_item_stack_sizes=stack_map,
                 known_container_item_ids=container_ids,
             )
+            liters_used_row = self.app.profile_conn.execute(
+                "SELECT COALESCE(SUM(qty_liters), 0) AS liters_used FROM storage_assignments WHERE storage_id=?",
+                (storage_id,),
+            ).fetchone()
+            liters_used = float((liters_used_row["liters_used"] if liters_used_row else 0) or 0)
+            liter_capacity = row.get("liter_capacity")
+            liter_free = None if liter_capacity is None else max(0.0, float(liter_capacity) - liters_used)
+
             self.table.setItem(idx, 0, QtWidgets.QTableWidgetItem(str(row["name"])))
             self.table.setItem(idx, 1, QtWidgets.QTableWidgetItem(str(row.get("kind") or "generic")))
             self.table.setItem(idx, 2, QtWidgets.QTableWidgetItem("" if usage["slot_count"] is None else str(int(usage["slot_count"]))))
             self.table.setItem(idx, 3, QtWidgets.QTableWidgetItem(str(int(usage["slot_used"]))))
             self.table.setItem(idx, 4, QtWidgets.QTableWidgetItem("" if usage["slot_free"] is None else str(int(usage["slot_free"]))))
-            self.table.setItem(idx, 5, QtWidgets.QTableWidgetItem("" if row.get("liter_capacity") is None else str(int(round(float(row["liter_capacity"])))) ))
-            self.table.item(idx, 0).setData(QtCore.Qt.ItemDataRole.UserRole, int(row["id"]))
+            self.table.setItem(idx, 5, QtWidgets.QTableWidgetItem("" if liter_capacity is None else str(int(round(float(liter_capacity))))))
+            self.table.setItem(idx, 6, QtWidgets.QTableWidgetItem(str(int(round(liters_used)))))
+            self.table.setItem(idx, 7, QtWidgets.QTableWidgetItem("" if liter_free is None else str(int(round(liter_free)))))
+            self.table.item(idx, 0).setData(QtCore.Qt.ItemDataRole.UserRole, storage_id)
         if rows:
             self.table.selectRow(0)
 
