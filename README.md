@@ -14,6 +14,7 @@ A recipe database browser and inventory helper for GregTech New Horizons.
 - **Storage-aware inventory workflows**: active storage selection, aggregate read-only mode, per-storage totals, and storage CRUD management.
 - **Capacity-aware validation**: slot/liter fit checks with stack-size-aware slot math and container placement tracking.
 - **Editor mode** (optional) for adding/editing items, recipes, materials, item kinds, and machine metadata.
+- **Container transform manager** (editor mode) for explicit fill/empty mapping rows used by planner transform handling.
 - **Tab customization**: enable/disable, reorder, and detach tabs.
 - **Theme toggle**: light/dark theme switching.
 - **DB utilities**: open, export content/profile DBs, and merge content DBs (editor mode only).
@@ -42,7 +43,7 @@ Profile data is kept separate so your progress survives content DB updates.
 
 ## In progress
 - Qt UI polish - Ongoing
-- Additional transform/editor ergonomics - Ongoing
+- Additional transform/editor ergonomics (especially non-fluid transform workflows) - Ongoing
 
 ## Planned
 - Feature requests are open

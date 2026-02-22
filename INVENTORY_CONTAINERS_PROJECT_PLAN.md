@@ -256,6 +256,7 @@ Add first-class inventory container management (chests/drawers/barrels/tanks) wh
 
 ### Current Status
 - Core transform schema and planner loading support are implemented.
+- Basic editor support for transform CRUD is implemented (`Manage Container Transforms…` in editor mode).
 - Remaining scope is primarily editor UX/workflow hardening and broader non-fluid transform coverage.
 
 ### Exit Criteria
@@ -318,5 +319,5 @@ When schema stabilizes, add a hardening milestone for:
 - migration-path test coverage.
 
 ### Stabilization Trigger for Migration Hardening
-- Milestone 4 introduced stack-size metadata and compatibility migrations, so migration hardening should be scheduled as soon as Milestone 5 scope is finalized.
+- Milestones 4 and 5 are now complete; migration hardening should be scheduled before broad rollout to legacy user profiles.
 - Define a versioned, repeatable migration path for legacy inventory tables before broad rollout of policy semantics to existing user profiles.
