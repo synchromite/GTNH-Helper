@@ -444,8 +444,8 @@ class InventoryTab(QtWidgets.QWidget):
             return
         raw = self.inventory_qty_entry.text().strip()
         if raw == "":
-            delete_assignment(self.app.profile_conn, storage_id=storage_id, item_id=item["id"])
-            self.app.profile_conn.commit()
+            with self.app.profile_conn:
+                delete_assignment(self.app.profile_conn, storage_id=storage_id, item_id=item["id"])
             self.app.status_bar.showMessage(f"Cleared inventory for: {item['name']}")
             self.app.notify_inventory_change()
             self._refresh_summary_panel()
@@ -536,14 +536,14 @@ class InventoryTab(QtWidgets.QWidget):
                     self._show_storage_capacity_warning(reasons)
                     return
 
-        upsert_assignment(
-            self.app.profile_conn,
-            storage_id=storage_id,
-            item_id=item["id"],
-            qty_count=qty_count,
-            qty_liters=qty_liters,
-        )
-        self.app.profile_conn.commit()
+        with self.app.profile_conn:
+            upsert_assignment(
+                self.app.profile_conn,
+                storage_id=storage_id,
+                item_id=item["id"],
+                qty_count=qty_count,
+                qty_liters=qty_liters,
+            )
         self.inventory_qty_entry.setText(str(qty))
         self.app.status_bar.showMessage(f"Saved inventory for: {item['name']}")
         self.app.notify_inventory_change()
