@@ -221,7 +221,7 @@ Add first-class inventory container management (chests/drawers/barrels/tanks) wh
 
 ---
 
-## Milestone 6: Generic Container Transform System (Optional, Partially Implemented)
+## Milestone 6: Generic Container Transform System (Optional) - COMPLETE
 **Outcome:** Extend fluid emptying into a general transform framework.
 
 ### Issues
@@ -256,11 +256,12 @@ Add first-class inventory container management (chests/drawers/barrels/tanks) wh
 
 ### Current Status
 - Core transform schema and planner loading support are implemented.
-- Basic editor support for transform CRUD is implemented (`Manage Container Transforms…` in editor mode).
-- Remaining scope is primarily editor UX/workflow hardening and broader non-fluid transform coverage.
+- Generic planner transform handling is active for both emptying and filling flows, with deterministic priority ordering.
+- Editor support for transform CRUD is implemented (`Manage Container Transforms…` in editor mode).
+- Regression coverage includes fluid compatibility plus explicit non-fluid and direction/priority scenarios.
 
 ### Exit Criteria
-- Fluid behavior is unchanged and at least one non-fluid transform works end-to-end.
+- Fluid behavior is unchanged and non-fluid transform flows are covered for both empty-only and fill-only directionality.
 
 ---
 

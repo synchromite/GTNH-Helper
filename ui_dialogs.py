@@ -3957,7 +3957,7 @@ class ContainerTransformManagerDialog(QtWidgets.QDialog):
         self._item_by_id = {int(r["id"]): r for r in self._items}
 
         layout = QtWidgets.QVBoxLayout(self)
-        layout.addWidget(QtWidgets.QLabel("Define explicit container transform mappings used by planner fill/empty steps."))
+        layout.addWidget(QtWidgets.QLabel("Define explicit container transform mappings used by planner fill/empty steps. Lower priority runs first."))
 
         self.table = QtWidgets.QTableWidget(0, 7)
         self.table.setHorizontalHeaderLabels([
@@ -3982,7 +3982,10 @@ class ContainerTransformManagerDialog(QtWidgets.QDialog):
         self.add_row_btn.clicked.connect(self._add_row)
         self.remove_row_btn = QtWidgets.QPushButton("Remove Selected")
         self.remove_row_btn.clicked.connect(self._remove_selected_rows)
+        self.duplicate_row_btn = QtWidgets.QPushButton("Duplicate Selected")
+        self.duplicate_row_btn.clicked.connect(self._duplicate_selected_rows)
         controls.addWidget(self.add_row_btn)
+        controls.addWidget(self.duplicate_row_btn)
         controls.addWidget(self.remove_row_btn)
         controls.addStretch(1)
         layout.addLayout(controls)
@@ -4055,6 +4058,19 @@ class ContainerTransformManagerDialog(QtWidgets.QDialog):
         for row_idx in rows:
             self.table.removeRow(row_idx)
 
+    def _duplicate_selected_rows(self) -> None:
+        rows = sorted({idx.row() for idx in self.table.selectionModel().selectedRows()})
+        for row_idx in rows:
+            row = {
+                "priority": int((self.table.item(row_idx, 0).text() if self.table.item(row_idx, 0) else "0").strip() or "0"),
+                "container_item_id": int(self.table.cellWidget(row_idx, 1).currentData() or 0),
+                "empty_item_id": int(self.table.cellWidget(row_idx, 2).currentData() or 0),
+                "content_item_id": int(self.table.cellWidget(row_idx, 3).currentData() or 0),
+                "content_qty": int((self.table.item(row_idx, 4).text() if self.table.item(row_idx, 4) else "1000").strip() or "1000"),
+                "transform_kind": str(self.table.cellWidget(row_idx, 5).currentData() or "bidirectional"),
+            }
+            self._add_row(row)
+
     def _validate_rows(self) -> list[dict] | None:
         rows: list[dict] = []
         seen: set[tuple[int, int, int]] = set()
@@ -4087,6 +4103,9 @@ class ContainerTransformManagerDialog(QtWidgets.QDialog):
 
             if min(container_item_id, empty_item_id, content_item_id) <= 0:
                 QtWidgets.QMessageBox.warning(self, "Missing mapping", f"Row {row_idx + 1} requires valid item selections.")
+                return None
+            if container_item_id == empty_item_id:
+                QtWidgets.QMessageBox.warning(self, "Invalid mapping", f"Row {row_idx + 1} container and empty item cannot be the same.")
                 return None
 
             key = (container_item_id, empty_item_id, content_item_id)
@@ -4148,7 +4167,10 @@ class MaterialManagerDialog(QtWidgets.QDialog):
         self.add_row_btn.clicked.connect(self._add_row)
         self.remove_row_btn = QtWidgets.QPushButton("Remove Selected")
         self.remove_row_btn.clicked.connect(self._remove_selected_rows)
+        self.duplicate_row_btn = QtWidgets.QPushButton("Duplicate Selected")
+        self.duplicate_row_btn.clicked.connect(self._duplicate_selected_rows)
         controls.addWidget(self.add_row_btn)
+        controls.addWidget(self.duplicate_row_btn)
         controls.addWidget(self.remove_row_btn)
         controls.addStretch(1)
         layout.addLayout(controls)
@@ -4196,6 +4218,19 @@ class MaterialManagerDialog(QtWidgets.QDialog):
         rows = sorted({idx.row() for idx in self.table.selectionModel().selectedRows()}, reverse=True)
         for row_idx in rows:
             self.table.removeRow(row_idx)
+
+    def _duplicate_selected_rows(self) -> None:
+        rows = sorted({idx.row() for idx in self.table.selectionModel().selectedRows()})
+        for row_idx in rows:
+            row = {
+                "priority": int((self.table.item(row_idx, 0).text() if self.table.item(row_idx, 0) else "0").strip() or "0"),
+                "container_item_id": int(self.table.cellWidget(row_idx, 1).currentData() or 0),
+                "empty_item_id": int(self.table.cellWidget(row_idx, 2).currentData() or 0),
+                "content_item_id": int(self.table.cellWidget(row_idx, 3).currentData() or 0),
+                "content_qty": int((self.table.item(row_idx, 4).text() if self.table.item(row_idx, 4) else "1000").strip() or "1000"),
+                "transform_kind": str(self.table.cellWidget(row_idx, 5).currentData() or "bidirectional"),
+            }
+            self._add_row(row)
 
     def _validate_rows(self) -> list[dict] | None:
         rows: list[dict] = []
@@ -4266,7 +4301,10 @@ class TierManagerDialog(QtWidgets.QDialog):
         self.add_row_btn.clicked.connect(self._add_row)
         self.remove_row_btn = QtWidgets.QPushButton("Remove Selected")
         self.remove_row_btn.clicked.connect(self._remove_selected_rows)
+        self.duplicate_row_btn = QtWidgets.QPushButton("Duplicate Selected")
+        self.duplicate_row_btn.clicked.connect(self._duplicate_selected_rows)
         controls.addWidget(self.add_row_btn)
+        controls.addWidget(self.duplicate_row_btn)
         controls.addWidget(self.remove_row_btn)
         controls.addStretch(1)
         layout.addLayout(controls)
@@ -4382,7 +4420,10 @@ class CraftingGridManagerDialog(QtWidgets.QDialog):
         self.add_row_btn.clicked.connect(self._add_row)
         self.remove_row_btn = QtWidgets.QPushButton("Remove Selected")
         self.remove_row_btn.clicked.connect(self._remove_selected_rows)
+        self.duplicate_row_btn = QtWidgets.QPushButton("Duplicate Selected")
+        self.duplicate_row_btn.clicked.connect(self._duplicate_selected_rows)
         controls.addWidget(self.add_row_btn)
+        controls.addWidget(self.duplicate_row_btn)
         controls.addWidget(self.remove_row_btn)
         controls.addStretch(1)
         layout.addLayout(controls)
@@ -4503,7 +4544,10 @@ class ItemKindManagerDialog(QtWidgets.QDialog):
         self.add_row_btn.clicked.connect(self._add_row)
         self.remove_row_btn = QtWidgets.QPushButton("Remove Selected")
         self.remove_row_btn.clicked.connect(self._remove_selected_rows)
+        self.duplicate_row_btn = QtWidgets.QPushButton("Duplicate Selected")
+        self.duplicate_row_btn.clicked.connect(self._duplicate_selected_rows)
         controls.addWidget(self.add_row_btn)
+        controls.addWidget(self.duplicate_row_btn)
         controls.addWidget(self.remove_row_btn)
         controls.addStretch(1)
         layout.addLayout(controls)

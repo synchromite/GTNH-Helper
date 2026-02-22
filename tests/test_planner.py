@@ -1205,3 +1205,93 @@ def test_plan_does_not_apply_empty_only_transform_for_filling_request():
     assert result.errors == ["No recipe found for Hydrogen Canister."]
     assert result.steps == []
     assert result.shopping_list == []
+
+
+def test_plan_applies_fill_only_transform_for_non_fluid_container_filling():
+    conn = _setup_conn()
+    profile_conn = connect_profile(":memory:")
+
+    hydrogen = _insert_item(conn, key="hydrogen", name="Hydrogen", kind="gas")
+    canister_empty = _insert_item(conn, key="canister_empty", name="Titanium Canister", kind="item")
+    canister_full = _insert_item(
+        conn,
+        key="hydrogen_canister_full",
+        name="Hydrogen Canister",
+        kind="item",
+        content_fluid_id=hydrogen,
+        content_qty_liters=1000,
+    )
+
+    conn.execute(
+        """
+        INSERT INTO item_container_transforms(
+            container_item_id,
+            empty_item_id,
+            content_item_id,
+            content_qty,
+            transform_kind
+        ) VALUES(?,?,?,?,?)
+        """,
+        (canister_full, canister_empty, hydrogen, 1000, "fill_only"),
+    )
+
+    planner = PlannerService(conn, profile_conn)
+    result = planner.plan(
+        canister_full,
+        1,
+        use_inventory=True,
+        enabled_tiers=[],
+        crafting_6x6_unlocked=True,
+        inventory_override={hydrogen: 1000, canister_empty: 1},
+    )
+
+    assert result.errors == []
+    assert [step.recipe_name for step in result.steps] == ["Filling"]
+
+
+def test_plan_does_not_apply_fill_only_transform_for_emptying_request():
+    conn = _setup_conn()
+    profile_conn = connect_profile(":memory:")
+
+    hydrogen = _insert_item(conn, key="hydrogen", name="Hydrogen", kind="gas")
+    canister_empty = _insert_item(conn, key="canister_empty", name="Titanium Canister", kind="item")
+    canister_full = _insert_item(
+        conn,
+        key="hydrogen_canister_full",
+        name="Hydrogen Canister",
+        kind="item",
+        content_fluid_id=hydrogen,
+        content_qty_liters=1000,
+    )
+    output = _insert_item(conn, key="hydrogen_mix", name="Hydrogen Mix")
+
+    conn.execute(
+        """
+        INSERT INTO item_container_transforms(
+            container_item_id,
+            empty_item_id,
+            content_item_id,
+            content_qty,
+            transform_kind
+        ) VALUES(?,?,?,?,?)
+        """,
+        (canister_full, canister_empty, hydrogen, 1000, "fill_only"),
+    )
+
+    recipe = _insert_recipe(conn, name="Make Hydrogen Mix")
+    _insert_line(conn, recipe_id=recipe, direction="out", item_id=output, qty_count=1)
+    _insert_line(conn, recipe_id=recipe, direction="in", item_id=hydrogen, qty_liters=1000)
+
+    planner = PlannerService(conn, profile_conn)
+    result = planner.plan(
+        output,
+        1,
+        use_inventory=True,
+        enabled_tiers=[],
+        crafting_6x6_unlocked=True,
+        inventory_override={canister_full: 1},
+    )
+
+    assert result.errors == ["No recipe found for Hydrogen."]
+    assert [step.recipe_name for step in result.steps] == ["Make Hydrogen Mix"]
+    assert result.shopping_list == []

@@ -39,11 +39,10 @@ Profile data is kept separate so your progress survives content DB updates.
 
 ## Inventory Containers status
 - Inventory/container architecture and workflows from the project plan are implemented through Milestone 5 (Data Model, Planner Compatibility, Inventory UI, Capacity Validation, Planner Consumption Policies).
-- Milestone 6 (Generic Container Transform System) has core schema/planner support in place and remains open for broader editor/UX expansion.
+- Milestone 6 (Generic Container Transform System) is implemented: schema support, generic planner transform handling (fill/empty + direction), editor CRUD, and transform-priority coverage are in place.
 
 ## In progress
 - Qt UI polish - Ongoing
-- Additional transform/editor ergonomics (especially non-fluid transform workflows) - Ongoing
 
 ## Planned
 - Feature requests are open
