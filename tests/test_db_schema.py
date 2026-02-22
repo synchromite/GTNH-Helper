@@ -1,4 +1,5 @@
 import sqlite3
+from pathlib import Path
 import pytest
 
 from services import db
@@ -129,3 +130,8 @@ def test_connect_read_only_applies_schema_migrations(tmp_path):
             conn.execute("INSERT INTO items(key, kind, is_base) VALUES('bar', 'item', 0)")
     finally:
         conn.close()
+
+
+def test_default_db_path_is_repo_relative():
+    expected = Path(db.__file__).resolve().parent.parent / "gtnh.db"
+    assert db.DEFAULT_DB_PATH == expected

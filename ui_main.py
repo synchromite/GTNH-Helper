@@ -462,7 +462,17 @@ class App(QtWidgets.QMainWindow):
 
     def _switch_db(self, new_path: Path) -> None:
         """Close current DB connection and open a new one."""
-        self.db.switch_db(Path(new_path))
+        try:
+            self.db.switch_db(Path(new_path))
+        except Exception as exc:
+            QtWidgets.QMessageBox.warning(
+                self,
+                "Database open failed",
+                "Failed to switch databases; the current database remains open.\n\n"
+                f"Details: {exc}",
+            )
+            return
+
         self._db_recovery_notified_for = None
         self._sync_db_handles()
         self._update_title()

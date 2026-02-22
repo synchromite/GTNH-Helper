@@ -92,3 +92,29 @@ def test_recover_closed_connection_open_failure_warns_once(monkeypatch: pytest.M
     assert app.db.switch_calls == [Path("missing.db"), Path("missing.db")]
     assert len(warnings) == 1
     assert "tried to re-open" in warnings[0][1].lower()
+
+
+def test_switch_db_failure_keeps_current_handles(monkeypatch: pytest.MonkeyPatch) -> None:
+    app = _make_app(_DummyDb())
+
+    class _FailingDb(_DummyDb):
+        def switch_db(self, new_path: Path) -> None:  # noqa: ARG002
+            raise OSError("boom")
+
+    app.db = _FailingDb()
+    original_conn = app.conn = object()
+    original_profile_conn = app.profile_conn = object()
+
+    warnings: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        ui_main.QtWidgets.QMessageBox,
+        "warning",
+        lambda _parent, title, message: warnings.append((title, message)),
+    )
+
+    app._switch_db(Path("other.db"))
+
+    assert app.conn is original_conn
+    assert app.profile_conn is original_profile_conn
+    assert len(warnings) == 1
+    assert "current database remains open" in warnings[0][1].lower()

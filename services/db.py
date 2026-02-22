@@ -5,7 +5,7 @@ from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
 
-DEFAULT_DB_PATH = Path("gtnh.db")
+DEFAULT_DB_PATH = Path(__file__).resolve().parent.parent / "gtnh.db"
 ALL_TIERS = [
     "Stone Age",
     "Steam Age",
@@ -354,6 +354,7 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
         return "crafting_grid" in sql
 
     def _rebuild_items_table() -> None:
+        prior_fk_state = conn.execute("PRAGMA foreign_keys").fetchone()[0]
         columns = [r["name"] for r in conn.execute("PRAGMA table_info(items)").fetchall()]
         col_set = set(columns)
         desired_cols = [
@@ -381,39 +382,47 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
             for col in desired_cols
         ]
 
-        conn.execute("PRAGMA foreign_keys=OFF")
-        conn.execute(
-            """
-            CREATE TABLE items_new (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                key TEXT NOT NULL UNIQUE,
-                display_name TEXT,
-                kind TEXT NOT NULL CHECK(kind IN ('item','fluid','gas','machine','crafting_grid')),
-                is_base INTEGER NOT NULL DEFAULT 0,
-                max_stack_size INTEGER NOT NULL DEFAULT 64,
-                material_id INTEGER,
-                is_machine INTEGER NOT NULL DEFAULT 0,
-                machine_tier TEXT,
-                machine_type TEXT,
-                is_multiblock INTEGER NOT NULL DEFAULT 0,
-                content_fluid_id INTEGER,
-                content_qty_liters INTEGER,
-                item_kind_id INTEGER,
-                needs_review INTEGER NOT NULL DEFAULT 0,
-                crafting_grid_size TEXT,
-                is_storage_container INTEGER NOT NULL DEFAULT 0,
-                storage_slot_count INTEGER,
-                FOREIGN KEY(material_id) REFERENCES materials(id) ON DELETE SET NULL
+        conn.execute("SAVEPOINT rebuild_items_table")
+        try:
+            conn.execute("PRAGMA foreign_keys=OFF")
+            conn.execute(
+                """
+                CREATE TABLE items_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    key TEXT NOT NULL UNIQUE,
+                    display_name TEXT,
+                    kind TEXT NOT NULL CHECK(kind IN ('item','fluid','gas','machine','crafting_grid')),
+                    is_base INTEGER NOT NULL DEFAULT 0,
+                    max_stack_size INTEGER NOT NULL DEFAULT 64,
+                    material_id INTEGER,
+                    is_machine INTEGER NOT NULL DEFAULT 0,
+                    machine_tier TEXT,
+                    machine_type TEXT,
+                    is_multiblock INTEGER NOT NULL DEFAULT 0,
+                    content_fluid_id INTEGER,
+                    content_qty_liters INTEGER,
+                    item_kind_id INTEGER,
+                    needs_review INTEGER NOT NULL DEFAULT 0,
+                    crafting_grid_size TEXT,
+                    is_storage_container INTEGER NOT NULL DEFAULT 0,
+                    storage_slot_count INTEGER,
+                    FOREIGN KEY(material_id) REFERENCES materials(id) ON DELETE SET NULL
+                )
+                """
             )
-            """
-        )
-        conn.execute(
-            f"INSERT INTO items_new({', '.join(desired_cols)}) "
-            f"SELECT {', '.join(select_cols)} FROM items"
-        )
-        conn.execute("DROP TABLE items")
-        conn.execute("ALTER TABLE items_new RENAME TO items")
-        conn.execute("PRAGMA foreign_keys=ON")
+            conn.execute(
+                f"INSERT INTO items_new({', '.join(desired_cols)}) "
+                f"SELECT {', '.join(select_cols)} FROM items"
+            )
+            conn.execute("DROP TABLE items")
+            conn.execute("ALTER TABLE items_new RENAME TO items")
+            conn.execute("RELEASE SAVEPOINT rebuild_items_table")
+        except Exception:
+            conn.execute("ROLLBACK TO SAVEPOINT rebuild_items_table")
+            conn.execute("RELEASE SAVEPOINT rebuild_items_table")
+            raise
+        finally:
+            conn.execute(f"PRAGMA foreign_keys={'ON' if prior_fk_state else 'OFF'}")
 
     if not _has_kind_constraint():
         _rebuild_items_table()

@@ -73,13 +73,31 @@ class DbLifecycle:
             self.profile_conn = None
 
     def switch_db(self, new_path: Path) -> None:
-        self.close()
-        self.db_path = Path(new_path)
-        self.conn = self._open_content_db(self.db_path)
-        self.profile_db_path = self._profile_path_for_content(self.db_path)
-        self.profile_conn = connect_profile(self.profile_db_path)
+        target_path = Path(new_path)
+        new_conn = self._open_content_db(target_path)
+        new_profile_db_path = self._profile_path_for_content(target_path)
+        try:
+            new_profile_conn = connect_profile(new_profile_db_path)
+        except Exception:
+            new_conn.close()
+            raise
+
+        old_conn = self.conn
+        old_profile_conn = self.profile_conn
+        self.db_path = target_path
+        self.conn = new_conn
+        self.profile_db_path = new_profile_db_path
+        self.profile_conn = new_profile_conn
         self._migrate_profile_settings_if_needed()
         self._apply_tier_list()
+
+        for c in (old_conn, old_profile_conn):
+            try:
+                if c is not None:
+                    c.commit()
+                    c.close()
+            except Exception:
+                pass
 
     def export_content_db(self, target: Path) -> None:
         export_db(self.conn, target)
@@ -274,7 +292,7 @@ class DbLifecycle:
     def _sync_planner_tier_order(tiers: list[str]) -> None:
         try:
             from services import planner
-        except Exception:
+        except ImportError:
             return
         planner.set_tier_order(tiers)
 
