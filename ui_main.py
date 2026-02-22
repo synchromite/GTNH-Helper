@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import datetime
+import shutil
 import sqlite3
 import sys
 from pathlib import Path
@@ -379,7 +380,8 @@ class App(QtWidgets.QMainWindow):
             file_menu.addSeparator()
             file_menu.addAction("Export Content DB…", self.menu_export_content_db)
             file_menu.addAction("Export Profile DB…", self.menu_export_profile_db)
-            file_menu.addAction("Merge DB…", self.menu_merge_db)
+            file_menu.addAction("Import Content DB…", self.menu_import_content_db)
+            file_menu.addAction("Import Profile DB…", self.menu_import_profile_db)
         else:
             file_menu.addSeparator()
             file_menu.addAction("Export Content DB…", self.menu_export_content_db)
@@ -663,13 +665,58 @@ class App(QtWidgets.QMainWindow):
         self.status_bar.showMessage(f"Exported profile DB to: {Path(path).name}")
         QtWidgets.QMessageBox.information(self, "Export complete", f"Exported profile DB to:\n\n{path}")
 
-    def menu_merge_db(self) -> None:
+
+    def menu_import_profile_db(self) -> None:
+        profile_path = Path(self.db.profile_db_path)
+        path, _ = QtWidgets.QFileDialog.getOpenFileName(
+            self,
+            "Import Profile DB",
+            str(profile_path),
+            "SQLite DB (*.db);;All files (*)",
+        )
+        if not path:
+            return
+
+        ok = QtWidgets.QMessageBox.question(
+            self,
+            "Import Profile DB?",
+            "This will replace your current profile database (tiers, unlocks, inventory, storage, and machine availability).\n\n"
+            "Your current content DB will not be changed. Continue?",
+        )
+        if ok != QtWidgets.QMessageBox.StandardButton.Yes:
+            return
+
+        source = Path(path)
+        try:
+            self.db.close()
+            shutil.copyfile(source, profile_path)
+            self.db.switch_db(self.db_path)
+            self._sync_db_handles()
+        except Exception as exc:
+            QtWidgets.QMessageBox.critical(
+                self,
+                "Import failed",
+                f"Could not import profile DB.\n\nDetails: {exc}",
+            )
+            try:
+                self.db.switch_db(self.db_path)
+                self._sync_db_handles()
+            except Exception:
+                pass
+            return
+
+        self._tiers_load_from_db()
+        self._machines_load_from_db()
+        self.status_bar.showMessage(f"Imported profile DB from: {source.name}")
+        QtWidgets.QMessageBox.information(self, "Import complete", f"Imported profile DB from:\n\n{path}")
+
+    def menu_import_content_db(self) -> None:
         if not self.editor_enabled:
-            QtWidgets.QMessageBox.information(self, "Editor locked", "Merging is only available in editor mode.")
+            QtWidgets.QMessageBox.information(self, "Editor locked", "Content import is only available in editor mode.")
             return
         path, _ = QtWidgets.QFileDialog.getOpenFileName(
             self,
-            "Merge another DB into this one",
+            "Import another content DB into this one",
             str(self.db_path),
             "SQLite DB (*.db);;All files (*)",
         )
@@ -678,7 +725,7 @@ class App(QtWidgets.QMainWindow):
 
         ok = QtWidgets.QMessageBox.question(
             self,
-            "Merge DB?",
+            "Import Content DB?",
             "This will import Items, Recipes, and Recipe Lines from another DB into your current DB.\n\n"
             "It will NOT delete anything.\n"
             "If recipe names collide, imported recipes get a suffix like '(import 2)'.\n\n"
@@ -698,22 +745,22 @@ class App(QtWidgets.QMainWindow):
         try:
             stats = self.db.merge_db(Path(path), item_conflicts=item_conflicts)
         except Exception as exc:
-            QtWidgets.QMessageBox.critical(self, "Merge failed", f"Could not merge DB.\n\nDetails: {exc}")
+            QtWidgets.QMessageBox.critical(self, "Import failed", f"Could not import content DB.\n\nDetails: {exc}")
             return
 
         self.refresh_items()
         self.refresh_recipes()
 
         msg = (
-            f"Merge complete from {Path(path).name}:\n\n"
+            f"Content import complete from {Path(path).name}:\n\n"
             f"Item kinds added: {stats.get('kinds_added', 0)}\n"
             f"Items added: {stats.get('items_added', 0)}\n"
             f"Items updated (filled blanks): {stats.get('items_updated', 0)}\n"
             f"Recipes added: {stats.get('recipes_added', 0)}\n"
             f"Recipe lines added: {stats.get('lines_added', 0)}"
         )
-        self.status_bar.showMessage("Merge complete")
-        QtWidgets.QMessageBox.information(self, "Merge complete", msg)
+        self.status_bar.showMessage("Content import complete")
+        QtWidgets.QMessageBox.information(self, "Content import complete", msg)
         self._warn_missing_attributes()
 
     # ---------- Tiers ----------
