@@ -866,8 +866,11 @@ def merge_db(
         # ---- Kind mapping ----
         dest_kind_map: dict[int, int] = {}
         dest_kind_by_canon: dict[str, list[int]] = {}
+        dest_kind_name_by_id: dict[int, str] = {}
         for row in dest_conn.execute("SELECT id, name, applies_to FROM item_kinds").fetchall():
-            canon = _canonical_kind_name(row["name"] or "")
+            kind_name = (row["name"] or "").strip()
+            dest_kind_name_by_id[row["id"]] = kind_name
+            canon = _canonical_kind_name(kind_name)
             if not canon:
                 continue
             dest_kind_by_canon.setdefault(canon, []).append(row["id"])
@@ -904,6 +907,7 @@ def merge_db(
             )
             new_id = dest_conn.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
             dest_kind_map[k["id"]] = new_id
+            dest_kind_name_by_id[new_id] = name
             if canonical_name:
                 dest_kind_by_canon.setdefault(canonical_name, []).append(new_id)
             stats["kinds_added"] += 1
@@ -922,6 +926,24 @@ def merge_db(
         item_key_to_dest_id: dict[str, int] = {}
         src_id_to_key = {r["id"]: r["key"] for r in src_items}
         pending_fluid_links: list[tuple[int, str, int | None]] = []
+        material_dependent_kind_names = {
+            "ore",
+            "crushed ore",
+            "purified ore",
+            "dust",
+            "tiny dust",
+            "small dust",
+            "ingot",
+            "nugget",
+            "plate",
+            "rod",
+            "bolt",
+            "screw",
+            "gear",
+            "wire",
+            "cable",
+        }
+
         def _needs_review_for_item(
             *,
             kind: str,
@@ -933,8 +955,12 @@ def merge_db(
         ) -> bool:
             kind = (kind or "").strip().lower()
             if kind == "item":
-                if item_kind_id is None or material_id is None:
+                if item_kind_id is None:
                     return True
+                if item_kind_id in dest_kind_name_by_id:
+                    kind_name = (dest_kind_name_by_id[item_kind_id] or "").strip().lower()
+                    if kind_name in material_dependent_kind_names and material_id is None:
+                        return True
             if kind == "machine" or int(is_machine or 0):
                 if not (machine_type or "").strip():
                     return True

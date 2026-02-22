@@ -20,9 +20,8 @@ def list_storage_units(conn: sqlite3.Connection) -> list[dict[str, Any]]:
         """
         SELECT *
         FROM storage_units
-        ORDER BY CASE WHEN name = ? THEN 0 ELSE 1 END, LOWER(name), id
-        """,
-        (MAIN_STORAGE_NAME,),
+        ORDER BY priority DESC, LOWER(name), id
+        """
     ).fetchall()
     return [dict(row) for row in rows]
 

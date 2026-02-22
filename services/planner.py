@@ -853,6 +853,23 @@ class PlannerService:
         available_machines = self._load_machine_availability()
         enabled_tiers_set = set(enabled_tiers)
         tier_sort_map = {name: i for i, name in enumerate(ALL_TIERS)}
+
+        def _machine_can_run_recipe(row) -> bool:
+            machine_item_id = row["machine_item_id"]
+            if not machine_item_id:
+                return True
+            m_item = items.get(machine_item_id)
+            if not m_item:
+                return True
+            req_items = int(row["item_req_count"] or 0)
+            req_fluids = int(row["fluid_req_count"] or 0)
+            avail_slots = int(m_item["machine_input_slots"] or 1)
+            avail_tanks = int(m_item["machine_input_tanks"] or 0)
+            return req_items <= avail_slots and req_fluids <= avail_tanks
+
+        rows = [row for row in rows if _machine_can_run_recipe(row)]
+        if not rows:
+            return None
         
         def recipe_rank(row) -> tuple:
             # We want the lowest score (tuple comparison).
@@ -872,17 +889,6 @@ class PlannerService:
             avail_score = 2 
             
             # Check Capacity First
-            if row["machine_item_id"]:
-                m_item = items.get(row["machine_item_id"])
-                if m_item:
-                    req_items = int(row["item_req_count"] or 0)
-                    req_fluids = int(row["fluid_req_count"] or 0)
-                    avail_slots = int(m_item["machine_input_slots"] or 1)
-                    avail_tanks = int(m_item["machine_input_tanks"] or 0)
-                    
-                    if req_items > avail_slots or req_fluids > avail_tanks:
-                        avail_score = 3
-            
             if avail_score != 3:
                 # Normal ownership logic
                 if method == "crafting":

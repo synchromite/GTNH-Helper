@@ -35,7 +35,7 @@ def test_storage_service_crud_and_aggregation(tmp_path) -> None:
         conn.commit()
 
         storages = list_storage_units(conn)
-        assert storages[0]["name"] == MAIN_STORAGE_NAME
+        assert any(row["name"] == MAIN_STORAGE_NAME for row in storages)
         assert any(row["id"] == overflow_storage for row in storages)
 
         update_storage_unit(conn, overflow_storage, notes="Bulk overflow", allow_planner_use=False)
@@ -78,10 +78,28 @@ def test_storage_service_crud_and_aggregation(tmp_path) -> None:
         conn.close()
 
 
+
+def test_list_storage_units_orders_by_priority_then_name(tmp_path) -> None:
+    conn = connect_profile(tmp_path / "profile.db")
+    try:
+        a = create_storage_unit(conn, name="Alpha", priority=2)
+        z = create_storage_unit(conn, name="Zulu", priority=5)
+        m = default_storage_id(conn)
+        assert m is not None
+        conn.execute("UPDATE storage_units SET priority=? WHERE id=?", (5, m))
+        conn.commit()
+
+        ordered = list_storage_units(conn)
+        ordered_ids = [int(row["id"]) for row in ordered]
+
+        assert ordered_ids[:2] == [m, z]
+        assert ordered_ids[-1] == a
+    finally:
+        conn.close()
 def test_default_storage_id_prefers_main_storage_name(tmp_path) -> None:
     conn = sqlite3.connect(tmp_path / "profile.db")
     conn.row_factory = sqlite3.Row
-    conn.execute("CREATE TABLE storage_units(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE)")
+    conn.execute("CREATE TABLE storage_units(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, priority INTEGER NOT NULL DEFAULT 0)")
     conn.execute("INSERT INTO storage_units(name) VALUES('Zeta')")
     conn.execute("INSERT INTO storage_units(name) VALUES('Main Storage')")
     conn.commit()

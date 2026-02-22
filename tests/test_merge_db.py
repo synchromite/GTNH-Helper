@@ -118,6 +118,39 @@ def test_merge_db_keeps_distinct_kind_names(tmp_path: Path):
     ).fetchone() is not None
 
 
+
+def test_merge_db_needs_review_only_requires_material_for_material_kinds(tmp_path: Path):
+    dest_conn = _connect(":memory:")
+
+    src_path = tmp_path / "src.db"
+    src_conn = _connect(src_path)
+    component_kind = src_conn.execute(
+        "SELECT id FROM item_kinds WHERE LOWER(name)=LOWER('Component')"
+    ).fetchone()["id"]
+    dust_kind = src_conn.execute(
+        "SELECT id FROM item_kinds WHERE LOWER(name)=LOWER('Dust')"
+    ).fetchone()["id"]
+    src_conn.execute(
+        "INSERT INTO items(key, display_name, kind, item_kind_id, material_id) VALUES(?,?,?,?,?)",
+        ("component_no_material", "Generic Component", "item", component_kind, None),
+    )
+    src_conn.execute(
+        "INSERT INTO items(key, display_name, kind, item_kind_id, material_id) VALUES(?,?,?,?,?)",
+        ("dust_no_material", "Unknown Dust", "item", dust_kind, None),
+    )
+    src_conn.commit()
+
+    stats = merge_db(dest_conn, src_path)
+
+    assert stats["items_added"] == 2
+    rows = {
+        row["key"]: int(row["needs_review"])
+        for row in dest_conn.execute(
+            "SELECT key, needs_review FROM items WHERE key IN ('component_no_material', 'dust_no_material')"
+        ).fetchall()
+    }
+    assert rows["component_no_material"] == 0
+    assert rows["dust_no_material"] == 1
 def test_merge_db_merges_close_recipe_names_on_match(tmp_path: Path):
     dest_conn = _connect(":memory:")
     widget_id = _insert_item(dest_conn, key="widget", name="Widget")

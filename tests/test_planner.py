@@ -1371,6 +1371,85 @@ def test_plan_does_not_apply_fill_only_transform_for_emptying_request():
     assert result.shopping_list == []
 
 
+
+def test_pick_recipe_filters_machine_capacity_mismatches():
+    conn = _setup_conn()
+    profile_conn = connect_profile(":memory:")
+
+    a = _insert_item(conn, key="capacity_in_a", name="Input A", is_base=1)
+    b = _insert_item(conn, key="capacity_in_b", name="Input B", is_base=1)
+    c = _insert_item(conn, key="capacity_in_c", name="Input C", is_base=1)
+    output_item = _insert_item(conn, key="capacity_out", name="Capacity Output")
+
+    limited_machine = _insert_item(conn, key="limited_machine", name="Limited Machine")
+    valid_machine = _insert_item(conn, key="valid_machine", name="Valid Machine")
+    conn.execute("UPDATE items SET machine_type=?, machine_tier=? WHERE id=?", ("test_machine", "LV", limited_machine))
+    conn.execute("UPDATE items SET machine_type=?, machine_tier=? WHERE id=?", ("test_machine", "MV", valid_machine))
+    conn.execute(
+        "INSERT INTO machine_metadata(machine_type, tier, machine_name, input_slots, output_slots, byproduct_slots, storage_slots, power_slots, circuit_slots, input_tanks, input_tank_capacity_l, output_tanks, output_tank_capacity_l) VALUES(?, ?, ?, ?, 1, 0, 0, 0, 0, ?, 0, 0, 0)",
+        ("test_machine", "LV", "Limited Machine", 2, 0),
+    )
+    conn.execute(
+        "INSERT INTO machine_metadata(machine_type, tier, machine_name, input_slots, output_slots, byproduct_slots, storage_slots, power_slots, circuit_slots, input_tanks, input_tank_capacity_l, output_tanks, output_tank_capacity_l) VALUES(?, ?, ?, ?, 1, 0, 0, 0, 0, ?, 0, 0, 0)",
+        ("test_machine", "MV", "Valid Machine", 3, 0),
+    )
+
+    bad_recipe = _insert_recipe(conn, name="Bad Capacity", method="machine")
+    _insert_line(conn, recipe_id=bad_recipe, direction="out", item_id=output_item, qty_count=1)
+    _insert_line(conn, recipe_id=bad_recipe, direction="in", item_id=a, qty_count=1)
+    _insert_line(conn, recipe_id=bad_recipe, direction="in", item_id=b, qty_count=1)
+    _insert_line(conn, recipe_id=bad_recipe, direction="in", item_id=c, qty_count=1)
+    conn.execute("UPDATE recipes SET machine_item_id=? WHERE id=?", (limited_machine, bad_recipe))
+
+    good_recipe = _insert_recipe(conn, name="Good Capacity", method="machine")
+    _insert_line(conn, recipe_id=good_recipe, direction="out", item_id=output_item, qty_count=1)
+    _insert_line(conn, recipe_id=good_recipe, direction="in", item_id=a, qty_count=1)
+    _insert_line(conn, recipe_id=good_recipe, direction="in", item_id=b, qty_count=1)
+    conn.execute("UPDATE recipes SET machine_item_id=? WHERE id=?", (valid_machine, good_recipe))
+
+    planner = PlannerService(conn, profile_conn)
+
+    picked = planner._pick_recipe_for_item(
+        output_item,
+        enabled_tiers=[],
+        crafting_6x6_unlocked=True,
+        items=planner._load_items(),
+    )
+
+    assert picked is not None
+    assert picked["id"] == good_recipe
+
+
+def test_pick_recipe_returns_none_when_all_machine_variants_exceed_capacity():
+    conn = _setup_conn()
+    profile_conn = connect_profile(":memory:")
+
+    fluid = _insert_item(conn, key="capacity_fluid", name="Test Fluid", kind="fluid", is_base=1)
+    output_item = _insert_item(conn, key="capacity_no_match_out", name="No Match Output")
+    machine = _insert_item(conn, key="fluid_limited_machine", name="Fluid Limited Machine")
+    conn.execute("UPDATE items SET machine_type=?, machine_tier=? WHERE id=?", ("test_machine", "HV", machine))
+    conn.execute(
+        "INSERT INTO machine_metadata(machine_type, tier, machine_name, input_slots, output_slots, byproduct_slots, storage_slots, power_slots, circuit_slots, input_tanks, input_tank_capacity_l, output_tanks, output_tank_capacity_l) VALUES(?, ?, ?, ?, 1, 0, 0, 0, 0, ?, 0, 0, 0)",
+        ("test_machine", "HV", "Fluid Limited Machine", 1, 1),
+    )
+
+    recipe_id = _insert_recipe(conn, name="Too Many Fluids", method="machine")
+    _insert_line(conn, recipe_id=recipe_id, direction="out", item_id=output_item, qty_count=1)
+    _insert_line(conn, recipe_id=recipe_id, direction="in", item_id=fluid, qty_liters=1000)
+    _insert_line(conn, recipe_id=recipe_id, direction="in", item_id=fluid, qty_liters=500)
+    conn.execute("UPDATE recipes SET machine_item_id=? WHERE id=?", (machine, recipe_id))
+
+    planner = PlannerService(conn, profile_conn)
+    picked = planner._pick_recipe_for_item(
+        output_item,
+        enabled_tiers=[],
+        crafting_6x6_unlocked=True,
+        items=planner._load_items(),
+    )
+
+    assert picked is None
+
+
 def test_pick_recipe_handles_zero_output_qty_without_division_errors():
     conn = _setup_conn()
     profile_conn = connect_profile(":memory:")
