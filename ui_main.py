@@ -26,6 +26,7 @@ from ui_tabs.recipes_tab_qt import RecipesTab
 from ui_tabs.planner_tab_qt import PlannerTab
 from ui_tabs.tiers_tab import TiersTab
 from ui_tabs.machines_tab import MachinesTab
+from ui_tabs.automation_tab import AutomationTab
 from ui_constants import DARK_STYLESHEET, LIGHT_STYLESHEET
 from ui_dialog_sizing import install_dialog_sizing_hooks
 
@@ -150,6 +151,7 @@ class App(QtWidgets.QMainWindow):
             "planner": {"label": "Planner"},
             "tiers": {"label": "Tiers"},
             "machines": {"label": "Machines"},
+            "automation": {"label": "Automation"},
         }
         self.tab_order, self.enabled_tabs = self._load_ui_config()
         self.tab_actions: dict[str, QtGui.QAction] = {}
@@ -243,6 +245,8 @@ class App(QtWidgets.QMainWindow):
             widget = PlannerTab(self, self)
         elif tab_id == "machines":
             widget = MachinesTab(self, self)
+        elif tab_id == "automation":
+            widget = AutomationTab(self, self)
         else:
             widget = PlaceholderTab(label)
         widget.setProperty("tab_id", tab_id)

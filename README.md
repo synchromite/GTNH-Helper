@@ -13,6 +13,7 @@ A recipe database browser and inventory helper for GregTech New Horizons.
   - Applies machine-capacity hard filtering (item slots + fluid tanks) so impossible machine variants are excluded before ranking.
 - **Interactive Build Mode** with step-by-step instructions tied to inventory updates.
 - **Machine tracking** for owned/online availability used by planning and machine selection.
+- **Automation tracker tab** for manually building full processing chains (machine -> output -> next machine), including optional byproducts and per-step status.
 - **Storage-aware inventory workflows**: active storage selection, aggregate read-only mode, per-storage totals, and storage CRUD management.
   - Storage list ordering is now aligned with planner consumption ordering (`priority DESC`, then name/id tie-breakers).
   - `Main Storage` uses its configured priority like any other storage unit.

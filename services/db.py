@@ -151,6 +151,32 @@ def connect_profile(db_path: Path | str) -> sqlite3.Connection:
     )
     conn.execute(
         """
+        CREATE TABLE IF NOT EXISTS automation_plans (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            notes TEXT
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS automation_steps (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            plan_id INTEGER NOT NULL,
+            step_order INTEGER NOT NULL,
+            machine_name TEXT NOT NULL,
+            input_name TEXT NOT NULL,
+            output_name TEXT NOT NULL,
+            byproduct_name TEXT,
+            status TEXT NOT NULL DEFAULT 'planned' CHECK(status IN ('planned', 'active', 'complete')),
+            notes TEXT,
+            FOREIGN KEY(plan_id) REFERENCES automation_plans(id) ON DELETE CASCADE,
+            UNIQUE(plan_id, step_order)
+        )
+        """
+    )
+    conn.execute(
+        """
         INSERT INTO app_settings(key, value)
         VALUES('machine_availability_version', '0')
         ON CONFLICT(key) DO NOTHING
