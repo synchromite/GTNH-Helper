@@ -103,10 +103,12 @@ Notes:
 - At least one of `qty_count` or `qty_liters` is required per entry.
 - Unknown `item_key` values are returned in the sync report so the UI can surface mismatches.
 
-To generate a snapshot from your current app profile inventory:
-```bash
-python scripts/export_inventory_snapshot.py \
-  --content-db gtnh.db \
-  --profile-db profile.db \
-  --out mod_inventory_snapshot.json
-```
+
+## Companion Minecraft mod (JSON exporter)
+A companion mod scaffold is now included at `minecraft_mod/gtnh-helper-exporter/`. It exports in-game inventory to JSON so GTNH Helper can import it.
+
+- Command: `/gtnhhelper export_inventory`
+- Output path: `config/gtnh-helper/snapshots/<player>_<timestamp>.json`
+- Output schema matches the app snapshot format (`schema_version: 1`, `entries[]` with `item_key` + `qty_count`).
+
+See `minecraft_mod/gtnh-helper-exporter/README.md` for setup and caveats.
