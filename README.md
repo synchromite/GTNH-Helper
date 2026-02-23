@@ -84,31 +84,15 @@ python -m pip install -r requirements.txt
 python app.py
 ```
 
-## Mod integration (early foundation)
-A first-pass backend sync utility is available in `services/mod_sync.py` for importing inventory snapshots exported by a Minecraft mod.
+## Content seeding via companion Minecraft mod
+For initial DB mapping/seeding, use the companion extractor mod at `minecraft_mod/gtnh-helper-exporter/`.
 
-Snapshot schema (v1):
-```json
-{
-  "schema_version": 1,
-  "entries": [
-    {"item_key": "minecraft:iron_ingot", "qty_count": 64},
-    {"item_key": "water", "qty_liters": 1000}
-  ]
-}
-```
+- Command: `/gtnhhelper export_content`
+- Output path: `config/gtnh-helper/content-exports/content_seed_<player>_<timestamp>_<uuid>.json`
+- Output includes:
+  - Item ID map (`id` + `item key`)
+  - Fluid ID map (`id` + `fluid key`)
+  - Recipe list with ids/types/ingredient options/output references
 
-Notes:
-- `item_key` must match `items.key` in the content DB.
-- At least one of `qty_count` or `qty_liters` is required per entry.
-- Unknown `item_key` values are returned in the sync report so the UI can surface mismatches.
+This is intended for one-time or occasional version mapping passes. App runtime sync can be built as a separate mod later.
 
-
-## Companion Minecraft mod (JSON exporter)
-A companion mod scaffold is now included at `minecraft_mod/gtnh-helper-exporter/`. It exports in-game inventory to JSON so GTNH Helper can import it.
-
-- Command: `/gtnhhelper export_inventory`
-- Output path: `config/gtnh-helper/snapshots/<player>_<timestamp>.json`
-- Output schema matches the app snapshot format (`schema_version: 1`, `entries[]` with `item_key` + `qty_count`).
-
-See `minecraft_mod/gtnh-helper-exporter/README.md` for setup and caveats.
