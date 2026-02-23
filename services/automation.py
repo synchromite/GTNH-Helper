@@ -25,7 +25,11 @@ def create_plan(conn: sqlite3.Connection, name: str, notes: str = "") -> int:
 def list_steps(conn: sqlite3.Connection, plan_id: int) -> list[sqlite3.Row]:
     return conn.execute(
         """
-        SELECT id, step_order, machine_name, input_name, output_name, COALESCE(byproduct_name, '') AS byproduct_name,
+        SELECT id, step_order,
+               machine_item_id, machine_name,
+               input_item_id, input_name,
+               output_item_id, output_name,
+               byproduct_item_id, COALESCE(byproduct_name, '') AS byproduct_name,
                status, COALESCE(notes, '') AS notes
         FROM automation_steps
         WHERE plan_id = ?
@@ -39,9 +43,13 @@ def add_step(
     conn: sqlite3.Connection,
     *,
     plan_id: int,
+    machine_item_id: int,
     machine_name: str,
+    input_item_id: int,
     input_name: str,
+    output_item_id: int,
     output_name: str,
+    byproduct_item_id: int | None = None,
     byproduct_name: str = "",
     notes: str = "",
 ) -> int:
@@ -53,15 +61,29 @@ def add_step(
     cur = conn.execute(
         """
         INSERT INTO automation_steps(
-            plan_id, step_order, machine_name, input_name, output_name, byproduct_name, notes
-        ) VALUES(?, ?, ?, ?, ?, ?, ?)
+            plan_id,
+            step_order,
+            machine_item_id,
+            machine_name,
+            input_item_id,
+            input_name,
+            output_item_id,
+            output_name,
+            byproduct_item_id,
+            byproduct_name,
+            notes
+        ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             plan_id,
             next_order,
+            machine_item_id,
             machine_name.strip(),
+            input_item_id,
             input_name.strip(),
+            output_item_id,
             output_name.strip(),
+            byproduct_item_id,
             byproduct_name.strip() or None,
             notes.strip() or None,
         ),

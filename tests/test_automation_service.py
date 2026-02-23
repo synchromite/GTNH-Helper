@@ -12,9 +12,13 @@ def test_automation_plan_lifecycle(tmp_path):
     step_id = add_step(
         conn,
         plan_id=plan_id,
+        machine_item_id=10,
         machine_name="Macerator",
+        input_item_id=11,
         input_name="Iron Ore",
+        output_item_id=12,
         output_name="Crushed Iron Ore",
+        byproduct_item_id=13,
         byproduct_name="Stone Dust",
     )
     steps = list_steps(conn, plan_id)
@@ -22,6 +26,10 @@ def test_automation_plan_lifecycle(tmp_path):
     assert steps[0]["id"] == step_id
     assert steps[0]["step_order"] == 1
     assert steps[0]["status"] == "planned"
+    assert steps[0]["machine_item_id"] == 10
+    assert steps[0]["input_item_id"] == 11
+    assert steps[0]["output_item_id"] == 12
+    assert steps[0]["byproduct_item_id"] == 13
 
     update_step_status(conn, step_id, "active")
     steps = list_steps(conn, plan_id)

@@ -5,6 +5,7 @@ import sqlite3
 from PySide6 import QtCore, QtWidgets
 
 from services.automation import add_step, create_plan, delete_step, list_plans, list_steps, update_step_status
+from ui_dialogs import ItemPickerDialog
 
 
 class AutomationTab(QtWidgets.QWidget):
@@ -120,29 +121,53 @@ class AutomationTab(QtWidgets.QWidget):
         self._plan_id = plan_id
         self.refresh()
 
+    def _pick_item(self, *, title: str, machines_only: bool = False, optional: bool = False) -> dict | None:
+        dialog = ItemPickerDialog(self.app, title=title, machines_only=machines_only, parent=self)
+        if dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted:
+            return None
+        return dialog.result
+
     def _add_step(self) -> None:
         if self._plan_id is None:
             QtWidgets.QMessageBox.information(self, "No plan", "Create a plan first.")
             return
 
-        machine, ok = QtWidgets.QInputDialog.getText(self, "Machine", "Machine:")
-        if not ok or not machine.strip():
+        machine = self._pick_item(title="Pick Machine", machines_only=True)
+        if machine is None:
             return
-        input_name, ok = QtWidgets.QInputDialog.getText(self, "Input", "Input item/fluid:")
-        if not ok or not input_name.strip():
+
+        input_item = self._pick_item(title="Pick Input Item")
+        if input_item is None:
             return
-        output_name, ok = QtWidgets.QInputDialog.getText(self, "Output", "Output item/fluid:")
-        if not ok or not output_name.strip():
+
+        output_item = self._pick_item(title="Pick Output Item")
+        if output_item is None:
             return
-        byproduct, _ = QtWidgets.QInputDialog.getText(self, "Byproduct (optional)", "Byproduct:")
+
+        byproduct_item = None
+        include_byproduct = QtWidgets.QMessageBox.question(
+            self,
+            "Byproduct",
+            "Add a byproduct item for this step?",
+            QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No,
+            QtWidgets.QMessageBox.StandardButton.No,
+        )
+        if include_byproduct == QtWidgets.QMessageBox.StandardButton.Yes:
+            byproduct_item = self._pick_item(title="Pick Byproduct Item", optional=True)
+            if byproduct_item is None:
+                return
 
         add_step(
             self.app.profile_conn,
             plan_id=self._plan_id,
-            machine_name=machine,
-            input_name=input_name,
-            output_name=output_name,
-            byproduct_name=byproduct,
+            machine_item_id=int(machine["id"]),
+            machine_name=machine["name"],
+            input_item_id=int(input_item["id"]),
+            input_name=input_item["name"],
+            output_item_id=int(output_item["id"]),
+            output_name=output_item["name"],
+            byproduct_item_id=int(byproduct_item["id"]) if byproduct_item is not None else None,
+            byproduct_name=byproduct_item["name"] if byproduct_item is not None else "",
         )
         self._load_steps()
 

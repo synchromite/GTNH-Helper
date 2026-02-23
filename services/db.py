@@ -164,9 +164,13 @@ def connect_profile(db_path: Path | str) -> sqlite3.Connection:
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             plan_id INTEGER NOT NULL,
             step_order INTEGER NOT NULL,
+            machine_item_id INTEGER,
             machine_name TEXT NOT NULL,
+            input_item_id INTEGER,
             input_name TEXT NOT NULL,
+            output_item_id INTEGER,
             output_name TEXT NOT NULL,
+            byproduct_item_id INTEGER,
             byproduct_name TEXT,
             status TEXT NOT NULL DEFAULT 'planned' CHECK(status IN ('planned', 'active', 'complete')),
             notes TEXT,
@@ -175,6 +179,19 @@ def connect_profile(db_path: Path | str) -> sqlite3.Connection:
         )
         """
     )
+    automation_step_cols = {
+        row["name"]
+        for row in conn.execute("PRAGMA table_info(automation_steps)").fetchall()
+    }
+    if "machine_item_id" not in automation_step_cols:
+        conn.execute("ALTER TABLE automation_steps ADD COLUMN machine_item_id INTEGER")
+    if "input_item_id" not in automation_step_cols:
+        conn.execute("ALTER TABLE automation_steps ADD COLUMN input_item_id INTEGER")
+    if "output_item_id" not in automation_step_cols:
+        conn.execute("ALTER TABLE automation_steps ADD COLUMN output_item_id INTEGER")
+    if "byproduct_item_id" not in automation_step_cols:
+        conn.execute("ALTER TABLE automation_steps ADD COLUMN byproduct_item_id INTEGER")
+
     conn.execute(
         """
         INSERT INTO app_settings(key, value)
