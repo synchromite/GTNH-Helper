@@ -69,3 +69,23 @@ The output JSON is written to:
 ```text
 config/gtnh-helper/content-exports/content_seed_<sender>_<timestamp>_<uuid>.json
 ```
+
+
+## Common error: `downloadClient` 404 on old S3 URL
+
+If build fails with:
+
+```
+Execution failed for task ':downloadClient'.
+java.io.FileNotFoundException: http://s3.amazonaws.com/Minecraft.Download/versions/1.7.10/1.7.10.jar
+```
+
+ForgeGradle 1.2 still references a retired Mojang S3 endpoint. Seed the required jars into your Gradle cache using the helper script, then run the build again:
+
+```bash
+python3 ./scripts_seed_minecraft_jars.py
+gradle clean build
+```
+
+The script pulls official 1.7.10 client/server artifacts from Mojang `launchermeta` and writes them to the cache paths ForgeGradle expects.
+
