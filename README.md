@@ -28,6 +28,7 @@ A recipe database browser and inventory helper for GregTech New Horizons.
 - **Tab customization**: enable/disable, reorder, and detach tabs.
 - **Theme toggle**: light/dark theme switching.
 - **DB utilities**: open, export content/profile DBs, and merge content DBs (editor mode only).
+- **Minecraft mod sync foundation**: import inventory snapshots from a companion mod JSON export using stable item keys (unknown keys are reported, not silently dropped).
 
 ## Modes
 The app runs in **client mode** by default:
@@ -82,3 +83,22 @@ Packaged outputs are written to `dist/`.
 python -m pip install -r requirements.txt
 python app.py
 ```
+
+## Mod integration (early foundation)
+A first-pass backend sync utility is available in `services/mod_sync.py` for importing inventory snapshots exported by a Minecraft mod.
+
+Snapshot schema (v1):
+```json
+{
+  "schema_version": 1,
+  "entries": [
+    {"item_key": "minecraft:iron_ingot", "qty_count": 64},
+    {"item_key": "water", "qty_liters": 1000}
+  ]
+}
+```
+
+Notes:
+- `item_key` must match `items.key` in the content DB.
+- At least one of `qty_count` or `qty_liters` is required per entry.
+- Unknown `item_key` values are returned in the sync report so the UI can surface mismatches.
