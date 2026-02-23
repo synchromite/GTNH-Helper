@@ -21,3 +21,9 @@ Use this file to seed your app DB with a stable, ID-based snapshot so backend ca
 ## Notes
 - This is intentionally focused on offline content seeding for a specific pack/version pass.
 - Runtime app sync/update behavior should be implemented as a separate mod workflow.
+
+## Build quickstart
+- If your machine defaults to Java 11+, install/use **Java 8 JDK** before building.
+- Build with Gradle 2.14.1 from this folder:
+  - `gradle clean build`
+- Full setup/troubleshooting guide: [`BUILDING.md`](./BUILDING.md).
