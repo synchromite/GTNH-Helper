@@ -85,14 +85,14 @@ python app.py
 ```
 
 ## Content seeding via companion Minecraft mod
-For initial DB mapping/seeding, use the companion extractor mod at `minecraft_mod/gtnh-helper-exporter/`.
+For initial DB mapping/seeding, use the Forge companion extractor mod at `minecraft_mod/gtnh-helper-exporter/`.
 
-- Command: `/gtnhhelper export_content`
+- Command: `/gtnhhelper_export_content`
 - Output path: `config/gtnh-helper/content-exports/content_seed_<player>_<timestamp>_<uuid>.json`
 - Output includes:
   - Item ID map (`id` + `item key`)
   - Fluid ID map (`id` + `fluid key`)
-  - Recipe list with ids/types/ingredient options/output references
+  - Recipe list with ingredient options/output references (Forge recipe classes)
 
 This is intended for one-time or occasional version mapping passes. App runtime sync can be built as a separate mod later.
 

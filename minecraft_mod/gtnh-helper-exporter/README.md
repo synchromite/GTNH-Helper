@@ -1,41 +1,23 @@
-# GTNH Helper Content Export Mod (Companion)
+# GTNH Helper Content Export Mod (Forge / GTNH-oriented)
 
-This companion mod is for **one-time / occasional content extraction**, not normal gameplay sync.
+This companion mod is for **one-time / occasional content extraction**, not gameplay sync.
 
 ## What it does
-- Adds command: `/gtnhhelper export_content`
+- Adds server command: `/gtnhhelper_export_content`
 - Exports registries and recipes into one unique JSON file:
   - Item ID map (`id` + `key`)
   - Fluid ID map (`id` + `key`)
-  - Recipe list with recipe id/type/serializer, ingredient options, and primary output
+  - Recipe list with recipe type, ingredient option sets, and primary output
 - Writes JSON to:
-  - `config/gtnh-helper/content-exports/content_seed_<player>_<timestamp>_<uuid>.json`
+  - `config/gtnh-helper/content-exports/content_seed_<sender>_<timestamp>_<uuid>.json`
 
 ## Why this exists
 Use this file to seed your app DB with a stable, ID-based snapshot so backend calculations can use IDs instead of names.
 
-## Export shape (simplified)
-```json
-{
-  "export_kind": "content_seed",
-  "schema_version": 1,
-  "ids": {
-    "items": [{"id": 1, "key": "minecraft:stone"}],
-    "fluids": [{"id": 1, "key": "minecraft:water"}]
-  },
-  "recipes": [
-    {
-      "id": "minecraft:stone_pickaxe",
-      "recipe_type": "minecraft:crafting",
-      "serializer": "minecraft:crafting_shaped",
-      "inputs": [{"options": [{"item_id": 1, "item_key": "minecraft:stone"}]}],
-      "output": {"item_id": 257, "item_key": "minecraft:stone_pickaxe", "count": 1}
-    }
-  ]
-}
-```
+## Stack
+- **Minecraft:** 1.7.10
+- **Mod loader:** Forge (ForgeGradle 1.2 scaffold)
 
 ## Notes
-- Scaffolded for Fabric 1.20.1 as a reference implementation.
-- GTNH runtime is 1.7.10; port to the GTNH modding stack when targeting real GTNH extraction.
-- This exporter is intentionally "offline seed" focused; real-time app sync should be a separate mod/pass.
+- This is intentionally focused on offline content seeding for a specific pack/version pass.
+- Runtime app sync/update behavior should be implemented as a separate mod workflow.
