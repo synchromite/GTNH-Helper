@@ -7,6 +7,9 @@ from pathlib import Path
 from typing import Any
 
 
+SNAPSHOT_SCHEMA_VERSION = 1
+
+
 @dataclass(slots=True)
 class InventorySyncReport:
     """Summary of an applied mod inventory snapshot."""
@@ -35,8 +38,8 @@ def load_inventory_snapshot(snapshot_path: str | Path) -> dict[str, Any]:
         raise ValueError("Snapshot root must be a JSON object.")
 
     version = int(payload.get("schema_version", 0) or 0)
-    if version != 1:
-        raise ValueError(f"Unsupported snapshot schema_version={version}; expected 1.")
+    if version != SNAPSHOT_SCHEMA_VERSION:
+        raise ValueError(f"Unsupported snapshot schema_version={version}; expected {SNAPSHOT_SCHEMA_VERSION}.")
 
     entries = payload.get("entries")
     if not isinstance(entries, list):
@@ -52,6 +55,74 @@ def load_inventory_snapshot(snapshot_path: str | Path) -> dict[str, Any]:
             raise ValueError(f"Entry #{idx} must include qty_count and/or qty_liters.")
 
     return payload
+
+
+def build_inventory_snapshot(
+    profile_conn: sqlite3.Connection,
+    content_conn: sqlite3.Connection,
+    *,
+    include_zero_qty: bool = False,
+) -> dict[str, Any]:
+    """Build snapshot payload from current profile inventory."""
+
+    id_to_key = {
+        int(row["id"]): str(row["key"])
+        for row in content_conn.execute("SELECT id, key FROM items ORDER BY key").fetchall()
+    }
+
+    query = """
+        SELECT item_id, qty_count, qty_liters
+        FROM inventory
+        ORDER BY item_id
+    """
+
+    entries: list[dict[str, Any]] = []
+    for row in profile_conn.execute(query).fetchall():
+        item_key = id_to_key.get(int(row["item_id"]))
+        if not item_key:
+            continue
+        qty_count = row["qty_count"]
+        qty_liters = row["qty_liters"]
+        count_val = float(qty_count) if qty_count is not None else None
+        liter_val = float(qty_liters) if qty_liters is not None else None
+        if not include_zero_qty:
+            has_nonzero = (count_val is not None and count_val > 0) or (liter_val is not None and liter_val > 0)
+            if not has_nonzero:
+                continue
+
+        entry: dict[str, Any] = {"item_key": item_key}
+        if qty_count is not None:
+            entry["qty_count"] = int(count_val) if float(count_val).is_integer() else count_val
+        if qty_liters is not None:
+            entry["qty_liters"] = int(liter_val) if float(liter_val).is_integer() else liter_val
+        entries.append(entry)
+
+    entries.sort(key=lambda row: str(row["item_key"]))
+
+    return {
+        "schema_version": SNAPSHOT_SCHEMA_VERSION,
+        "entries": entries,
+    }
+
+
+def write_inventory_snapshot(
+    snapshot_path: str | Path,
+    profile_conn: sqlite3.Connection,
+    content_conn: sqlite3.Connection,
+    *,
+    include_zero_qty: bool = False,
+) -> Path:
+    """Build and write an inventory snapshot to disk."""
+
+    path = Path(snapshot_path)
+    payload = build_inventory_snapshot(
+        profile_conn,
+        content_conn,
+        include_zero_qty=include_zero_qty,
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2, sort_keys=False) + "\n", encoding="utf-8")
+    return path
 
 
 def apply_inventory_snapshot(

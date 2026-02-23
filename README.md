@@ -102,3 +102,11 @@ Notes:
 - `item_key` must match `items.key` in the content DB.
 - At least one of `qty_count` or `qty_liters` is required per entry.
 - Unknown `item_key` values are returned in the sync report so the UI can surface mismatches.
+
+To generate a snapshot from your current app profile inventory:
+```bash
+python scripts/export_inventory_snapshot.py \
+  --content-db gtnh.db \
+  --profile-db profile.db \
+  --out mod_inventory_snapshot.json
+```

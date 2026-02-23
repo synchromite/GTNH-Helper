@@ -4,7 +4,12 @@ import sqlite3
 import pytest
 
 from services.db import connect_profile
-from services.mod_sync import apply_inventory_snapshot, load_inventory_snapshot
+from services.mod_sync import (
+    apply_inventory_snapshot,
+    build_inventory_snapshot,
+    load_inventory_snapshot,
+    write_inventory_snapshot,
+)
 
 
 def _content_conn_with_items() -> sqlite3.Connection:
@@ -70,6 +75,56 @@ def test_apply_inventory_snapshot_imports_rows_and_tracks_unknown_keys(tmp_path)
 
         assert report.imported_rows == 2
         assert report.unknown_item_keys == ["minecraft:unknown_item"]
+    finally:
+        content_conn.close()
+        profile_conn.close()
+
+
+def test_build_inventory_snapshot_exports_profile_inventory(tmp_path) -> None:
+    profile_conn = connect_profile(tmp_path / "profile.db")
+    content_conn = _content_conn_with_items()
+    try:
+        profile_conn.execute(
+            "INSERT INTO inventory(item_id, qty_count, qty_liters) VALUES(?, ?, ?)",
+            (1, 12, None),
+        )
+        profile_conn.execute(
+            "INSERT INTO inventory(item_id, qty_count, qty_liters) VALUES(?, ?, ?)",
+            (2, None, 2000),
+        )
+        profile_conn.execute(
+            "INSERT INTO inventory(item_id, qty_count, qty_liters) VALUES(?, ?, ?)",
+            (999, 3, None),
+        )
+        profile_conn.commit()
+
+        snapshot = build_inventory_snapshot(profile_conn, content_conn)
+
+        assert snapshot["schema_version"] == 1
+        assert snapshot["entries"] == [
+            {"item_key": "minecraft:iron_ingot", "qty_count": 12},
+            {"item_key": "water", "qty_liters": 2000},
+        ]
+    finally:
+        content_conn.close()
+        profile_conn.close()
+
+
+def test_write_inventory_snapshot_writes_json_file(tmp_path) -> None:
+    profile_conn = connect_profile(tmp_path / "profile.db")
+    content_conn = _content_conn_with_items()
+    try:
+        profile_conn.execute(
+            "INSERT INTO inventory(item_id, qty_count, qty_liters) VALUES(?, ?, ?)",
+            (1, 7, None),
+        )
+        profile_conn.commit()
+
+        out_path = tmp_path / "out" / "snapshot.json"
+        write_inventory_snapshot(out_path, profile_conn, content_conn)
+
+        loaded = json.loads(out_path.read_text(encoding="utf-8"))
+        assert loaded["entries"] == [{"item_key": "minecraft:iron_ingot", "qty_count": 7}]
     finally:
         content_conn.close()
         profile_conn.close()
