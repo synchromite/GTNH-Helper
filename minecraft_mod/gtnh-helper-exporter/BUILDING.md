@@ -7,7 +7,7 @@ This project uses an old Forge toolchain (`ForgeGradle 1.2`) and requires:
 
 ## 1) Confirm Java 8 is active
 
-Check current java path/version:
+Check current java path/version (Java 8 uses `-version`, not `--version`):
 
 ```bash
 which java
@@ -32,20 +32,14 @@ javac -version
 
 ## 2) Install/use Gradle 2.14.1
 
-If `gradle --version` is 8.x or newer, switch to 2.14.1:
+If `sdk` is not installed (common on Ubuntu) or your `gradle` is not 2.14.1, use the included bootstrap script:
 
 ```bash
-# SDKMAN option
-sdk install gradle 2.14.1
-sdk use gradle 2.14.1
-gradle --version
+./build_with_gradle_2_14_1.sh --version
+./build_with_gradle_2_14_1.sh clean build
 ```
 
-Then build from this folder (`minecraft_mod/gtnh-helper-exporter`):
-
-```bash
-gradle clean build
-```
+This downloads Gradle 2.14.1 into `./.tools/` and runs that exact binary.
 
 ## 3) Install into GTNH
 
@@ -84,8 +78,20 @@ ForgeGradle 1.2 still references a retired Mojang S3 endpoint. Seed the required
 
 ```bash
 python3 ./scripts_seed_minecraft_jars.py
-gradle clean build
+./build_with_gradle_2_14_1.sh clean build
 ```
 
 The script pulls official 1.7.10 client/server artifacts from Mojang `launchermeta` and writes them to the cache paths ForgeGradle expects.
 
+
+## Known-good sequence for your current error output
+
+From `minecraft_mod/gtnh-helper-exporter/` run exactly:
+
+```bash
+java -version
+python3 ./scripts_seed_minecraft_jars.py
+./build_with_gradle_2_14_1.sh clean build
+```
+
+If `java -version` does not report `1.8.0_xxx`, set Java 8 first and re-run.

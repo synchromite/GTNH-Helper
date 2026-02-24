@@ -24,8 +24,8 @@ Use this file to seed your app DB with a stable, ID-based snapshot so backend ca
 
 ## Build quickstart
 - If your machine defaults to Java 11+, install/use **Java 8 JDK** before building.
-- Build with Gradle 2.14.1 from this folder:
-  - `gradle clean build`
+- Build with pinned Gradle 2.14.1 (no SDKMAN required):
+  - `./build_with_gradle_2_14_1.sh clean build`
 - Full setup/troubleshooting guide: [`BUILDING.md`](./BUILDING.md).
 
-- If you hit `downloadClient` 404 on old S3 URLs, run `python3 ./scripts_seed_minecraft_jars.py` and rebuild.
+- If you hit `downloadClient` 404 on old S3 URLs, run `python3 ./scripts_seed_minecraft_jars.py` and rebuild with `./build_with_gradle_2_14_1.sh clean build`.
