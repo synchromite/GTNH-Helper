@@ -28,6 +28,7 @@ A recipe database browser and inventory helper for GregTech New Horizons.
 - **Tab customization**: enable/disable, reorder, and detach tabs.
 - **Theme toggle**: light/dark theme switching.
 - **DB utilities**: open, export content/profile DBs, and merge content DBs (editor mode only).
+- **Minecraft mod sync foundation**: import inventory snapshots from a companion mod JSON export using stable item keys (unknown keys are reported, not silently dropped).
 
 ## Modes
 The app runs in **client mode** by default:
@@ -82,3 +83,16 @@ Packaged outputs are written to `dist/`.
 python -m pip install -r requirements.txt
 python app.py
 ```
+
+## Content seeding via companion Minecraft mod
+For initial DB mapping/seeding, use the Forge companion extractor mod at `minecraft_mod/gtnh-helper-exporter/`.
+
+- Command: `/gtnhhelper_export_content`
+- Output path: `config/gtnh-helper/content-exports/content_seed_<player>_<timestamp>_<uuid>.json`
+- Output includes:
+  - Item ID map (`id` + `item key`)
+  - Fluid ID map (`id` + `fluid key`)
+  - Recipe list with ingredient options/output references (Forge recipe classes)
+
+This is intended for one-time or occasional version mapping passes. App runtime sync can be built as a separate mod later.
+

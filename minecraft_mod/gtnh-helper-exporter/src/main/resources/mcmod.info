@@ -1,0 +1,16 @@
+[
+  {
+    "modid": "gtnh_helper_exporter",
+    "name": "GTNH Helper Content Exporter",
+    "description": "Exports item/fluid ids and recipes to a GTNH Helper content-seed JSON.",
+    "version": "${version}",
+    "mcversion": "${mcversion}",
+    "url": "",
+    "updateUrl": "",
+    "authorList": ["GTNH Helper"],
+    "credits": "",
+    "logoFile": "",
+    "screenshots": [],
+    "dependencies": []
+  }
+]

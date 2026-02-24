@@ -1,0 +1,31 @@
+# GTNH Helper Content Export Mod (Forge / GTNH-oriented)
+
+This companion mod is for **one-time / occasional content extraction**, not gameplay sync.
+
+## What it does
+- Adds server command: `/gtnhhelper_export_content`
+- Exports registries and recipes into one unique JSON file:
+  - Item ID map (`id` + `key`)
+  - Fluid ID map (`id` + `key`)
+  - Recipe list with recipe type, ingredient option sets, and primary output
+- Writes JSON to:
+  - `config/gtnh-helper/content-exports/content_seed_<sender>_<timestamp>_<uuid>.json`
+
+## Why this exists
+Use this file to seed your app DB with a stable, ID-based snapshot so backend calculations can use IDs instead of names.
+
+## Stack
+- **Minecraft:** 1.7.10
+- **Mod loader:** Forge (ForgeGradle 1.2 scaffold)
+
+## Notes
+- This is intentionally focused on offline content seeding for a specific pack/version pass.
+- Runtime app sync/update behavior should be implemented as a separate mod workflow.
+
+## Build quickstart
+- If your machine defaults to Java 11+, install/use **Java 8 JDK** before building.
+- Build with pinned Gradle 2.14.1 (no SDKMAN required):
+  - `./build_with_gradle_2_14_1.sh clean build`
+- Full setup/troubleshooting guide: [`BUILDING.md`](./BUILDING.md).
+
+- If you hit `downloadClient` 404 on old S3 URLs, run `python3 ./scripts_seed_minecraft_jars.py` and rebuild with `./build_with_gradle_2_14_1.sh clean build`.

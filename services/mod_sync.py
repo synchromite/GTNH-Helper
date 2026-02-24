@@ -1,0 +1,115 @@
+from __future__ import annotations
+
+import json
+import sqlite3
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+
+SNAPSHOT_SCHEMA_VERSION = 1
+
+
+@dataclass(slots=True)
+class InventorySyncReport:
+    """Summary of an applied mod inventory snapshot."""
+
+    imported_rows: int
+    unknown_item_keys: list[str]
+
+
+def load_inventory_snapshot(snapshot_path: str | Path) -> dict[str, Any]:
+    """Load and validate a Minecraft-mod inventory snapshot JSON document.
+
+    Expected format:
+    {
+      "schema_version": 1,
+      "entries": [
+        {"item_key": "minecraft:iron_ingot", "qty_count": 64},
+        {"item_key": "water", "qty_liters": 1000}
+      ]
+    }
+    """
+
+    path = Path(snapshot_path)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+
+    if not isinstance(payload, dict):
+        raise ValueError("Snapshot root must be a JSON object.")
+
+    version = int(payload.get("schema_version", 0) or 0)
+    if version != SNAPSHOT_SCHEMA_VERSION:
+        raise ValueError(f"Unsupported snapshot schema_version={version}; expected {SNAPSHOT_SCHEMA_VERSION}.")
+
+    entries = payload.get("entries")
+    if not isinstance(entries, list):
+        raise ValueError("Snapshot must contain an 'entries' array.")
+
+    for idx, entry in enumerate(entries):
+        if not isinstance(entry, dict):
+            raise ValueError(f"Entry #{idx} must be an object.")
+        item_key = (entry.get("item_key") or "").strip()
+        if not item_key:
+            raise ValueError(f"Entry #{idx} is missing non-empty 'item_key'.")
+        if "qty_count" not in entry and "qty_liters" not in entry:
+            raise ValueError(f"Entry #{idx} must include qty_count and/or qty_liters.")
+
+    return payload
+
+
+def apply_inventory_snapshot(
+    profile_conn: sqlite3.Connection,
+    content_conn: sqlite3.Connection,
+    snapshot: dict[str, Any],
+    *,
+    clear_existing: bool = True,
+) -> InventorySyncReport:
+    """Apply snapshot entries into profile inventory table.
+
+    Only rows with item keys that exist in the content DB are imported.
+    Unknown keys are returned in the report for caller-side diagnostics.
+    """
+
+    key_to_id = {
+        str(row["key"]): int(row["id"])
+        for row in content_conn.execute("SELECT id, key FROM items").fetchall()
+    }
+
+    unknown: list[str] = []
+    upsert_rows: list[tuple[int, float | None, float | None]] = []
+
+    for entry in snapshot.get("entries", []):
+        item_key = str(entry.get("item_key") or "").strip()
+        item_id = key_to_id.get(item_key)
+        if item_id is None:
+            unknown.append(item_key)
+            continue
+
+        qty_count_raw = entry.get("qty_count")
+        qty_liters_raw = entry.get("qty_liters")
+        qty_count = float(qty_count_raw) if qty_count_raw is not None else None
+        qty_liters = float(qty_liters_raw) if qty_liters_raw is not None else None
+
+        if qty_count is not None and qty_count < 0:
+            raise ValueError(f"qty_count cannot be negative for item_key='{item_key}'.")
+        if qty_liters is not None and qty_liters < 0:
+            raise ValueError(f"qty_liters cannot be negative for item_key='{item_key}'.")
+
+        upsert_rows.append((item_id, qty_count, qty_liters))
+
+    with profile_conn:
+        if clear_existing:
+            profile_conn.execute("DELETE FROM inventory")
+        profile_conn.executemany(
+            """
+            INSERT INTO inventory(item_id, qty_count, qty_liters)
+            VALUES(?, ?, ?)
+            ON CONFLICT(item_id)
+            DO UPDATE SET
+              qty_count=excluded.qty_count,
+              qty_liters=excluded.qty_liters
+            """,
+            upsert_rows,
+        )
+
+    return InventorySyncReport(imported_rows=len(upsert_rows), unknown_item_keys=sorted(set(unknown)))
